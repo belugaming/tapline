@@ -137,7 +137,10 @@ final class TapEngine {
             kAudioAggregateDeviceTapAutoStartKey: false,
             kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: output.uid, kAudioSubDeviceDriftCompensationKey: false]],
             kAudioAggregateDeviceTapListKey: tapDescriptions.map {
-                [kAudioSubTapUIDKey: $0.uuid.uuidString, kAudioSubTapDriftCompensationKey: driftCompensation]
+                [kAudioSubTapUIDKey: $0.uuid.uuidString,
+                 kAudioSubTapDriftCompensationKey: driftCompensation,
+                 // When the HAL has to resample, use its best converter.
+                 kAudioSubTapDriftCompensationQualityKey: kAudioAggregateDriftCompensationMaxQuality]
             },
         ]
         var aggregate = AudioObjectID(kAudioObjectUnknown)

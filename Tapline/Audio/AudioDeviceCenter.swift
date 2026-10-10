@@ -130,7 +130,34 @@ final class AudioDeviceCenter {
         }
     }
 
+    @ObservationIgnored private var demoMode = false
+
+    /// Fixed, anonymous devices for README screenshots (snapshot mode only).
+    func applyDemo() {
+        demoMode = true
+        devices = [
+            AudioDevice(id: 9101, uid: "demo.airpods", name: "AirPods Pro", manufacturer: "Apple Inc.", transportType: kAudioDeviceTransportTypeBluetooth,
+                        outputChannels: 2, inputChannels: 0, inputStreamCount: 0, sampleRate: 48_000, availableSampleRates: [48_000],
+                        preferredStereo: [1, 2], canBeDefaultOutput: true, canBeDefaultInput: false, hasOutputVolume: true),
+            AudioDevice(id: 9102, uid: "demo.interface", name: "USB Audio Interface", manufacturer: "Studio", transportType: kAudioDeviceTransportTypeUSB,
+                        outputChannels: 10, inputChannels: 10, inputStreamCount: 1, sampleRate: 48_000, availableSampleRates: [44_100, 48_000, 88_200, 96_000],
+                        preferredStereo: [1, 2], canBeDefaultOutput: true, canBeDefaultInput: true, hasOutputVolume: false),
+            AudioDevice(id: 9103, uid: "demo.speakers", name: "MacBook Pro Speakers", manufacturer: "Apple Inc.", transportType: kAudioDeviceTransportTypeBuiltIn,
+                        outputChannels: 2, inputChannels: 0, inputStreamCount: 0, sampleRate: 48_000, availableSampleRates: [44_100, 48_000],
+                        preferredStereo: [1, 2], canBeDefaultOutput: true, canBeDefaultInput: false, hasOutputVolume: true),
+            AudioDevice(id: 9104, uid: "demo.mic", name: "MacBook Pro Microphone", manufacturer: "Apple Inc.", transportType: kAudioDeviceTransportTypeBuiltIn,
+                        outputChannels: 0, inputChannels: 1, inputStreamCount: 1, sampleRate: 48_000, availableSampleRates: [48_000],
+                        preferredStereo: [], canBeDefaultOutput: false, canBeDefaultInput: true, hasOutputVolume: false),
+        ]
+        defaultOutputID = 9101
+        defaultInputID = 9104
+        systemOutputID = 9101
+        outputVolume = 0.55
+        outputMuted = false
+    }
+
     func refresh() {
+        guard !demoMode else { return }
         let ids = CA.readArray(CA.system, kAudioHardwarePropertyDevices, of: AudioObjectID.self)
         devices = ids.compactMap(AudioDevice.load)
             .filter { !$0.uid.hasPrefix(Self.privateAggregatePrefix) && !$0.uid.hasPrefix("CADefaultDeviceAggregate") }
@@ -150,7 +177,7 @@ final class AudioDeviceCenter {
             CA.address(kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput),
             CA.address(kAudioDevicePropertyPreferredChannelsForStereo, kAudioObjectPropertyScopeOutput),
         ]) { [weak self] in
-            guard let self else { return }
+            guard let self, !self.demoMode else { return }
             self.devices = CA.readArray(CA.system, kAudioHardwarePropertyDevices, of: AudioObjectID.self)
                 .compactMap(AudioDevice.load)
                 .filter { !$0.uid.hasPrefix(Self.privateAggregatePrefix) && !$0.uid.hasPrefix("CADefaultDeviceAggregate") }
@@ -166,6 +193,7 @@ final class AudioDeviceCenter {
     }
 
     private func readVolume() {
+        guard !demoMode else { return }
         outputVolume = CA.read(defaultOutputID, kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyScopeOutput, default: Float(0))
         outputMuted = CA.read(defaultOutputID, kAudioDevicePropertyMute, kAudioObjectPropertyScopeOutput, default: UInt32(0)) != 0
     }

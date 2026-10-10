@@ -81,7 +81,35 @@ final class AudioProcessCenter {
         }
     }
 
+    @ObservationIgnored private var demoMode = false
+
+    /// A few well-known apps instead of the user's real ones (snapshot mode only).
+    func applyDemo() {
+        demoMode = true
+        let entries: [(id: String, fallback: String, playing: Bool)] = [
+            ("com.apple.Music", "Music", true),
+            ("com.apple.Safari", "Safari", true),
+            ("com.apple.podcasts", "Podcasts", false),
+            ("com.apple.logic10", "Logic Pro", false),
+        ]
+        apps = entries.enumerated().map { i, e in
+            var name = e.fallback
+            let byName = (try? FileManager.default.contentsOfDirectory(atPath: "/Applications"))?
+                .first { $0.hasPrefix(e.fallback) && $0.hasSuffix(".app") }
+                .map { URL(fileURLWithPath: "/Applications/" + $0) }
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: e.id) ?? byName {
+                icons[e.id] = NSWorkspace.shared.icon(forFile: url.path)
+                name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+                if e.id == "com.apple.logic10" { name = "Logic Pro" }
+            }
+            let process = AudioProcess(objectID: AudioObjectID(9000 + i), pid: pid_t(90_000 + i), bundleID: e.id, isRunningOutput: e.playing, outputDevices: [])
+            return AudioApp(id: e.id, name: name, bundleID: e.id, pid: process.pid, isRegularApp: true, processes: [process])
+        }
+        conflictingAppRunning = false
+    }
+
     func refresh() {
+        guard !demoMode else { return }
         let ids = CA.readArray(CA.system, kAudioHardwarePropertyProcessObjectList, of: AudioObjectID.self)
         let myPID = getpid()
         let myBundleID = Bundle.main.bundleIdentifier ?? "io.github.belugaming.Tapline"

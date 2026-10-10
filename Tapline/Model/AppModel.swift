@@ -120,6 +120,13 @@ final class AppModel {
         if !DebugSnapshot.isDevelopmentMode { updateShortcuts() }
 
         if DebugSnapshot.usesDemoData {
+            devices.applyDemo()
+            processes.applyDemo()
+            appSettings = [
+                "com.apple.Safari": AppAudioSettings(name: "Safari", bundleID: "com.apple.Safari", volume: 0.65),
+                "com.apple.logic10": AppAudioSettings(name: "Logic Pro", bundleID: "com.apple.logic10", bypass: true),
+            ]
+            meters.appPeaks = ["com.apple.Safari": 0.32]
             var demo = DSPSettings.flat
             demo.bands = [
                 EQBand(type: .highPass, frequency: 24, q: 0.71),

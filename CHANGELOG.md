@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- When drift compensation is needed (USB, built-in and other wired outputs), the HAL now uses its highest-quality converter.
+
 ### Fixed
 - Install instructions: on macOS 15 and later, unnotarized apps are allowed with **Open Anyway** in System Settings → Privacy & Security, not by right-clicking.
 
