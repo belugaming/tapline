@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-10
+
 ### Added
 - Builds and releases are produced by GitHub Actions; every push is built with Xcode 26 and Xcode 27.
 - `scripts/release.sh` bumps the version, updates this changelog and tags the release.
@@ -41,5 +43,6 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/belugaming/tapline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/belugaming/tapline/releases/tag/v0.1.0
