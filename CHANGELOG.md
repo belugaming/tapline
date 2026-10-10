@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- Install instructions: on macOS 15 and later, unnotarized apps are allowed with **Open Anyway** in System Settings → Privacy & Security, not by right-clicking.
+
 ## [0.1.1] - 2026-10-10
 
 ### Added

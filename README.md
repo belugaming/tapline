@@ -63,7 +63,9 @@
 
 ## Install
 
-Download the latest build from [Releases](https://github.com/belugaming/tapline/releases), unzip it and move **Tapline.app** to Applications. The app is not notarized yet, so the first time you open it, right-click it and choose **Open**.
+Download the latest build from [Releases](https://github.com/belugaming/tapline/releases), unzip it and move **Tapline.app** to Applications.
+
+Release builds are ad-hoc signed and not notarized yet (there is no Apple Developer ID behind them), so macOS blocks the first launch. Open it once, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Tapline. Since macOS 15, right-clicking and choosing Open no longer bypasses this check.
 
 ## Build
 
@@ -167,7 +169,9 @@ macOS 26 或更高版本，Apple Silicon（只支持 arm64）。
 
 ### 安装
 
-从 [Releases](https://github.com/belugaming/tapline/releases) 下载最新版本，解压后把 **Tapline.app** 拖进"应用程序"。目前没有经过 Apple 公证，第一次打开时请右键点它，选"打开"。
+从 [Releases](https://github.com/belugaming/tapline/releases) 下载最新版本，解压后把 **Tapline.app** 拖进"应用程序"。
+
+发布版目前只有临时签名（ad-hoc），没有 Apple 开发者证书，也没有经过公证，所以第一次打开会被系统拦下。先双击打开一次，再到 **系统设置 → 隐私与安全性**，拉到最下面，在 Tapline 的提示旁边点 **仍要打开**。从 macOS 15 开始，右键选"打开"已经不能绕过这个检查。
 
 第一次使用时，先退出 SoundSource、eqMac 这类软件，再点电源按钮开启 Tapline，系统弹出"录制系统音频"权限时点允许。
 

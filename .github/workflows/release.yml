@@ -67,9 +67,9 @@ jobs:
             scripts/changelog-section.sh "$VERSION"
             echo
             echo "### Install"
-            echo "Requires macOS 26 or later on Apple Silicon. Unzip, move **Tapline.app** to Applications and, because the app is not notarized, right-click it and choose **Open** the first time."
+            echo "Requires macOS 26 or later on Apple Silicon. Unzip and move **Tapline.app** to Applications. The app is ad-hoc signed and not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
             echo
-            echo "需要 macOS 26 及以上、Apple Silicon。解压后把 Tapline.app 拖进“应用程序”；应用未经公证，第一次请右键选择“打开”。"
+            echo "需要 macOS 26 及以上、Apple Silicon。解压后把 Tapline.app 拖进“应用程序”。应用只有临时签名、未经公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
             echo
             echo "Build $BUILD · Xcode $XCODE · SHA-256 \`$(cut -d' ' -f1 dist/SHA256SUMS.txt)\`"
           } > dist/notes.md
