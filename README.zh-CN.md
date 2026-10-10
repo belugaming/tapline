@@ -18,6 +18,8 @@
   <a href="README.md">English</a>
 </p>
 
+https://github.com/user-attachments/assets/022a002c-c52c-459e-8b60-b277e9fa475c
+
 ![Tapline 均衡器](docs/images/zh/equalizer.png)
 
 ## Tapline 是什么？
