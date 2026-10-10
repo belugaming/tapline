@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-10
+
 ### Added
 - Room correction: measure your speakers with a microphone (sine sweeps, several positions averaged, microphone calibration files) and fit an EQ that cuts room resonances below a chosen frequency, with flat or room-curve targets. Boosts stop at the speakers' low-frequency limit.
 - **Left & right** measurements: each speaker separately in one run, with timing clicks that cancel the clock drift between the playing and the recording interface.
@@ -57,6 +59,7 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/belugaming/tapline/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/belugaming/tapline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/belugaming/tapline/releases/tag/v0.1.0
