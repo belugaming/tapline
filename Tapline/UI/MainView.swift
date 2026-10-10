@@ -33,7 +33,7 @@ struct MainView: View {
     @Environment(AppModel.self) private var model
     @Environment(SquigService.self) private var squig
     @Environment(\.openWindow) private var openWindow
-    @AppStorage("page") private var page: Page = .equalizer
+    @AppStorage(DebugSnapshot.pageKey) private var page: Page = .equalizer
 
     var body: some View {
         NavigationSplitView {

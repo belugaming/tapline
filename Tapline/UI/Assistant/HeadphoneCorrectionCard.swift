@@ -18,7 +18,7 @@ struct HeadphoneCorrectionCard: View {
         }
     }
 
-    @AppStorage("correctionSource") private var source: Source = .autoEQ
+    @AppStorage(DebugSnapshot.key("correctionSource")) private var source: Source = .autoEQ
 
     var body: some View {
         Card(title: "Headphone Correction", subtitle: "Correct your headphones towards a neutral target using published measurements.", systemImage: "headphones") {
@@ -43,7 +43,7 @@ struct HeadphoneCorrectionCard: View {
 private struct AutoEQSection: View {
     @Environment(AppModel.self) private var model
     @Environment(AutoEQService.self) private var autoEQ
-    @AppStorage("correctionKeepBass") private var keepBass = false
+    @AppStorage(DebugSnapshot.key("correctionKeepBass")) private var keepBass = false
     @State private var query = ""
     @State private var selected: AutoEQService.Entry?
     @State private var parsed: ParametricEQFormat.Parsed?
@@ -148,7 +148,7 @@ private struct AutoEQSection: View {
 
 private struct SquigSection: View {
     @Environment(SquigService.self) private var squig
-    @AppStorage("squigKind") private var kindFilter = "all"
+    @AppStorage(DebugSnapshot.key("squigKind")) private var kindFilter = "all"
     @State private var query = ""
     @State private var selected: SquigService.Phone?
 
@@ -220,7 +220,13 @@ private struct SquigSection: View {
                 }
             }
         }
-        .task { await squig.loadAll() }
+        .task {
+            await squig.loadAll()
+            if let q = DebugSnapshot.squigQuery, query.isEmpty {
+                query = q
+                selected = squig.search(q, kinds: kinds).first
+            }
+        }
     }
 }
 
@@ -304,10 +310,10 @@ private struct CorrectionWorkbench: View {
     let presetName: String
     let loadMeasurement: @MainActor () async throws -> FrequencyResponse
 
-    @AppStorage("fitBass") private var bass = 0.0
-    @AppStorage("fitTilt") private var tilt = 0.0
-    @AppStorage("fitFilters") private var filterCount = 10
-    @AppStorage("correctionKeepBass") private var keepBass = false
+    @AppStorage(DebugSnapshot.key("fitBass")) private var bass = 0.0
+    @AppStorage(DebugSnapshot.key("fitTilt")) private var tilt = 0.0
+    @AppStorage(DebugSnapshot.key("fitFilters")) private var filterCount = 10
+    @AppStorage(DebugSnapshot.key("correctionKeepBass")) private var keepBass = false
 
     @State private var measurement: FrequencyResponse?
     /// Where the targets come from: the measurement's own database, or a fallback of the same kind.
@@ -383,12 +389,12 @@ private struct CorrectionWorkbench: View {
                 GridRow {
                     Text("Bass")
                     Slider(value: $bass, in: -6...10, step: 0.5)
-                    Text(Format.gain(bass)).monospacedDigit().frame(width: 64, alignment: .trailing)
+                    Text(Format.gain(bass)).monospacedDigit().frame(width: 86, alignment: .trailing)
                 }
                 GridRow {
                     Text("Tilt")
                     Slider(value: $tilt, in: -1...1, step: 0.1)
-                    Text(String(format: "%+.1f dB/oct", tilt)).monospacedDigit().frame(width: 64, alignment: .trailing)
+                    Text(String(format: "%+.1f dB/oct", tilt)).monospacedDigit().frame(width: 86, alignment: .trailing)
                 }
                 GridRow {
                     Text("Filters")

@@ -3,7 +3,7 @@ import TaplineCore
 
 struct EqualizerPage: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("graphRange") private var graphRange = 12.0
+    @AppStorage(DebugSnapshot.key("graphRange")) private var graphRange = 12.0
     @State private var savingPreset = false
     @State private var presetName = ""
     @State private var presetIncludesEffects = false

@@ -13,6 +13,15 @@ enum DebugSnapshot {
 
     static var isActive: Bool { directory != nil }
 
+    /// Snapshot runs switch pages through their own key so a running copy of Tapline,
+    /// which shares the preferences domain, is not affected.
+    nonisolated static var pageKey: String { key("page") }
+
+    /// Preference keys used by views; namespaced during snapshot runs.
+    nonisolated static func key(_ name: String) -> String {
+        ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_DIR"] != nil ? "snapshot." + name : name
+    }
+
     /// Snapshot or self-test runs: these never touch real audio.
     static var isDevelopmentMode: Bool {
         isActive || ProcessInfo.processInfo.environment["TAPLINE_SELFTEST_SQUIG"] != nil
@@ -20,6 +29,9 @@ enum DebugSnapshot {
 
     /// TAPLINE_SNAPSHOT_REAL=1 skips the demo curve and spectrum.
     static var usesDemoData: Bool { isActive && ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_REAL"] == nil }
+
+    /// TAPLINE_SNAPSHOT_SQUIG="HD 600" pre-fills the squig.link search and selects the first hit.
+    static var squigQuery: String? { isActive ? ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SQUIG"] : nil }
 
     /// TAPLINE_SNAPSHOT_SIZE=900x600 resizes the window before capturing.
     static var windowSize: CGSize? {
@@ -41,8 +53,9 @@ enum DebugSnapshot {
                 return
             }
             let page = pages[index]
-            UserDefaults.standard.set(page.rawValue, forKey: "page")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            UserDefaults.standard.set(page.rawValue, forKey: pageKey)
+            let wait = page == .assistant && squigQuery != nil ? 12.0 : 1.2
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                 MainActor.assumeIsolated {
                     capture(name: "\(index)-\(page.rawValue)", in: directory)
                     index += 1
