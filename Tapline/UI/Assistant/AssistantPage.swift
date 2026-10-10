@@ -130,6 +130,7 @@ private struct SoundAssistantCard: View {
 private struct PresetLibraryCard: View {
     @Environment(AppModel.self) private var model
     @State private var renaming: EQPreset?
+    @State private var deleting: EQPreset?
     @State private var newName = ""
 
     var body: some View {
@@ -161,10 +162,34 @@ private struct PresetLibraryCard: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .overlay(alignment: .topTrailing) {
+                        if !preset.isBuiltIn {
+                            HStack(spacing: 2) {
+                                Button {
+                                    newName = preset.name
+                                    renaming = preset
+                                } label: {
+                                    Image(systemName: "pencil")
+                                }
+                                .help(Text("Rename…"))
+                                Button {
+                                    deleting = preset
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .help(Text("Delete"))
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                            .padding(5)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(10)
+                        }
+                    }
                     .contextMenu {
                         if !preset.isBuiltIn {
                             Button("Rename…") { newName = preset.name; renaming = preset }
-                            Button("Delete", role: .destructive) { model.deletePreset(preset.id) }
+                            Button("Delete", role: .destructive) { deleting = preset }
                         }
                     }
                 }
@@ -172,6 +197,14 @@ private struct PresetLibraryCard: View {
         }
         .sheet(item: $renaming) { preset in
             SavePresetSheet(name: $newName) { name in model.renamePreset(preset.id, to: name) }
+        }
+        .confirmationDialog(Text("Delete \"\(deleting?.name ?? "")\"?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let deleting { model.deletePreset(deleting.id) }
+                deleting = nil
+            }
+        } message: {
+            Text("This cannot be undone.")
         }
     }
 }

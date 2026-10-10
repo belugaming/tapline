@@ -350,6 +350,12 @@ struct PresetMenu: View {
                         Button(preset.name) { model.apply(preset) }
                     }
                 }
+                Divider()
+                Menu("Delete Preset") {
+                    ForEach(model.userPresets) { preset in
+                        Button(preset.name, role: .destructive) { model.deletePreset(preset.id) }
+                    }
+                }
             }
         } label: {
             Label {

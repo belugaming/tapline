@@ -122,7 +122,10 @@ final class TapEngine {
             kAudioAggregateDeviceTapAutoStartKey: false,
             kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: output.uid]],
             kAudioAggregateDeviceTapListKey: tapDescriptions.map {
-                [kAudioSubTapUIDKey: $0.uuid.uuidString, kAudioSubTapDriftCompensationKey: true]
+                // No drift compensation: every tapped app plays to this aggregate's own
+                // output device, so the tap already runs on its clock. Resampling against
+                // jittery Bluetooth timestamps made sustained notes wobble on AirPods.
+                [kAudioSubTapUIDKey: $0.uuid.uuidString, kAudioSubTapDriftCompensationKey: false]
             },
         ]
         var aggregate = AudioObjectID(kAudioObjectUnknown)

@@ -247,3 +247,5 @@
 "• Results from oratory1990 and crinacle are listed first when available." = "• 有 oratory1990 和 crinacle 的测量结果时会排在前面。";
 "• The curve is saved as a preset, so you can tweak it afterwards." = "• 校正曲线会保存为预设，之后可以继续微调。";
 "More" = "更多";
+"Delete Preset" = "删除预设";
+"Delete \"%@\"?" = "删除“%@”？";
