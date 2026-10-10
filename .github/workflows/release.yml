@@ -1,0 +1,90 @@
+name: Release
+
+# Runs when a version tag is pushed (scripts/release.sh creates one).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      XCODE: "26.6"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the build number is the commit count
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE}.app"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Resolve version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          project="$(scripts/version.sh)"
+          if [ "$version" != "$project" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project in project.yml. Use scripts/release.sh."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+
+      - name: Test DSP core
+        working-directory: Packages/TaplineCore
+        run: swift test
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild -project Tapline.xcodeproj -scheme Tapline -configuration Release \
+            -derivedDataPath build \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" \
+            CODE_SIGN_IDENTITY=- -quiet build
+          app=build/Build/Products/Release/Tapline.app
+          lipo -archs "$app/Contents/MacOS/Tapline"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" -c "Print :CFBundleVersion" "$app/Contents/Info.plist"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          zip="dist/Tapline-$VERSION-arm64.zip"
+          ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "$zip"
+          shasum -a 256 "$zip" | tee dist/SHA256SUMS.txt
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+
+      - name: Release notes
+        run: |
+          {
+            scripts/changelog-section.sh "$VERSION"
+            echo
+            echo "### Install"
+            echo "Requires macOS 26 or later on Apple Silicon. Unzip, move **Tapline.app** to Applications and, because the app is not notarized, right-click it and choose **Open** the first time."
+            echo
+            echo "需要 macOS 26 及以上、Apple Silicon。解压后把 Tapline.app 拖进“应用程序”；应用未经公证，第一次请右键选择“打开”。"
+            echo
+            echo "Build $BUILD · Xcode $XCODE · SHA-256 \`$(cut -d' ' -f1 dist/SHA256SUMS.txt)\`"
+          } > dist/notes.md
+          cat dist/notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ZIP" dist/SHA256SUMS.txt --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file dist/notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" dist/SHA256SUMS.txt \
+              --title "Tapline $VERSION" --notes-file dist/notes.md $prerelease
+          fi

@@ -5,6 +5,12 @@
 <h1 align="center">Tapline</h1>
 
 <p align="center">
+  <a href="https://github.com/belugaming/tapline/actions/workflows/ci.yml"><img src="https://github.com/belugaming/tapline/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/belugaming/tapline/releases/latest"><img src="https://img.shields.io/github/v/release/belugaming/tapline?include_prereleases&sort=semver" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/belugaming/tapline" alt="License: GPL-3.0"></a>
+</p>
+
+<p align="center">
   A system-wide parametric EQ, per-app mixer and headphone correction tool for macOS.<br>
   No audio driver to install. Built on Core Audio process taps.<br>
   <a href="#中文说明">中文说明</a>
@@ -113,6 +119,18 @@ Audio is processed locally and never recorded or sent anywhere. Network requests
 - The first time you change an app's volume, Tapline rebuilds its audio path, which causes a short gap.
 - AirPods and other adaptive headphones change their own EQ with volume and fit, so any correction is approximate.
 
+## Versioning and releases
+
+Tapline follows [Semantic Versioning](https://semver.org/). The version is defined once, as `MARKETING_VERSION` in `project.yml`; the build number is the commit count and is filled in by CI. Changes are collected under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
+
+To publish a release:
+
+```bash
+scripts/release.sh 0.2.0 --push
+```
+
+The script checks that `main` is clean, bumps the version, turns the Unreleased section into `0.2.0`, commits, tags `v0.2.0` and pushes. The [Release workflow](.github/workflows/release.yml) then tests and builds Tapline on GitHub's macOS runners and publishes the zip with that changelog section as release notes. Versions with a suffix such as `0.3.0-beta.1` become pre-releases. Every push to `main` is also built with Xcode 26 and Xcode 27 by the [CI workflow](.github/workflows/ci.yml).
+
 ## Credits
 
 - Headphone correction curves: [AutoEQ](https://github.com/jaakkopasanen/AutoEq) by Jaakko Pasanen and contributors (oratory1990, crinacle, Rtings, …)
@@ -156,6 +174,10 @@ macOS 26 或更高版本，Apple Silicon（只支持 arm64）。
 ### 隐私
 
 所有声音都在本机处理，不会录音，也不会上传。只有在使用耳机校正时才会联网：从 GitHub 下载 AutoEQ 数据，或从 squig.link 测评站点下载频响数据，下载后会缓存。在 squig.link 退出名单里的站点不会被访问。
+
+### 版本号与发布
+
+版本号遵循语义化版本，只在 `project.yml` 的 `MARKETING_VERSION` 里定义一次；构建号是提交总数，由 GitHub Actions 自动填入。改动记在 [CHANGELOG.md](CHANGELOG.md) 的 Unreleased 部分。发布新版本只需要运行 `scripts/release.sh 0.2.0 --push`，GitHub 会自动测试、编译，并把对应的更新日志作为发布说明发布到 Releases。
 
 ### 许可证
 

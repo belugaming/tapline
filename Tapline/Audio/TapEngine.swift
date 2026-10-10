@@ -79,11 +79,16 @@ final class TapEngine {
         let description = tapDescriptions[index]
         description.processes = spec.processes
         description.bundleIDs = spec.bundleIDs
-        do {
-            try AudioHardwareTap(id: tapIDs[index]).setDescription(description)
+        // kAudioTapPropertyDescription takes a reference to the CATapDescription object.
+        var address = CA.address(kAudioTapPropertyDescription)
+        var reference = Unmanaged.passUnretained(description)
+        let status = withUnsafeMutablePointer(to: &reference) {
+            AudioObjectSetPropertyData(tapIDs[index], &address, 0, nil, UInt32(MemoryLayout<Unmanaged<CATapDescription>>.size), $0)
+        }
+        if status == noErr {
             sources[index] = spec
-        } catch {
-            log.error("Tap update failed: \(error.localizedDescription, privacy: .public)")
+        } else {
+            log.error("Tap update failed: \(fourCharCode(status), privacy: .public)")
         }
     }
 

@@ -297,3 +297,4 @@
 "• Each database comes with its own target curves that match its measurement rig. Harman targets are a good start." = "• 每个数据库都有和自己测量设备匹配的目标曲线，先从 Harman 目标曲线开始试比较好。";
 "• Measurements belong to their reviewers. Visit their sites to support them." = "• 测量数据归各位测评者所有，欢迎去他们的网站支持一下。";
 "• Pick the mode you actually use: ANC on or off, wired, passive…" = "• 选择和你实际使用一致的模式：降噪开或关、有线、无源（passive）…";
+"Tapline %@ (%@)" = "Tapline %1$@（%2$@）";

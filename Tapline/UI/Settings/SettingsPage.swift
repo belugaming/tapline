@@ -56,8 +56,10 @@ struct SettingsPage: View {
 
                 Card(title: "About", systemImage: "info.circle") {
                     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-                    Text("Tapline \(version)")
+                    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+                    Text("Tapline \(version) (\(build))")
                         .font(.headline)
+                        .textSelection(.enabled)
                     Text("Open-source system-wide EQ and audio mixer for macOS, built on Core Audio process taps.")
                         .foregroundStyle(.secondary)
                     Text("Copyright © 2026 Tapline contributors. Free software under the GNU General Public License v3.0, with ABSOLUTELY NO WARRANTY.")

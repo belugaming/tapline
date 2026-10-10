@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Xcode ${{ matrix.xcode }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            xcode: "26.6"
+          - runner: xcode-27
+            xcode: "27.0"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${{ matrix.xcode }}.app"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Test DSP core
+        working-directory: Packages/TaplineCore
+        run: swift test
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild -project Tapline.xcodeproj -scheme Tapline -configuration Release \
+            -derivedDataPath build CODE_SIGN_IDENTITY=- -quiet build
+          echo "Built $(scripts/version.sh) with Xcode ${{ matrix.xcode }}"
