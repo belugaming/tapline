@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tapline intro</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage"></div>
+<script>
+  const P = new URLSearchParams(location.search);
+  const LANG = P.get('lang') || 'zh';
+  const V = P.get('fmt') === 'v';
+  const W = V ? 1080 : 1920, H = V ? 1920 : 1080;
+  const IMG = '/img/';
+  const SCENES = {};
+</script>
+<script src="timeline.js"></script>
+<script src="strings.js"></script>
+<script src="lib.js"></script>
+<script>
+  const T = (k) => { const v = STRINGS[LANG][k]; return v && v.h !== undefined ? (V ? v.v : v.h) : v; };
+</script>
+<script src="scenes.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

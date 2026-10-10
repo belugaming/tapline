@@ -1,0 +1,12 @@
+{
+  "name": "tapline-promo",
+  "private": true,
+  "description": "Tapline intro video (rendered from code)",
+  "scripts": {
+    "build": "./build.sh"
+  },
+  "dependencies": {
+    "@puppeteer/browsers": "^2.13.2",
+    "puppeteer-core": "^24.43.1"
+  }
+}
