@@ -18,6 +18,8 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
+https://github.com/user-attachments/assets/63696f9b-a6cf-421d-9467-1525775c0ca1
+
 ![Tapline equalizer](docs/images/en/equalizer.png)
 
 ## What is Tapline?
