@@ -14,12 +14,15 @@ import TaplineCore
 @Observable
 final class RoomMeasurementService {
     enum Speakers: String, CaseIterable, Identifiable {
+        /// Each speaker on its own in one run, plus timing chirps.
+        case stereo
         case both, left, right
         var id: String { rawValue }
 
         var title: LocalizedStringResource {
             switch self {
-            case .both: "Both speakers"
+            case .stereo: "Left & right"
+            case .both: "Together"
             case .left: "Left"
             case .right: "Right"
             }
@@ -37,9 +40,18 @@ final class RoomMeasurementService {
         let id = UUID()
         let date = Date()
         let speakers: Speakers
+        /// Both speakers (for a stereo run: the power average of the two).
         let response: FrequencyResponse
+        var left: FrequencyResponse?
+        var right: FrequencyResponse?
+        /// Right arrival minus left arrival, seconds (stereo runs).
+        var arrivalDifference: Double?
+        var oppositePolarity: Bool?
         let peakDB: Double
         let snrDB: Double
+
+        var leftResponse: FrequencyResponse? { left ?? (speakers == .left ? response : nil) }
+        var rightResponse: FrequencyResponse? { right ?? (speakers == .right ? response : nil) }
     }
 
     private(set) var phase: Phase = .idle
@@ -84,6 +96,22 @@ final class RoomMeasurementService {
     func clearMeasurements() { measurements = [] }
 
     var averagedResponse: FrequencyResponse? { RoomResponse.average(measurements.map(\.response)) }
+    var averagedLeft: FrequencyResponse? { RoomResponse.average(measurements.compactMap(\.leftResponse)) }
+    var averagedRight: FrequencyResponse? { RoomResponse.average(measurements.compactMap(\.rightResponse)) }
+
+    /// Mean over the stereo runs (the positions surround the listening spot).
+    var arrivalDifference: Double? {
+        let values = measurements.compactMap(\.arrivalDifference)
+        return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    }
+
+    /// True if any run heard opposite polarity, false if runs were clear, nil if none could tell.
+    var oppositePolarity: Bool? {
+        let values = measurements.compactMap(\.oppositePolarity)
+        return values.isEmpty ? nil : values.contains(true)
+    }
+
+    var worstSNRDB: Double { measurements.map(\.snrDB).min() ?? 0 }
 
     // MARK: - Level check
 
@@ -98,8 +126,11 @@ final class RoomMeasurementService {
         defer { phase = .idle }
         do {
             let seconds = 3.0
-            let noise = Self.pinkNoise(count: Int(seconds * output.sampleRate), amplitude: 0.12)
-            _ = try await run(signal: noise, output: output, input: input, channel: channel, speakers: speakers, seconds: seconds + 0.3)
+            _ = try await run(output: output, input: input, channel: channel, seconds: seconds + 0.3) { rate in
+                let noise = Self.pinkNoise(count: Int(seconds * rate), amplitude: 0.12)
+                let silent = [Float](repeating: 0, count: noise.count)
+                return (speakers == .right ? silent : noise, speakers == .left ? silent : noise)
+            }
             lastMessage = levelAdvice()
         } catch {
             lastMessage = error.localizedDescription
@@ -123,17 +154,23 @@ final class RoomMeasurementService {
         lastMessage = nil
         phase = .measuring(0)
         defer { phase = .idle }
+        if speakers == .stereo {
+            await measureStereo(output: output, input: input, channel: channel)
+            return
+        }
         do {
-            let playback = SineSweep(sampleRate: output.sampleRate, duration: Self.sweepSeconds)
-            let padded = [Float](repeating: 0, count: Int(Self.preRoll * output.sampleRate)) + playback.signal
             let total = Self.preRoll + Self.sweepSeconds + Self.tail
-            let (recording, inputRate) = try await run(signal: padded, output: output, input: input, channel: channel, speakers: speakers, seconds: total)
+            let (recording, inputRate) = try await run(output: output, input: input, channel: channel, seconds: total) { rate in
+                let padded = [Float](repeating: 0, count: Int(Self.preRoll * rate)) + SineSweep(sampleRate: rate, duration: Self.sweepSeconds).signal
+                let silent = [Float](repeating: 0, count: padded.count)
+                return (speakers == .right ? silent : padded, speakers == .left ? silent : padded)
+            }
 
             phase = .analyzing
             let sweepRate = inputRate
             let calibration = calibration
             let result = await Task.detached(priority: .userInitiated) { () -> (FrequencyResponse?, Double, Double) in
-                let reference = sweepRate == playback.sampleRate ? playback : SineSweep(sampleRate: sweepRate, duration: Self.sweepSeconds)
+                let reference = SineSweep(sampleRate: sweepRate, duration: Self.sweepSeconds)
                 let ir = reference.impulseResponse(from: recording)
                 var fr = RoomResponse.frequencyResponse(impulse: ir, sampleRate: sweepRate)
                 if let cal = calibration, let measured = fr { fr = RoomResponse.applyCalibration(measured, calibration: cal) }
@@ -153,16 +190,52 @@ final class RoomMeasurementService {
                 return
             }
             measurements.append(Measurement(speakers: speakers, response: response, peakDB: result.1, snrDB: result.2))
-            if result.1 > -1 {
-                lastMessage = String(localized: "The microphone clipped during the sweep. Lower the volume and measure again.")
-            } else if result.2 < 20 {
-                lastMessage = String(localized: "The room is noisy or the level is low. The result may be unreliable.")
-            } else {
-                lastMessage = String(localized: "Measured. Move the microphone a little and measure again to average several positions.")
-            }
+            lastMessage = Self.resultMessage(peakDB: result.1, snrDB: result.2)
         } catch {
             lastMessage = error.localizedDescription
         }
+    }
+
+    /// One recording: a sweep per speaker, then left / right / left timing chirps.
+    private func measureStereo(output: AudioDevice, input: AudioDevice, channel: Int) async {
+        do {
+            let sweepSeconds = Self.sweepSeconds
+            let duration = StereoSweepPlan(sampleRate: 48_000, sweepSeconds: sweepSeconds).duration
+            let (recording, inputRate) = try await run(output: output, input: input, channel: channel, seconds: duration + 0.4) { rate in
+                StereoSweepPlan(sampleRate: rate, sweepSeconds: sweepSeconds).render()
+            }
+            phase = .analyzing
+            let calibration = calibration
+            let analysis = await Task.detached(priority: .userInitiated) {
+                StereoSweepPlan.analyze(recording: recording, inputRate: inputRate, sweepSeconds: sweepSeconds)
+            }.value
+            guard var a = analysis else {
+                lastMessage = String(localized: "The measurement failed. Check that the microphone hears the speakers.")
+                return
+            }
+            if let cal = calibration {
+                a.left = RoomResponse.applyCalibration(a.left, calibration: cal)
+                a.right = RoomResponse.applyCalibration(a.right, calibration: cal)
+            }
+            guard let both = RoomResponse.average([a.left, a.right]) else { return }
+            let snr = min(a.snrLeftDB, a.snrRightDB)
+            measurements.append(Measurement(speakers: .stereo, response: both, left: a.left, right: a.right,
+                                            arrivalDifference: a.arrivalDifference, oppositePolarity: a.oppositePolarity,
+                                            peakDB: a.peakDB, snrDB: snr))
+            lastMessage = Self.resultMessage(peakDB: a.peakDB, snrDB: snr)
+        } catch {
+            lastMessage = error.localizedDescription
+        }
+    }
+
+    private static func resultMessage(peakDB: Double, snrDB: Double) -> String {
+        if peakDB > -1 {
+            return String(localized: "The microphone clipped during the sweep. Lower the volume and measure again.")
+        }
+        if snrDB < 20 {
+            return String(localized: "The room is noisy or the level is low. The result may be unreliable.")
+        }
+        return String(localized: "Measured. Move the microphone a little and measure again to average several positions.")
     }
 
     // MARK: - Playback + recording
@@ -211,8 +284,10 @@ final class RoomMeasurementService {
         }
     }
 
-    /// Plays `signal` on `output` and records one channel of `input` for `seconds`.
-    private func run(signal: [Float], output: AudioDevice, input: AudioDevice, channel: Int, speakers: Speakers, seconds: Double) async throws -> ([Float], Double) {
+    /// Plays the left / right signals made by `signals` (at the output's actual
+    /// sample rate) on `output` and records one channel of `input` for `seconds`.
+    private func run(output: AudioDevice, input: AudioDevice, channel: Int, seconds: Double,
+                     signals: (Double) -> (left: [Float], right: [Float])) async throws -> ([Float], Double) {
         let player = AVAudioEngine()
         let recorder = AVAudioEngine()
         let node = AVAudioPlayerNode()
@@ -224,17 +299,15 @@ final class RoomMeasurementService {
         }
 
         let outRate = player.outputNode.outputFormat(forBus: 0).sampleRate > 0 ? player.outputNode.outputFormat(forBus: 0).sampleRate : output.sampleRate
+        let (left, right) = signals(outRate)
+        let count = min(left.count, right.count)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: outRate, channels: 2),
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(signal.count)) else {
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)) else {
             throw MeasurementError.audio(String(localized: "Could not prepare the test signal."))
         }
-        buffer.frameLength = AVAudioFrameCount(signal.count)
-        signal.withUnsafeBufferPointer { src in
-            if speakers != .right { buffer.floatChannelData![0].update(from: src.baseAddress!, count: signal.count) }
-            else { buffer.floatChannelData![0].update(repeating: 0, count: signal.count) }
-            if speakers != .left { buffer.floatChannelData![1].update(from: src.baseAddress!, count: signal.count) }
-            else { buffer.floatChannelData![1].update(repeating: 0, count: signal.count) }
-        }
+        buffer.frameLength = AVAudioFrameCount(count)
+        left.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: count) }
+        right.withUnsafeBufferPointer { buffer.floatChannelData![1].update(from: $0.baseAddress!, count: count) }
         player.attach(node)
         player.connect(node, to: player.mainMixerNode, format: format)
         player.mainMixerNode.outputVolume = 1
@@ -286,25 +359,33 @@ final class RoomMeasurementService {
         node.play()
     }
 
-    /// A synthetic room (two modes, one cancellation dip) for screenshots.
+    /// A synthetic room (modes, a cancellation dip, a slightly louder and farther
+    /// right speaker) for screenshots.
     func applyDemo() {
         guard measurements.isEmpty else { return }
         let grid = EQFitter.grid
-        let room = ResponseCurve.responseDB(bands: [
-            EQBand(type: .highPass, frequency: 38, q: 0.8),
-            EQBand(type: .peak, frequency: 47, gain: 8, q: 5),
-            EQBand(type: .peak, frequency: 112, gain: -9, q: 4),
-            EQBand(type: .peak, frequency: 176, gain: 5, q: 6),
-            EQBand(type: .peak, frequency: 300, gain: -3, q: 3),
-            EQBand(type: .highShelf, frequency: 9000, gain: -2, q: 0.7),
-        ], frequencies: grid, sampleRate: 48_000)
-        var seed: UInt64 = 42
-        let levels = room.enumerated().map { i, v -> Double in
-            seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            let wiggle = (Double(seed >> 33) / Double(1 << 31) - 0.5) * (grid[i] > 1000 ? 2.0 : 0.6)
-            return 82 + v + wiggle
+        func speaker(_ extra: [EQBand], level: Double, seed start: UInt64) -> FrequencyResponse {
+            let room = ResponseCurve.responseDB(bands: [
+                EQBand(type: .highPass, frequency: 38, q: 0.8),
+                EQBand(type: .peak, frequency: 47, gain: 8, q: 5),
+                EQBand(type: .peak, frequency: 112, gain: -9, q: 4),
+                EQBand(type: .peak, frequency: 176, gain: 5, q: 6),
+                EQBand(type: .peak, frequency: 300, gain: -3, q: 3),
+                EQBand(type: .highShelf, frequency: 9000, gain: -2, q: 0.7),
+            ] + extra, frequencies: grid, sampleRate: 48_000)
+            var seed = start
+            let levels = room.enumerated().map { i, v -> Double in
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                let wiggle = (Double(seed >> 33) / Double(1 << 31) - 0.5) * (grid[i] > 1000 ? 2.0 : 0.6)
+                return level + v + wiggle
+            }
+            return FrequencyResponse(frequencies: grid, levels: levels)
         }
-        measurements = [Measurement(speakers: .both, response: FrequencyResponse(frequencies: grid, levels: levels), peakDB: -14, snrDB: 52)]
+        let left = speaker([EQBand(type: .peak, frequency: 68, gain: 3, q: 4)], level: 82, seed: 42)
+        let right = speaker([EQBand(type: .peak, frequency: 68, gain: -4, q: 4)], level: 82.9, seed: 7)
+        let both = RoomResponse.average([left, right]) ?? left
+        measurements = [Measurement(speakers: .stereo, response: both, left: left, right: right,
+                                    arrivalDifference: 0.00011, oppositePolarity: false, peakDB: -14, snrDB: 52)]
     }
 
     /// Paul Kellet's economy pink noise filter.

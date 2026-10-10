@@ -273,17 +273,27 @@ private struct CurveLayer: View {
                 ctx.stroke(p, with: .color(color.opacity(band.isEnabled ? 0.85 : 0.35)), style: StrokeStyle(lineWidth: 1.2, dash: band.isEnabled ? [] : [3, 3]))
             }
 
-            // Total response, including tone macros.
-            let total = ResponseCurve.responseDB(bands: settings.activeBands, frequencies: freqs, sampleRate: sampleRate)
-            let p = curvePath(total)
-            if settings.eqEnabled {
-                ctx.fill(filled(p), with: .color(.white.opacity(0.05)))
-                var glow = ctx
-                glow.addFilter(.blur(radius: 4))
-                glow.stroke(p, with: .color(Theme.curve.opacity(0.45)), lineWidth: 3)
-                ctx.stroke(p, with: .color(Theme.curve), style: StrokeStyle(lineWidth: 1.8, lineJoin: .round))
-            } else {
-                ctx.stroke(p, with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+            // Total response, including tone macros: one curve, or one per channel
+            // when bands target only the left or the right.
+            let channels: [(EQChannels?, Color)] = settings.hasChannelSpecificBands
+                ? [(.left, Theme.curve), (.right, Theme.curveRight)]
+                : [(nil, Theme.curve)]
+            for (channel, color) in channels {
+                let total = ResponseCurve.responseDB(bands: settings.activeBands, frequencies: freqs, sampleRate: sampleRate, channel: channel)
+                let p = curvePath(total)
+                if settings.eqEnabled {
+                    if channels.count == 1 { ctx.fill(filled(p), with: .color(.white.opacity(0.05))) }
+                    var glow = ctx
+                    glow.addFilter(.blur(radius: 4))
+                    glow.stroke(p, with: .color(color.opacity(0.45)), lineWidth: 3)
+                    ctx.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 1.8, lineJoin: .round))
+                } else {
+                    ctx.stroke(p, with: .color(color.opacity(0.35)), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                }
+                if let channel, let last = total.last {
+                    let label = Text(channel == .left ? "L" : "R").font(.system(size: 10, weight: .bold)).foregroundStyle(color)
+                    ctx.draw(label, at: CGPoint(x: plot.maxX - 8, y: mapper.y(last.clamped(to: -mapper.dbRange...mapper.dbRange)) - 9))
+                }
             }
             _ = size
         }

@@ -5,6 +5,9 @@ import Foundation
 ///     Preamp: -6.4 dB
 ///     Filter 1: ON LSC Fc 105 Hz Gain 4.2 dB Q 0.70
 ///     Filter 2: ON PK Fc 132 Hz Gain -10.8 dB Q 1.01
+///
+/// `Channel: L` / `Channel: R` / `Channel: all` lines select which channels the
+/// following filters apply to, as in Equalizer APO.
 public enum ParametricEQFormat {
     public struct Parsed: Sendable, Equatable {
         public var preampDB: Double?
@@ -18,6 +21,8 @@ public enum ParametricEQFormat {
     public static func parse(_ text: String) throws -> Parsed {
         var preamp: Double?
         var bands: [EQBand] = []
+        // nil: the current channel selection is one Tapline cannot process (e.g. centre).
+        var channels: EQChannels? = .both
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -29,15 +34,28 @@ public enum ParametricEQFormat {
                 preamp = tokens.compactMap(Double.init).first
                 continue
             }
+            if lower.hasPrefix("channel:") {
+                channels = parseChannels(tokenize(String(lower.dropFirst("channel:".count))))
+                continue
+            }
             guard lower.hasPrefix("filter") else { continue }
-            guard let colon = line.firstIndex(of: ":") else { continue }
+            guard let channels, let colon = line.firstIndex(of: ":") else { continue }
             let tokens = tokenize(String(line[line.index(after: colon)...]))
-            guard let band = parseFilter(tokens) else { continue }
+            guard var band = parseFilter(tokens) else { continue }
+            band.channels = channels
             bands.append(band)
         }
 
         guard !bands.isEmpty else { throw ParseError.noFilters }
         return Parsed(preampDB: preamp, bands: bands)
+    }
+
+    private static func parseChannels(_ tokens: [String]) -> EQChannels? {
+        let set = Set(tokens)
+        if set.isEmpty || set.contains("all") || (set.contains("l") && set.contains("r")) { return .both }
+        if set.contains("l") || set.contains("1") { return .left }
+        if set.contains("r") || set.contains("2") { return .right }
+        return nil
     }
 
     private static func tokenize(_ s: String) -> [String] {
@@ -89,24 +107,39 @@ public enum ParametricEQFormat {
 
     public static func export(bands: [EQBand], preampDB: Double) -> String {
         var lines = [String(format: "Preamp: %.1f dB", preampDB)]
-        for (i, b) in bands.enumerated() {
-            let code: String
-            switch b.type {
-            case .peak: code = "PK"
-            case .lowShelf: code = "LSC"
-            case .highShelf: code = "HSC"
-            case .lowPass: code = "LPQ"
-            case .highPass: code = "HPQ"
-            case .notch: code = "NO"
-            case .bandPass: code = "BP"
-            }
-            let state = b.isEnabled ? "ON" : "OFF"
-            if b.type.usesGain {
-                lines.append(String(format: "Filter %d: %@ %@ Fc %.0f Hz Gain %.1f dB Q %.2f", i + 1, state, code, b.frequency, b.gain, b.q))
-            } else {
-                lines.append(String(format: "Filter %d: %@ %@ Fc %.0f Hz Q %.2f", i + 1, state, code, b.frequency, b.q))
+        // Shared filters first (no Channel line applies to all), then each side.
+        let shared = bands.filter { $0.channels == .both }
+        let left = bands.filter { $0.channels == .left }
+        let right = bands.filter { $0.channels == .right }
+        var number = 0
+        func append(_ group: [EQBand]) {
+            for b in group {
+                number += 1
+                lines.append(filterLine(b, number: number))
             }
         }
+        append(shared)
+        if !left.isEmpty { lines.append("Channel: L"); append(left) }
+        if !right.isEmpty { lines.append("Channel: R"); append(right) }
+        if !left.isEmpty || !right.isEmpty { lines.append("Channel: all") }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func filterLine(_ b: EQBand, number: Int) -> String {
+        let code: String
+        switch b.type {
+        case .peak: code = "PK"
+        case .lowShelf: code = "LSC"
+        case .highShelf: code = "HSC"
+        case .lowPass: code = "LPQ"
+        case .highPass: code = "HPQ"
+        case .notch: code = "NO"
+        case .bandPass: code = "BP"
+        }
+        let state = b.isEnabled ? "ON" : "OFF"
+        if b.type.usesGain {
+            return String(format: "Filter %d: %@ %@ Fc %.0f Hz Gain %.1f dB Q %.2f", number, state, code, b.frequency, b.gain, b.q)
+        }
+        return String(format: "Filter %d: %@ %@ Fc %.0f Hz Q %.2f", number, state, code, b.frequency, b.q)
     }
 }

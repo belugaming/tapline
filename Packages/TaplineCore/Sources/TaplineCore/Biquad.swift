@@ -103,8 +103,9 @@ public struct BiquadCoefficients: Hashable, Sendable {
         20 * log10(max(magnitude(at: frequency, sampleRate: sampleRate), 1e-9))
     }
 
-    var cValue: tl_biquad {
-        tl_biquad(b0: b0, b1: b1, b2: b2, a1: a1, a2: a2, active: 1, reserved: 0)
+    func cValue(channels: EQChannels = .both) -> tl_biquad {
+        let mask: Int32 = switch channels { case .both: 0; case .left: 1; case .right: 2 }
+        return tl_biquad(b0: b0, b1: b1, b2: b2, a1: a1, a2: a2, active: 1, channels: mask)
     }
 }
 
@@ -116,9 +117,12 @@ public enum ResponseCurve {
         return (0..<count).map { pow(10, l + (h - l) * Double($0) / Double(count - 1)) }
     }
 
-    /// Summed response in dB of all bands at the given frequencies.
-    public static func responseDB(bands: [EQBand], frequencies: [Double], sampleRate: Double) -> [Double] {
-        let coeffs = bands.filter(\.isEnabled).map { BiquadCoefficients(band: $0, sampleRate: sampleRate) }
+    /// Summed response in dB of all bands at the given frequencies. With `channel`
+    /// (`.left` or `.right`), only the bands that process that channel count.
+    public static func responseDB(bands: [EQBand], frequencies: [Double], sampleRate: Double, channel: EQChannels? = nil) -> [Double] {
+        let coeffs = bands
+            .filter { $0.isEnabled && (channel.map($0.channels.includes) ?? true) }
+            .map { BiquadCoefficients(band: $0, sampleRate: sampleRate) }
         return frequencies.map { f in
             coeffs.reduce(0) { $0 + $1.magnitudeDB(at: f, sampleRate: sampleRate) }
         }
@@ -131,10 +135,15 @@ public enum ResponseCurve {
 
     private static let probe = logFrequencies(count: 480)
 
-    /// Largest boost of the summed curve, used for automatic preamp.
+    /// Largest boost of the summed curve of either channel, used for automatic preamp.
     public static func maxBoostDB(bands: [EQBand], sampleRate: Double) -> Double {
         guard bands.contains(where: \.isEnabled) else { return 0 }
-        return responseDB(bands: bands, frequencies: probe, sampleRate: sampleRate).max() ?? 0
+        guard bands.contains(where: { $0.isEnabled && $0.channels != .both }) else {
+            return responseDB(bands: bands, frequencies: probe, sampleRate: sampleRate).max() ?? 0
+        }
+        return [EQChannels.left, .right].map {
+            responseDB(bands: bands, frequencies: probe, sampleRate: sampleRate, channel: $0).max() ?? 0
+        }.max() ?? 0
     }
 }
 
@@ -148,13 +157,13 @@ extension DSPSettings {
 
         // EQ bands keep their slot index so filter state survives edits.
         // Tone macros live in the last four slots.
-        var stages = [tl_biquad](repeating: tl_biquad(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0, active: 0, reserved: 0), count: Int(TL_MAX_STAGES))
+        var stages = [tl_biquad](repeating: tl_biquad(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0, active: 0, channels: 0), count: Int(TL_MAX_STAGES))
         for (i, band) in bands.prefix(Self.maxBands).enumerated() where band.isEnabled {
-            stages[i] = BiquadCoefficients(band: band.clamped(), sampleRate: sampleRate).cValue
+            stages[i] = BiquadCoefficients(band: band.clamped(), sampleRate: sampleRate).cValue(channels: band.channels)
         }
         let toneBase = Int(TL_MAX_STAGES) - 4
         for (i, band) in tone.bands.enumerated() where band.isEnabled {
-            stages[toneBase + i] = BiquadCoefficients(band: band, sampleRate: sampleRate).cValue
+            stages[toneBase + i] = BiquadCoefficients(band: band, sampleRate: sampleRate).cValue()
         }
         withUnsafeMutableBytes(of: &p.stages) { raw in
             let ptr = raw.bindMemory(to: tl_biquad.self)

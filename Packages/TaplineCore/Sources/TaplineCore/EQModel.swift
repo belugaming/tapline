@@ -20,6 +20,16 @@ public enum FilterType: String, Codable, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// Which output channels a band processes.
+public enum EQChannels: String, Codable, CaseIterable, Sendable, Identifiable {
+    case both, left, right
+
+    public var id: String { rawValue }
+
+    /// Whether a band set to `self` processes `channel` (`.left` or `.right`).
+    public func includes(_ channel: EQChannels) -> Bool { self == .both || self == channel }
+}
+
 public struct EQBand: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var type: FilterType
@@ -27,14 +37,27 @@ public struct EQBand: Codable, Hashable, Identifiable, Sendable {
     public var gain: Double
     public var q: Double
     public var isEnabled: Bool
+    public var channels: EQChannels
 
-    public init(id: UUID = UUID(), type: FilterType = .peak, frequency: Double, gain: Double = 0, q: Double = 1, isEnabled: Bool = true) {
+    public init(id: UUID = UUID(), type: FilterType = .peak, frequency: Double, gain: Double = 0, q: Double = 1, isEnabled: Bool = true, channels: EQChannels = .both) {
         self.id = id
         self.type = type
         self.frequency = frequency
         self.gain = gain
         self.q = q
         self.isEnabled = isEnabled
+        self.channels = channels
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        type = try c.decode(FilterType.self, forKey: .type)
+        frequency = try c.decode(Double.self, forKey: .frequency)
+        gain = try c.decode(Double.self, forKey: .gain)
+        q = try c.decode(Double.self, forKey: .q)
+        isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+        channels = try c.decodeIfPresent(EQChannels.self, forKey: .channels) ?? .both
     }
 
     public static let frequencyRange: ClosedRange<Double> = 20...20_000
@@ -141,6 +164,11 @@ public struct DSPSettings: Codable, Hashable, Sendable {
     /// Bands that actually shape the signal: parametric bands followed by tone macros.
     public var activeBands: [EQBand] {
         bands.filter(\.isEnabled) + tone.bands.filter(\.isEnabled)
+    }
+
+    /// Whether left and right get different curves.
+    public var hasChannelSpecificBands: Bool {
+        bands.contains { $0.isEnabled && $0.channels != .both }
     }
 
     /// Preamp that is actually applied: either the manual value, or enough

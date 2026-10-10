@@ -10,7 +10,12 @@ GitHub release notes, so write entries for users.
 ## [Unreleased]
 
 ### Added
-- Room correction: measure your speakers with a microphone (sine sweeps, several positions averaged, microphone calibration files) and fit an EQ that cuts room resonances below a chosen frequency, with flat or room-curve targets. The filters can be copied for a hardware EQ such as the RME ADI-2's.
+- Room correction: measure your speakers with a microphone (sine sweeps, several positions averaged, microphone calibration files) and fit an EQ that cuts room resonances below a chosen frequency, with flat or room-curve targets. Boosts stop at the speakers' low-frequency limit.
+- **Left & right** measurements: each speaker separately in one run, with timing clicks that cancel the clock drift between the playing and the recording interface.
+- Setup check: polarity, left/right balance and distance, subwoofer level, boomy lower bass, desk bounce, treble trend, room resonances and cancellation dips, with the speaker switches to try (Genelec Bass Tilt, Desktop Control, Treble Tilt).
+- Separate left and right corrections. EQ bands can now apply to the left or right channel only, on the EQ page too.
+- RME ADI-2 DAC: fit the room correction to its five-band EQ (Dual EQ for separate channels) and export an `.adieqpr` preset for ADI-2 Remote. Import & Export also reads ADI-2 presets and exports any EQ to one (shelves become Bass and Treble).
+- `Channel: L` / `Channel: R` lines in Equalizer APO text are read and written.
 
 ### Changed
 - When drift compensation is needed (USB, built-in and other wired outputs), the HAL now uses its highest-quality converter.

@@ -31,7 +31,7 @@ extern "C" {
 typedef struct {
     double b0, b1, b2, a1, a2;
     int32_t active;
-    int32_t reserved;
+    int32_t channels;       // 0 = both, 1 = left only, 2 = right only
 } tl_biquad;
 
 typedef struct {

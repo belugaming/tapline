@@ -563,6 +563,31 @@ final class AppModel {
         return ParametricEQFormat.export(bands: s.bands, preampDB: s.effectivePreampDB(sampleRate: engine.sampleRate))
     }
 
+    /// Imports an EQ file: Equalizer APO / AutoEQ text, or an RME ADI-2 preset (`.adieqpr`).
+    @discardableResult
+    func importEQFile(_ text: String, name: String) throws -> EQPreset? {
+        guard text.contains("<ADI-2") else { return try importParametricEQ(text, name: name) }
+        let parsed = try ADI2Preset.parse(text)
+        guard !parsed.bands.isEmpty else { throw ParametricEQFormat.ParseError.noFilters }
+        mutate { s in
+            s.bands = Array(parsed.bands.prefix(DSPSettings.maxBands))
+            s.tone = ToneSettings()
+            s.eqEnabled = true
+            s.autoPreamp = true
+        }
+        selectedBandID = nil
+        return saveCurrentAsPreset(named: parsed.name ?? name, source: "RME ADI-2")
+    }
+
+    /// The current EQ (tone controls included) as an RME ADI-2 preset file.
+    /// Left and right get their own bands (Dual EQ) when the EQ has channel-specific bands.
+    func exportADI2Preset(name: String) throws -> String {
+        let bands = settings.bands.filter(\.isEnabled) + settings.tone.bands.filter(\.isEnabled)
+        guard settings.hasChannelSpecificBands else { return try ADI2Preset.export(left: bands, name: name) }
+        return try ADI2Preset.export(left: bands.filter { $0.channels.includes(.left) },
+                                     right: bands.filter { $0.channels.includes(.right) }, name: name)
+    }
+
     // MARK: - Mixer
 
     func appSetting(for app: AudioApp) -> AppAudioSettings {

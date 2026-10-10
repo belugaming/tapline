@@ -10,6 +10,8 @@ enum Theme {
     static let gridMinor = Color.white.opacity(0.045)
     static let gridLabel = Color.white.opacity(0.42)
     static let curve = Color.white
+    /// The right channel's curve when left and right differ.
+    static let curveRight = Color(red: 0.55, green: 0.76, blue: 1.0)
     static let spectrumPost = Color(red: 0.25, green: 0.78, blue: 0.95)
     static let spectrumPre = Color.white.opacity(0.22)
     static let accent = Color(red: 0.18, green: 0.80, blue: 0.62)

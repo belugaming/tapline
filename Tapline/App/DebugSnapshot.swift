@@ -33,6 +33,9 @@ enum DebugSnapshot {
     /// TAPLINE_SNAPSHOT_SQUIG="HD 600" pre-fills the squig.link search and selects the first hit.
     static var squigQuery: String? { isActive ? ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SQUIG"] : nil }
 
+    /// TAPLINE_SNAPSHOT_SCROLL=correct scrolls long pages to that section before capturing.
+    static var scrollAnchor: String? { isActive ? ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SCROLL"] : nil }
+
     /// TAPLINE_SNAPSHOT_SIZE=900x600 resizes the window before capturing.
     static var windowSize: CGSize? {
         guard let s = ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SIZE"] else { return nil }

@@ -196,6 +196,11 @@ private struct BandChip: View {
             FilterGlyph(type: band.type, lineWidth: 1.3)
                 .foregroundStyle(.primary.opacity(0.7))
                 .frame(width: 18, height: 11)
+            if band.channels != .both {
+                Text(band.channels == .left ? "L" : "R")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(band.channels == .left ? Theme.curve : Theme.curveRight)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 Text(Format.frequency(band.frequency))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
@@ -214,6 +219,9 @@ private struct BandChip: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button(band.isEnabled ? "Disable Band" : "Enable Band") { model.updateBand(band.id) { $0.isEnabled.toggle() } }
+            Picker("Channels", selection: Binding(get: { band.channels }, set: { v in model.updateBand(band.id) { $0.channels = v } })) {
+                ForEach(EQChannels.allCases) { Text($0.title).tag($0) }
+            }
             Button("Delete Band", role: .destructive) { model.removeBand(band.id) }
         }
     }
@@ -290,6 +298,13 @@ private struct BandInspector: View {
                         .help(Text(type.displayName))
                     }
                 }
+                Picker("Channels", selection: Binding(get: { band.channels }, set: { v in model.updateBand(id) { $0.channels = v } })) {
+                    ForEach(EQChannels.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 180)
+                .help(Text("Which speaker or earpiece this band applies to"))
             }
             .frame(minWidth: 260)
 
@@ -432,5 +447,15 @@ struct SavePresetSheet: View {
         guard !trimmed.isEmpty else { return }
         onSave(trimmed)
         dismiss()
+    }
+}
+
+extension EQChannels {
+    var title: LocalizedStringKey {
+        switch self {
+        case .both: "L + R"
+        case .left: "Left"
+        case .right: "Right"
+        }
     }
 }

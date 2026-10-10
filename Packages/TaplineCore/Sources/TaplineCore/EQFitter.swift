@@ -20,10 +20,20 @@ public enum EQFitter {
         public var maxCutDB: Double = 12
         /// Correct only below this frequency (room correction: leave the treble to the speakers).
         public var correctOnlyBelow: Double?
+        /// Never boost below this frequency (the speakers' low-frequency limit);
+        /// resonances there are still cut.
+        public var noBoostBelow: Double?
         /// Narrowest bell allowed. Room modes need more than headphones.
         public var maxQ: Double = 6
         /// Smoothing width in octaves below 1 kHz.
         public var lowSmoothingOctaves: Double = 1.0 / 6
+        /// Fixed bell slots of a hardware EQ. When set, the fit uses at most one
+        /// bell per slot, each within its slot's limits, and no shelves;
+        /// `maxFilters` is ignored.
+        public var slots: [Slot]?
+        /// Round the result to the steps a hardware EQ can be set to.
+        public var gainStepDB: Double?
+        public var qStep: Double?
 
         public init(maxFilters: Int = 10, bassAdjustDB: Double = 0, tiltDBPerOctave: Double = 0, keepBassBelow: Double? = nil) {
             self.maxFilters = maxFilters
@@ -31,6 +41,52 @@ public enum EQFitter {
             self.tiltDBPerOctave = tiltDBPerOctave
             self.keepBassBelow = keepBassBelow
         }
+    }
+
+    /// One band of a hardware parametric EQ.
+    public struct Slot: Sendable, Equatable {
+        public var frequencyRange: ClosedRange<Double>
+        public var qRange: ClosedRange<Double>
+
+        public init(frequencyRange: ClosedRange<Double>, qRange: ClosedRange<Double>) {
+            self.frequencyRange = frequencyRange
+            self.qRange = qRange
+        }
+
+        public func accepts(frequency: Double, q: Double) -> Bool {
+            frequency >= frequencyRange.lowerBound - 1e-6 && frequency <= frequencyRange.upperBound + 1e-6
+                && q >= qRange.lowerBound - 1e-6 && q <= qRange.upperBound + 1e-6
+        }
+    }
+
+    /// Puts each filter into a slot that can hold it, lowest frequencies into the
+    /// first slots where possible. Returns the slot index per filter, or nil if
+    /// the filters do not fit.
+    public static func assign(_ filters: [(frequency: Double, q: Double)], to slots: [Slot]) -> [Int]? {
+        guard filters.count <= slots.count else { return nil }
+        let byFrequency = filters.indices.sorted { filters[$0].frequency < filters[$1].frequency }
+        var used = [Bool](repeating: false, count: slots.count)
+        var result = [Int](repeating: -1, count: filters.count)
+
+        func place(_ k: Int) -> Bool {
+            if k == byFrequency.count { return true }
+            let i = byFrequency[k]
+            for s in slots.indices where !used[s] && slots[s].accepts(frequency: filters[i].frequency, q: filters[i].q) {
+                used[s] = true
+                result[i] = s
+                if place(k + 1) { return true }
+                used[s] = false
+            }
+            return false
+        }
+        return place(0) ? result : nil
+    }
+
+    /// Hardware frequency steps: 1 Hz below 1 kHz, 10 Hz below 10 kHz, 100 Hz above.
+    static func roundedFrequency(_ f: Double) -> Double {
+        if f < 1000 { return f.rounded() }
+        if f < 10_000 { return (f / 10).rounded() * 10 }
+        return (f / 100).rounded() * 100
     }
 
     public struct Result: Sendable {
@@ -100,6 +156,7 @@ public enum EQFitter {
                     c[i] *= x * x * (3 - 2 * x)
                 }
             }
+            if let floor = options.noBoostBelow, f[i] < floor { c[i] = min(c[i], 0) }
             c[i] = c[i].clamped(to: -options.maxCutDB...options.maxBoostDB)
         }
 
@@ -174,13 +231,34 @@ private struct Model {
     /// Highest bell frequency: 10 kHz, or a bit above the correction limit.
     var peakCeiling: Double { min(10_000, (options.correctOnlyBelow ?? 10_000) * 1.5) }
 
+    /// Bell limits: the union of the hardware slots, if any.
+    var peakFrequencyRange: ClosedRange<Double> {
+        guard let slots = options.slots, !slots.isEmpty else { return 20...peakCeiling }
+        let lo = max(20, slots.map(\.frequencyRange.lowerBound).min()!)
+        return lo...max(lo, min(peakCeiling, slots.map(\.frequencyRange.upperBound).max()!))
+    }
+
+    var peakQRange: ClosedRange<Double> {
+        let top = max(options.maxQ, 0.5)
+        guard let slots = options.slots, !slots.isEmpty else { return 0.25...top }
+        let lo = slots.map(\.qRange.lowerBound).min()!
+        return lo...max(lo, min(top, slots.map(\.qRange.upperBound).max()!))
+    }
+
+    /// Whether the filters fit the hardware slots (always true without slots).
+    func fitsSlots(_ list: [Filter]) -> Bool {
+        guard let slots = options.slots else { return true }
+        return EQFitter.assign(list.map { ($0.frequency, $0.q) }, to: slots) != nil
+    }
+
     // Bounds per kind
     func clamp(_ x: Filter) -> Filter {
         var x = x
         switch x.kind {
         case .peak:
-            x.log2f = x.log2f.clamped(to: log2(20)...log2(peakCeiling))
-            x.logq = x.logq.clamped(to: log(0.25)...log(max(options.maxQ, 0.5)))
+            let fr = peakFrequencyRange, qr = peakQRange
+            x.log2f = x.log2f.clamped(to: log2(fr.lowerBound)...log2(fr.upperBound))
+            x.logq = x.logq.clamped(to: log(qr.lowerBound)...log(qr.upperBound))
         case .lowShelf:
             x.log2f = x.log2f.clamped(to: log2(40)...log2(250))
             x.logq = x.logq.clamped(to: log(0.4)...log(1.2))
@@ -227,40 +305,53 @@ private struct Model {
     }
 
     mutating func fit() {
-        let budget = max(1, options.maxFilters)
+        let budget = max(1, options.slots?.count ?? options.maxFilters)
 
-        // Shelves for broad bass / treble trends.
-        let bass = mean(of: c, from: 20, to: 60)
-        if abs(bass) > 0.5, filters.count < budget, options.keepBassBelow == nil {
-            add(Filter(kind: .lowShelf, log2f: log2(105), gain: bass, logq: log(0.71)))
+        // Shelves for broad bass / treble trends (hardware slots take bells only).
+        if options.slots == nil {
+            let bass = mean(of: c, from: 20, to: 60)
+            if abs(bass) > 0.5, filters.count < budget, options.keepBassBelow == nil {
+                add(Filter(kind: .lowShelf, log2f: log2(105), gain: bass, logq: log(0.71)))
+            }
+            let treble = mean(of: c, from: 10_000, to: 14_000)
+            if abs(treble) > 0.5, filters.count < budget, options.correctOnlyBelow == nil {
+                add(Filter(kind: .highShelf, log2f: log2(10_000), gain: treble * 0.6, logq: log(0.71)))
+            }
+            refine()
         }
-        let treble = mean(of: c, from: 10_000, to: 14_000)
-        if abs(treble) > 0.5, filters.count < budget, options.correctOnlyBelow == nil {
-            add(Filter(kind: .highShelf, log2f: log2(10_000), gain: treble * 0.6, logq: log(0.71)))
-        }
-        refine()
 
         while filters.count < budget {
-            // Largest weighted residual in the band we trust.
-            var best = -1
-            var bestScore = 0.0
-            for i in f.indices where f[i] >= 25 && f[i] <= peakCeiling {
-                let score = abs(c[i] - total[i]) * w[i]
-                if score > bestScore { bestScore = score; best = i }
-            }
-            guard best >= 0, bestScore > 0.35 else { break }
-            let peak = c[best] - total[best]
+            // Largest weighted residual in the band we trust, among the spots a free slot can take.
+            let range = peakFrequencyRange
+            let candidates = f.indices
+                .filter { f[$0] >= max(25, range.lowerBound) && f[$0] <= range.upperBound }
+                .map { (index: $0, score: abs(c[$0] - total[$0]) * w[$0]) }
+                .filter { $0.score > 0.35 }
+                .sorted { $0.score > $1.score }
+            var added = false
+            for candidate in candidates {
+                let best = candidate.index
+                let peak = c[best] - total[best]
 
-            // Width at half height -> initial Q.
-            var lo = best, hi = best
-            while lo > 0, abs(c[lo - 1] - total[lo - 1]) > abs(peak) / 2, (c[lo - 1] - total[lo - 1]) * peak > 0 { lo -= 1 }
-            while hi < f.count - 1, abs(c[hi + 1] - total[hi + 1]) > abs(peak) / 2, (c[hi + 1] - total[hi + 1]) * peak > 0 { hi += 1 }
-            let octaves = max(log2(f[hi] / f[lo]), 0.1)
-            let q = sqrt(pow(2, octaves)) / (pow(2, octaves) - 1)
-            add(Filter(kind: .peak, log2f: log2(f[best]), gain: peak, logq: log(q)))
+                // Width at half height -> initial Q.
+                var lo = best, hi = best
+                while lo > 0, abs(c[lo - 1] - total[lo - 1]) > abs(peak) / 2, (c[lo - 1] - total[lo - 1]) * peak > 0 { lo -= 1 }
+                while hi < f.count - 1, abs(c[hi + 1] - total[hi + 1]) > abs(peak) / 2, (c[hi + 1] - total[hi + 1]) * peak > 0 { hi += 1 }
+                let octaves = max(log2(f[hi] / f[lo]), 0.1)
+                let q = sqrt(pow(2, octaves)) / (pow(2, octaves) - 1)
+                let x = clamp(Filter(kind: .peak, log2f: log2(f[best]), gain: peak, logq: log(q)))
+                if let placed = placeable(x) {
+                    add(placed)
+                    added = true
+                    break
+                }
+                if options.slots == nil { break }
+            }
+            guard added else { break }
             refine(maxPasses: 40)
         }
         refine(maxPasses: 400)
+        quantize()
 
         // Drop filters that ended up doing nothing.
         var keep: [Int] = []
@@ -270,6 +361,46 @@ private struct Model {
             responses = keep.map { responses[$0] }
             total = f.indices.map { i in responses.reduce(0) { $0 + $1[i] } }
         }
+    }
+
+    /// `x` as is if it fits a free slot, else with its Q narrowed or widened into
+    /// the limits of a free slot that covers its frequency, else nil.
+    func placeable(_ x: Filter) -> Filter? {
+        if fitsSlots(filters + [x]) { return x }
+        guard let slots = options.slots else { return nil }
+        for slot in slots where slot.frequencyRange.contains(x.frequency) {
+            var y = x
+            y.logq = y.logq.clamped(to: log(slot.qRange.lowerBound)...log(slot.qRange.upperBound))
+            if fitsSlots(filters + [y]) { return y }
+        }
+        return nil
+    }
+
+    /// Rounds every filter to the hardware's steps and keeps it inside its slot.
+    mutating func quantize() {
+        guard options.slots != nil || options.gainStepDB != nil || options.qStep != nil else { return }
+        for k in filters.indices {
+            var x = filters[k]
+            if let step = options.gainStepDB, step > 0 { x.gain = (x.gain / step).rounded() * step }
+            if let step = options.qStep, step > 0 { x.logq = log(max(step, (x.q / step).rounded() * step)) }
+            if options.slots != nil { x.log2f = log2(EQFitter.roundedFrequency(x.frequency)) }
+            filters[k] = x
+        }
+        if let slots = options.slots, let placement = EQFitter.assign(filters.map { ($0.frequency, $0.q) }, to: slots) ?? relaxedPlacement(slots) {
+            for k in filters.indices {
+                let slot = slots[placement[k]]
+                filters[k].log2f = filters[k].log2f.clamped(to: log2(slot.frequencyRange.lowerBound)...log2(slot.frequencyRange.upperBound))
+                filters[k].logq = filters[k].logq.clamped(to: log(slot.qRange.lowerBound)...log(slot.qRange.upperBound))
+            }
+        }
+        responses = filters.map(response(of:))
+        total = f.indices.map { i in responses.reduce(0) { $0 + $1[i] } }
+    }
+
+    /// Placement by frequency alone, for when rounding nudged a Q just past a limit.
+    private func relaxedPlacement(_ slots: [EQFitter.Slot]) -> [Int]? {
+        let loose = slots.map { EQFitter.Slot(frequencyRange: $0.frequencyRange, qRange: 0...1000) }
+        return EQFitter.assign(filters.map { ($0.frequency, $0.q) }, to: loose)
     }
 
     /// Coordinate pattern search over (log2 f, gain, ln q) of every filter.
@@ -292,6 +423,11 @@ private struct Model {
                         default: x.logq += direction * steps.q * scale
                         }
                         x = clamp(x)
+                        if options.slots != nil {
+                            var trial = filters
+                            trial[k] = x
+                            if !fitsSlots(trial) { continue }
+                        }
                         let r = response(of: x)
                         var candidate = total
                         for i in f.indices { candidate[i] += r[i] - responses[k][i] }

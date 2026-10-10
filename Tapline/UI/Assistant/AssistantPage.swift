@@ -225,7 +225,7 @@ private struct ImportExportCard: View {
     @State private var message: String?
 
     var body: some View {
-        Card(title: "Import & Export", subtitle: "Compatible with Equalizer APO, AutoEQ, Peace, Wavelet and other apps that use the ParametricEQ.txt format.", systemImage: "arrow.up.arrow.down.square") {
+        Card(title: "Import & Export", subtitle: "Compatible with Equalizer APO, AutoEQ, Peace, Wavelet and other apps that use the ParametricEQ.txt format, and with RME ADI-2 presets (.adieqpr).", systemImage: "arrow.up.arrow.down.square") {
             HStack(alignment: .top, spacing: 12) {
                 TextEditor(text: $pasted)
                     .font(.system(size: 11, design: .monospaced))
@@ -249,6 +249,8 @@ private struct ImportExportCard: View {
                     .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Button("Import File…", action: importFile)
                     Button("Export Current EQ…", action: exportFile)
+                    Button("Export for RME ADI-2…", action: exportADI2)
+                        .help(Text("Saves an .adieqpr preset for RME's ADI-2 Remote app, so the ADI-2 DAC runs this EQ itself"))
                     if let message {
                         Text(message).font(.caption).foregroundStyle(.secondary)
                     }
@@ -260,7 +262,7 @@ private struct ImportExportCard: View {
 
     private func importText(_ text: String, name: String) {
         do {
-            try model.importParametricEQ(text, name: name)
+            try model.importEQFile(text, name: name)
             message = String(localized: "Imported and saved as a preset.")
             pasted = ""
         } catch {
@@ -270,10 +272,22 @@ private struct ImportExportCard: View {
 
     private func importFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText, UTType(filenameExtension: "txt") ?? .plainText]
+        panel.allowedContentTypes = [.plainText, UTType(filenameExtension: "txt") ?? .plainText, ADI2Export.contentType]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         importText(text, name: url.deletingPathExtension().lastPathComponent)
+    }
+
+    private func exportADI2() {
+        let name = model.matchingPreset?.name ?? "Tapline"
+        do {
+            let text = try model.exportADI2Preset(name: name)
+            if try ADI2Export.save(text, suggestedName: name) {
+                message = String(localized: ADI2Export.loadHint)
+            }
+        } catch {
+            message = ADI2Export.message(for: error)
+        }
     }
 
     private func exportFile() {

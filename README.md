@@ -29,7 +29,7 @@ What makes it different:
 - **No driver to install.** Tapline uses the process tap API that macOS 14.2+ provides. Nothing is added to the system, and if Tapline quits, audio simply goes back to normal.
 - **An EQ you can see.** Drag bands on the frequency response, watch the spectrum before and after the EQ, compare A/B, undo anything.
 - **Headphone correction that keeps up.** Apply one of 5,000+ AutoEQ presets, or let Tapline fit an EQ from 40,000+ raw measurements on squig.link, including headphones released last week.
-- **Room correction for speakers.** Measure your speakers with a microphone where you sit and let Tapline tame the room's bass resonances.
+- **Room correction for speakers.** Measure your speakers with a microphone where you sit: Tapline checks balance, distance, polarity and placement, tames the room's bass resonances, and can write the correction into an RME ADI-2 DAC.
 - **Made for listening, safe for production.** Bypass a DAW in the mixer and it plays untouched.
 - **Free and open source** (GPL-3.0), written in Swift with a realtime core in C.
 
@@ -136,25 +136,31 @@ Tips:
 
 ### 3. Correct your speakers and room
 
-In a room, the bass of any speaker is shaped by the walls: some notes boom, others nearly vanish. The **Room** page measures your speakers with a microphone at your listening position and computes an EQ for the current output.
+In a room, the bass of any speaker is shaped by the walls: some notes boom, others nearly vanish. The **Room** page measures your speakers with a microphone at your listening position, tells you what to fix at the speakers first, and computes an EQ, either for Tapline or for the EQ built into an RME ADI-2 DAC.
 
 ![Room correction](docs/images/en/room.png)
 
-**What you need**: a microphone on an input your Mac can see. A measurement microphone (miniDSP UMIK-1/UMIK-2, or an XLR measurement mic on an audio interface) is best; a good studio condenser microphone works well for the bass. Condenser microphones need phantom power (48 V) on the interface. The Mac's built-in microphone only gives a rough idea.
+**What you need**: a microphone on an input your Mac can see. A measurement microphone (miniDSP UMIK-1/UMIK-2, or an XLR measurement mic on an audio interface) is best; a good studio condenser microphone works well for the bass. Condenser microphones need phantom power (48 V) on the interface. The Mac's built-in microphone only gives a rough idea. The microphone and the speakers can be on different interfaces.
 
-1. **Prepare**: pause all music, keep the room quiet and turn the volume down to a comfortable level. Measurements play at the current output volume.
+1. **Prepare**: pause all music, keep the room quiet and turn the volume down to a comfortable level. Measurements play at the current output volume. Switch off any EQ, Bass/Treble or Loudness in your DAC (an RME ADI-2 included) so Tapline measures the speakers as they are.
 2. **Microphone**: choose the **Input** and **Channel** your microphone is on. Load its **Calibration** file if it came with one. Place it at ear height where you sit, pointing between the speakers.
 3. **Check Level**: Tapline plays three seconds of pink noise. Adjust the volume or the preamp gain until the microphone peaks between −30 and −10 dB.
-4. **Measure**: each measurement plays an 8-second sweep. Measure three to five positions a few centimetres apart around your head; Tapline averages them. **Both speakers** measures the system as you listen to it; **Left** and **Right** let you check each side.
-5. **Correct**: the chart shows the measured response (grey), the target (dashed) and the result (green).
-   - **Correct below** (default 500 Hz) limits the correction to the range the room dominates. Above it, your speakers' own tuning is left alone.
-   - **Max boost** (default 3 dB) keeps dips from being boosted much. Dips come from sound waves cancelling each other at your seat; boosting them mostly costs amplifier headroom.
-   - **Flat** or **Room curve** (a gentle bass lift and treble roll-off); fine-tune with **Bass** and **Tilt**.
-6. Click **Apply to …** to use the correction on that output. It is saved as a preset.
+4. **Measure**: choose **Left & right**. One run plays an 8-second sweep on each speaker, then three short clicks for timing (about 22 seconds in all). Measure three to five positions a few centimetres apart around your head; Tapline averages them. **Together** measures both speakers at once, **Left** and **Right** one side.
+5. **Check the setup**: Tapline lists what is better fixed at the speakers than with EQ:
+   - **Polarity**: one speaker wired the other way round.
+   - **Balance**: one side louder. Fix it on the speaker or in the DAC, or let Tapline set its balance.
+   - **Distance**: one speaker farther away, in centimetres. The timing clicks cancel the clock drift between two interfaces, so this works with the microphone on one interface and the speakers on another.
+   - **Subwoofer level**, **boomy lower bass** and **desk bounce**, with the speaker switch that fixes it (on Genelec monitors: Bass Tilt, Desktop Control, Treble Tilt).
+   - **Room resonances**, with the room dimension each one fits, and **deep dips** that EQ cannot fill, with what to try instead (the subwoofer's phase switch, moving the seat or the speakers).
+6. **Correct**: choose where the correction runs.
+   - **Tapline** corrects what this Mac plays. Click **Apply to …**; the correction is saved as a preset.
+   - **RME ADI-2 DAC** fits the DAC's own parametric EQ: five bands per channel, bands 4 and 5 from 200 Hz, 0.5 dB steps. Click **Export for ADI-2 Remote…**, then in RME's ADI-2 Remote app open **EQ Presets**, click **File – Load**, pick the file and **Store** it to the unit. The DAC then corrects every source connected to it. **Preview in Tapline** lets you listen first. Use one or the other, not both, or the room is corrected twice.
+   - **Correct left and right separately** (on after a Left & right measurement) fits each speaker on its own; on the ADI-2 this uses Dual EQ.
+   - The chart shows the measured response (grey), the target (dashed) and the result (green), and the filters are listed below it. **Correct below** (default 500 Hz) leaves your speakers' own tuning above it alone. **Max boost** (default 3 dB) keeps dips from being boosted much: they come from sound cancelling itself at your seat, and boosting them mostly costs amplifier headroom. Tapline also never boosts below your speakers' low-frequency limit. Choose **Flat** or **Room curve** (a gentle bass lift and treble roll-off) and fine-tune with **Bass** and **Tilt**.
 
-**Copy Filters as Text** lists the filters so you can enter them into a hardware EQ instead, for example the parametric EQ of an RME ADI-2 DAC (set **Filters** to 5 to fit it). The correction then applies to every source connected to the DAC.
+**Copy Filters as Text** gives the filters in Equalizer APO format (with `Channel: L` / `Channel: R` sections for separate corrections) for any other hardware EQ.
 
-Tips: set any room or placement switches on your speakers first (desk, wall, bass tilt), then correct what remains. Subwoofer crossover and phase alignment are not handled here; if your speakers support a calibration system of their own (such as Genelec GLM for SAM models), use that first.
+Tips: measurements bypass Tapline's own EQ and balance, so measuring again always shows the room as it is. To check a correction loaded into the ADI-2, measure again with its EQ on. Subwoofer crossover settings and time alignment are left to the subwoofer's own controls; if your speakers have a calibration system of their own (such as Genelec GLM for SAM models), use that first.
 
 ### 4. Quick adjustments without EQ knowledge
 
@@ -163,7 +169,7 @@ Further down the **Assistant** page:
 - **Quick Tone**: four knobs, **Bass** (105 Hz shelf), **Warmth** (250 Hz), **Clarity** (3 kHz) and **Air** (10 kHz shelf), layered on top of the EQ.
 - **Sound Assistant**: describe what you hear ("More bass", "Less boomy", "Less muddy", "Clearer vocals", "Less harsh", "Less sibilance", "More air"…). Each click makes a small change you can undo.
 - **Presets**: every preset with a preview of its curve. Your own presets have rename and delete buttons.
-- **Import & Export**: paste or import Equalizer APO / AutoEQ `ParametricEQ.txt` files, or export yours.
+- **Import & Export**: paste or import Equalizer APO / AutoEQ `ParametricEQ.txt` files or RME ADI-2 presets (`.adieqpr`), or export yours. **Export for RME ADI-2…** turns the current EQ into an ADI-2 preset: bells go to its five bands, one low shelf to Bass and one high shelf to Treble.
 
 ### 5. Set the volume of each app
 
@@ -315,7 +321,8 @@ The script checks that `main` is clean, bumps the version, turns the Unreleased 
 ## Known limitations
 
 - Apps that take exclusive (hog) mode on a device cannot be tapped.
-- Room correction applies one EQ to both channels and does not align subwoofers.
+- Room correction does not set subwoofer crossovers or delays.
+- The ADI-2 export writes files for the ADI-2 DAC (FS); the ADI-2 Pro and 2/4 Pro use other file types.
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).
 

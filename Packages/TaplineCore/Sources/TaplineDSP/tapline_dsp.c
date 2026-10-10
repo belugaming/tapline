@@ -217,6 +217,10 @@ static void run_biquads(tl_kernel *k, const tl_params *p, uint32_t frames) {
         }
         const double b0 = c->b0, b1 = c->b1, b2 = c->b2, a1 = c->a1, a2 = c->a2;
         for (int ch = 0; ch < 2; ch++) {
+            if ((c->channels == 1 && ch == 1) || (c->channels == 2 && ch == 0)) {
+                k->z[s][ch][0] = k->z[s][ch][1] = 0;
+                continue;
+            }
             float *x = ch == 0 ? k->buf_l : k->buf_r;
             double z1 = k->z[s][ch][0];
             double z2 = k->z[s][ch][1];
