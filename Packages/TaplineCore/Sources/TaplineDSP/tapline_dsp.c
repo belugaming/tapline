@@ -315,11 +315,13 @@ OSStatus tl_ioproc(AudioObjectID device,
             const uint32_t ch = ib->mNumberChannels;
             uint32_t n = ib->mDataByteSize / (uint32_t)(sizeof(float) * ch);
             if (n > frames) n = frames;
+            const uint32_t cl = (L->source_channel_l >= 0 && (uint32_t)L->source_channel_l < ch) ? (uint32_t)L->source_channel_l : 0;
+            const uint32_t cr = (L->source_channel_r >= 0 && (uint32_t)L->source_channel_r < ch) ? (uint32_t)L->source_channel_r : cl;
             const float step = (target - g) / (float)(n ? n : 1);
             float peak = 0.0f;
             for (uint32_t i = 0; i < n; i++) {
-                const float sl = src[i * ch];
-                const float sr = ch > 1 ? src[i * ch + 1] : sl;
+                const float sl = src[i * ch + cl];
+                const float sr = src[i * ch + cr];
                 const float al = fabsf(sl), ar = fabsf(sr);
                 if (al > peak) peak = al;
                 if (ar > peak) peak = ar;
@@ -479,6 +481,30 @@ OSStatus tl_ioproc(AudioObjectID device,
             for (uint32_t i = 0; i < frames; i++) dst_r[i * stride_r + cr] = r[i];
         } else {
             for (uint32_t i = 0; i < frames; i++) dst[i * stride + c] = 0.5f * (l[i] + r[i]);
+        }
+    }
+
+    // 11. Pass the other channels of the stream straight through (multichannel interfaces).
+    if (L->passthrough && input && ob_l->mNumberChannels > 2) {
+        float *dst = (float *)ob_l->mData;
+        const uint32_t stride = ob_l->mNumberChannels;
+        const uint32_t skip_l = (uint32_t)L->out_channel_l;
+        const uint32_t skip_r = ob_r == ob_l ? (uint32_t)L->out_channel_r : skip_l;
+        for (int s = 0; s < L->source_count; s++) {
+            const int idx = L->source_buffer_index[s];
+            if (idx < 0 || (UInt32)idx >= input->mNumberBuffers) continue;
+            const AudioBuffer *ib = &input->mBuffers[idx];
+            if (!ib->mData || ib->mNumberChannels != stride) continue;
+            const float *src = (const float *)ib->mData;
+            const float g = k->source_gain_current[s];
+            uint32_t n = ib->mDataByteSize / (uint32_t)(sizeof(float) * stride);
+            if (n > frames) n = frames;
+            for (uint32_t i = 0; i < n; i++) {
+                for (uint32_t c = 0; c < stride; c++) {
+                    if (c == skip_l || c == skip_r) continue;
+                    dst[i * stride + c] += src[i * stride + c] * g;
+                }
+            }
         }
     }
     return noErr;

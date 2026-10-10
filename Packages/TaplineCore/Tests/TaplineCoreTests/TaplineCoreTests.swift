@@ -253,3 +253,32 @@ import TaplineDSP
     let eq = ResponseCurve.responseDB(bands: result.bands, frequencies: [9000], sampleRate: 48_000)[0]
     #expect(eq > -4, "deep treble cut: \(eq) dB, bands \(result.bands.map { "\($0.type) \(Int($0.frequency)) \($0.gain) \($0.q)" })")
 }
+
+@Test func deviceStreamSourcePassesOtherChannelsThrough() {
+    let kernel = DSPKernel()
+    kernel.configure(sampleRate: 48_000, layout: KernelLayout(sourceBufferIndices: [0], sourceLeftChannel: 2, sourceRightChannel: 3,
+                                                              leftBuffer: 0, leftChannel: 2, rightBuffer: 0, rightChannel: 3, passthrough: true))
+    var s = DSPSettings()
+    s.effects.limiterEnabled = false
+    kernel.setSettings(s, sampleRate: 48_000)
+    let frames = 256
+    var src = [Float](repeating: 0, count: frames * 10)
+    for i in 0..<frames { src[i * 10 + 2] = 0.5; src[i * 10 + 3] = -0.5; src[i * 10 + 6] = 0.25 }
+    var out = [Float](repeating: 0, count: frames * 10)
+    let inList = AudioBufferList.allocate(maximumBuffers: 1)
+    let outList = AudioBufferList.allocate(maximumBuffers: 1)
+    defer { free(inList.unsafeMutablePointer); free(outList.unsafeMutablePointer) }
+    src.withUnsafeMutableBytes { sr in
+        out.withUnsafeMutableBytes { orr in
+            inList[0] = AudioBuffer(mNumberChannels: 10, mDataByteSize: UInt32(sr.count), mData: sr.baseAddress)
+            outList[0] = AudioBuffer(mNumberChannels: 10, mDataByteSize: UInt32(orr.count), mData: orr.baseAddress)
+            var ts = AudioTimeStamp()
+            for _ in 0..<2 { _ = tl_ioproc(0, &ts, inList.unsafePointer, &ts, outList.unsafeMutablePointer, &ts, kernel.clientData) }
+        }
+    }
+    let i = 200
+    #expect(abs(out[i * 10 + 2] - 0.5) < 1e-5)
+    #expect(abs(out[i * 10 + 3] + 0.5) < 1e-5)
+    #expect(abs(out[i * 10 + 6] - 0.25) < 1e-5)
+    #expect(out[i * 10 + 0] == 0)
+}

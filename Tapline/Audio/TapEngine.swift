@@ -42,6 +42,10 @@ final class TapEngine {
     /// IO cycles the HAL reported as overloaded (audible dropouts).
     let overloads = OverloadCounter()
 
+    enum TapMode { case deviceStream, mixdown }
+    private(set) var tapMode: TapMode = .deviceStream
+    private(set) var driftCompensation = false
+
     private var tapIDs: [AudioObjectID] = []
     private var tapDescriptions: [CATapDescription] = []
     private var aggregateID: AudioObjectID = 0
@@ -95,42 +99,45 @@ final class TapEngine {
     // MARK: - Build / teardown
 
     private func build(output: AudioDevice, sources: [TapSourceSpec]) throws {
-        // 1. One process tap per source. Taps mute their processes only while we read them.
-        for spec in sources.prefix(DSPKernel.maxSources) {
-            let description: CATapDescription
-            if spec.exclusive {
-                description = CATapDescription(stereoGlobalTapButExcludeProcesses: spec.processes)
-            } else {
-                description = CATapDescription(stereoMixdownOfProcesses: spec.processes)
-                description.isProcessRestoreEnabled = true
-            }
-            description.bundleIDs = spec.bundleIDs
-            description.name = "Tapline \(spec.key)"
-            description.isPrivate = true
-            description.muteBehavior = .mutedWhenTapped
-
-            var tapID = AudioObjectID(kAudioObjectUnknown)
-            try CA.check(AudioHardwareCreateProcessTap(description, &tapID), "Create process tap")
-            tapIDs.append(tapID)
-            tapDescriptions.append(description)
-            self.sources.append(spec)
+        // Where the system's stereo pair lives on the device.
+        let deviceStreams = CA.streamConfiguration(output.id, input: false)
+        var stereo = output.preferredStereo.map(Int.init)
+        if stereo.count < 2 { stereo = output.outputChannels >= 2 ? [1, 2] : [1] }
+        guard let deviceLeft = Self.locate(channel: stereo[0], in: deviceStreams) else {
+            throw CoreAudioError(status: kAudioHardwareBadStreamError, operation: "No output channel \(stereo[0])")
         }
 
-        // 2. Private aggregate: output device + all taps.
+        // 1. One process tap per source, muting its processes only while we read them.
+        //    Prefer taps of the device's own output stream: they run on the device's clock
+        //    and only see audio headed for this device. Fall back to stereo mixdowns.
+        let specs = Array(sources.prefix(DSPKernel.maxSources))
+        do {
+            try createTaps(specs, deviceUID: output.uid, stream: deviceLeft.buffer)
+            tapMode = .deviceStream
+        } catch {
+            log.error("Device stream tap failed (\(error.localizedDescription, privacy: .public)), using stereo mixdown")
+            destroyTaps()
+            try createTaps(specs, deviceUID: nil, stream: 0)
+            tapMode = .mixdown
+        }
+
+        // 2. Private aggregate: output device (clock) + all taps.
+        //    Taps of a Bluetooth or virtual device already follow that device's clock; drift
+        //    compensation there makes the HAL add/drop samples (wobble, rhythmic crackle).
+        //    Wired, USB and built-in devices have their own crystal and need it.
+        driftCompensation = !(output.isBluetooth || output.isVirtual)
         let aggregateUID = "\(AudioDeviceCenter.privateAggregatePrefix).\(UUID().uuidString)"
         let composition: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Tapline",
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceMainSubDeviceKey: output.uid,
+            kAudioAggregateDeviceClockDeviceKey: output.uid,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: false,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: output.uid]],
+            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: output.uid, kAudioSubDeviceDriftCompensationKey: false]],
             kAudioAggregateDeviceTapListKey: tapDescriptions.map {
-                // No drift compensation: every tapped app plays to this aggregate's own
-                // output device, so the tap already runs on its clock. Resampling against
-                // jittery Bluetooth timestamps made sustained notes wobble on AirPods.
-                [kAudioSubTapUIDKey: $0.uuid.uuidString, kAudioSubTapDriftCompensationKey: false]
+                [kAudioSubTapUIDKey: $0.uuid.uuidString, kAudioSubTapDriftCompensationKey: driftCompensation]
             },
         ]
         var aggregate = AudioObjectID(kAudioObjectUnknown)
@@ -147,20 +154,24 @@ final class TapEngine {
         let firstTap = inputs.count - tapCount
         let sourceIndices = (0..<tapCount).map { firstTap + $0 }
 
-        var stereo = output.preferredStereo.map(Int.init)
-        if stereo.count < 2 { stereo = output.outputChannels >= 2 ? [1, 2] : [1] }
         guard let left = Self.locate(channel: stereo[0], in: outputs) else {
             throw CoreAudioError(status: kAudioHardwareBadStreamError, operation: "No output channel \(stereo[0])")
         }
         let right = stereo.count > 1 ? Self.locate(channel: stereo[1], in: outputs) : nil
+        // Device-stream taps mirror the output stream's channel layout.
+        let streamTaps = tapMode == .deviceStream
+        let rightInSameStream = right.map { $0.buffer == left.buffer } ?? false
 
         sampleRate = CA.read(aggregate, kAudioDevicePropertyNominalSampleRate, default: output.sampleRate)
         if sampleRate <= 0 { sampleRate = 48_000 }
 
         let layout = KernelLayout(
             sourceBufferIndices: sourceIndices,
+            sourceLeftChannel: streamTaps ? left.channel : 0,
+            sourceRightChannel: streamTaps ? (rightInSameStream ? right!.channel : left.channel) : 1,
             leftBuffer: left.buffer, leftChannel: left.channel,
-            rightBuffer: right?.buffer ?? -1, rightChannel: right?.channel ?? 0
+            rightBuffer: right?.buffer ?? -1, rightChannel: right?.channel ?? 0,
+            passthrough: streamTaps && rightInSameStream
         )
         kernel.configure(sampleRate: sampleRate, layout: layout)
 
@@ -174,6 +185,7 @@ final class TapEngine {
             diagnostics.append("tap[\(i)] \(sources[i].key): \(format.mChannelsPerFrame)ch @ \(Int(format.mSampleRate)) Hz → input buffer \(sourceIndices[i])")
         }
         diagnostics.append("aggregate inputs \(inputs) outputs \(outputs) @ \(Int(sampleRate)) Hz, buffer \(bufferFrames)")
+        diagnostics.append("tap mode \(tapMode == .deviceStream ? "device stream \(deviceLeft.buffer)" : "stereo mixdown"), drift compensation \(driftCompensation ? "on" : "off") (\(output.transportName))")
         diagnostics.append("output L → buffer \(left.buffer) ch \(left.channel), R → \(right.map { "buffer \($0.buffer) ch \($0.channel)" } ?? "mono")")
         for line in diagnostics { log.info("\(line, privacy: .public)") }
 
@@ -200,6 +212,36 @@ final class TapEngine {
 
         try CA.check(AudioDeviceStart(aggregate, proc), "Start audio device")
         outputDevice = output
+    }
+
+    private func createTaps(_ specs: [TapSourceSpec], deviceUID: String?, stream: Int) throws {
+        for spec in specs {
+            let description: CATapDescription
+            switch (spec.exclusive, deviceUID) {
+            case (true, let uid?): description = CATapDescription(excludingProcesses: spec.processes, deviceUID: uid, stream: UInt(stream))
+            case (false, let uid?): description = CATapDescription(processes: spec.processes, deviceUID: uid, stream: UInt(stream))
+            case (true, nil): description = CATapDescription(stereoGlobalTapButExcludeProcesses: spec.processes)
+            case (false, nil): description = CATapDescription(stereoMixdownOfProcesses: spec.processes)
+            }
+            if !spec.exclusive { description.isProcessRestoreEnabled = true }
+            description.bundleIDs = spec.bundleIDs
+            description.name = "Tapline \(spec.key)"
+            description.isPrivate = true
+            description.muteBehavior = .mutedWhenTapped
+
+            var tapID = AudioObjectID(kAudioObjectUnknown)
+            try CA.check(AudioHardwareCreateProcessTap(description, &tapID), "Create process tap")
+            tapIDs.append(tapID)
+            tapDescriptions.append(description)
+            self.sources.append(spec)
+        }
+    }
+
+    private func destroyTaps() {
+        for tap in tapIDs { AudioHardwareDestroyProcessTap(tap) }
+        tapIDs = []
+        tapDescriptions = []
+        sources = []
     }
 
     private func teardown() {

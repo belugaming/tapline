@@ -15,7 +15,13 @@ GitHub release notes, so write entries for users.
 - The About section shows the build number.
 
 ### Changed
+- Tapline now taps the output device's own stream instead of a system-wide stereo mixdown, so captured audio runs on the device's clock and only contains audio headed for that device.
+- Drift compensation is chosen per device: off for Bluetooth and virtual outputs, on for USB, built-in and other wired outputs.
+- Channels other than the stereo pair are passed through on multichannel interfaces.
 - Tap updates use the Core Audio C API, so the project builds with the Xcode 26 SDK.
+
+### Fixed
+- Distorted sustained notes, occasional crackles, pitch jumps and silence after changing tracks on AirPods and other Bluetooth headphones.
 
 ## [0.1.0] - 2026-10-10
 

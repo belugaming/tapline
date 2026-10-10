@@ -21,6 +21,8 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
     let hasOutputVolume: Bool
 
     var isOutput: Bool { outputChannels > 0 }
+    var isBluetooth: Bool { transportType == kAudioDeviceTransportTypeBluetooth || transportType == kAudioDeviceTransportTypeBluetoothLE }
+    var isVirtual: Bool { transportType == kAudioDeviceTransportTypeVirtual }
 
     /// The properties that decide how the engine is wired. Anything else (name,
     /// volume support...) can change without rebuilding the audio path.

@@ -256,12 +256,6 @@ final class AppModel {
                 appSpecs.append(TapSourceSpec(key: id, processes: procs.sorted(), bundleIDs: bundles, exclusive: false))
             }
         }
-        // Leave apps that play only to a different device alone.
-        for app in apps where appSettings[app.id] == nil {
-            for p in app.processes where !p.outputDevices.isEmpty && !p.outputDevices.contains(output.id) {
-                excludedProcesses.append(p.objectID)
-            }
-        }
         let main = TapSourceSpec(key: TapSourceSpec.mainKey, processes: Array(Set(excludedProcesses)).sorted(), bundleIDs: excludedBundles.sorted(), exclusive: true)
         return [main] + appSpecs
     }

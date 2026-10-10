@@ -53,8 +53,12 @@ typedef struct {
 typedef struct {
     int32_t source_count;
     int32_t source_buffer_index[TL_MAX_SOURCES];  // index into the IOProc input AudioBufferList
+    int32_t source_channel_l, source_channel_r;   // stereo pair inside each source buffer
     int32_t out_buffer_l, out_channel_l;          // where the left channel goes
     int32_t out_buffer_r, out_channel_r;          // -1 when the device is mono
+    /// Sources are copies of the output stream (device-stream taps): channels other
+    /// than the processed stereo pair are passed through unchanged.
+    int32_t passthrough;
 } tl_layout;
 
 typedef struct {

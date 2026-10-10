@@ -17,17 +17,26 @@ public struct KernelMeters: Sendable, Equatable {
 
 public struct KernelLayout: Sendable, Equatable {
     public var sourceBufferIndices: [Int]
+    /// Stereo pair inside each source buffer (0/1 for mixdown taps).
+    public var sourceLeftChannel: Int
+    public var sourceRightChannel: Int
     public var leftBuffer: Int
     public var leftChannel: Int
     public var rightBuffer: Int
     public var rightChannel: Int
+    /// Sources mirror the output stream; pass non-stereo channels through.
+    public var passthrough: Bool
 
-    public init(sourceBufferIndices: [Int], leftBuffer: Int, leftChannel: Int, rightBuffer: Int, rightChannel: Int) {
+    public init(sourceBufferIndices: [Int], sourceLeftChannel: Int = 0, sourceRightChannel: Int = 1,
+                leftBuffer: Int, leftChannel: Int, rightBuffer: Int, rightChannel: Int, passthrough: Bool = false) {
         self.sourceBufferIndices = sourceBufferIndices
+        self.sourceLeftChannel = sourceLeftChannel
+        self.sourceRightChannel = sourceRightChannel
         self.leftBuffer = leftBuffer
         self.leftChannel = leftChannel
         self.rightBuffer = rightBuffer
         self.rightChannel = rightChannel
+        self.passthrough = passthrough
     }
 }
 
@@ -62,6 +71,9 @@ public final class DSPKernel: @unchecked Sendable {
                 p[i] = i < layout.sourceBufferIndices.count ? Int32(layout.sourceBufferIndices[i]) : -1
             }
         }
+        l.source_channel_l = Int32(layout.sourceLeftChannel)
+        l.source_channel_r = Int32(layout.sourceRightChannel)
+        l.passthrough = layout.passthrough ? 1 : 0
         l.out_buffer_l = Int32(layout.leftBuffer)
         l.out_channel_l = Int32(layout.leftChannel)
         l.out_buffer_r = Int32(layout.rightBuffer)
