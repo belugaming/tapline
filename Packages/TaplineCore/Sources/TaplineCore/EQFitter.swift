@@ -66,8 +66,14 @@ public enum EQFitter {
 
         // Required correction, smoothed more in the treble where measurements are least reliable.
         var c = (0..<n).map { t[$0] - m[$0] }
-        c = Smoothing.fractionalOctave(c, grid: f) { freq in
-            freq < 1000 ? 1.0 / 6 : (freq < 6000 ? 1.0 / 5 : (freq < 10_000 ? 1.0 / 3 : 1.0 / 2))
+        // Like AutoEQ: fine smoothing below 6 kHz, two-octave smoothing above 8 kHz with
+        // a crossfade in between. Measurement rigs disagree wildly up there (coupler
+        // resonances, fit), so only the broad treble trend is worth correcting.
+        let fine = Smoothing.fractionalOctave(c, grid: f) { $0 < 1000 ? 1.0 / 6 : 1.0 / 5 }
+        let broad = Smoothing.fractionalOctave(c, grid: f) { _ in 2.0 }
+        for i in 0..<n {
+            let k = (log2(f[i] / 6000) / log2(8000.0 / 6000)).clamped(to: 0...1)
+            c[i] = fine[i] * (1 - k) + broad[i] * k
         }
         for i in 0..<n {
             if f[i] > 12_000 {
@@ -86,8 +92,8 @@ public enum EQFitter {
         let w: [Double] = f.map { freq in
             if freq < 30 { return 0.5 }
             if freq <= 8000 { return 1 }
-            if freq <= 12_000 { return 0.6 }
-            if freq <= 16_000 { return 0.25 }
+            if freq <= 12_000 { return 0.5 }
+            if freq <= 16_000 { return 0.2 }
             return 0.05
         }
 
@@ -156,7 +162,7 @@ private struct Model {
         var x = x
         switch x.kind {
         case .peak:
-            x.log2f = x.log2f.clamped(to: log2(20)...log2(12_000))
+            x.log2f = x.log2f.clamped(to: log2(20)...log2(10_000))
             x.logq = x.logq.clamped(to: log(0.25)...log(6))
         case .lowShelf:
             x.log2f = x.log2f.clamped(to: log2(40)...log2(250))
@@ -221,7 +227,7 @@ private struct Model {
             // Largest weighted residual in the band we trust.
             var best = -1
             var bestScore = 0.0
-            for i in f.indices where f[i] >= 25 && f[i] <= 12_000 {
+            for i in f.indices where f[i] >= 25 && f[i] <= 10_000 {
                 let score = abs(c[i] - total[i]) * w[i]
                 if score > bestScore { bestScore = score; best = i }
             }
@@ -235,8 +241,9 @@ private struct Model {
             let octaves = max(log2(f[hi] / f[lo]), 0.1)
             let q = sqrt(pow(2, octaves)) / (pow(2, octaves) - 1)
             add(Filter(kind: .peak, log2f: log2(f[best]), gain: peak, logq: log(q)))
-            refine()
+            refine(maxPasses: 40)
         }
+        refine(maxPasses: 400)
 
         // Drop filters that ended up doing nothing.
         var keep: [Int] = []
@@ -249,13 +256,13 @@ private struct Model {
     }
 
     /// Coordinate pattern search over (log2 f, gain, ln q) of every filter.
-    mutating func refine() {
+    mutating func refine(maxPasses: Int = 400) {
         guard !filters.isEmpty else { return }
         var current = error(total)
         var scale = 1.0
         let steps = (freq: 0.08, gain: 0.4, q: 0.15)
         var passes = 0
-        while scale > 0.015, passes < 400 {
+        while scale > 0.015, passes < maxPasses {
             passes += 1
             var improved = false
             for k in filters.indices {

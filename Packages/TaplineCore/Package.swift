@@ -10,13 +10,16 @@ let package = Package(
     targets: [
         // Realtime audio kernel. Written in C so the IO callback never touches
         // the Swift runtime (no ARC, no allocation, no locks).
+        // Optimised even in Debug: the IO callback and the EQ fitter are hot loops.
         .target(
             name: "TaplineDSP",
+            cSettings: [.unsafeFlags(["-O2"])],
             linkerSettings: [.linkedFramework("CoreAudio")]
         ),
         .target(
             name: "TaplineCore",
             dependencies: ["TaplineDSP"],
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))],
             linkerSettings: [.linkedFramework("Accelerate")]
         ),
         .testTarget(

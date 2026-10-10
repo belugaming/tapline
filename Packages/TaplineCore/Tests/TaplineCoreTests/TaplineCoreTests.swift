@@ -201,7 +201,7 @@ import TaplineDSP
             EQBand(type: .lowShelf, frequency: 105, gain: 5, q: 0.7),
             EQBand(type: .peak, frequency: 180, gain: -4, q: 1.0),
             EQBand(type: .peak, frequency: 2500, gain: 4, q: 1.4),
-            EQBand(type: .peak, frequency: 6000, gain: -5, q: 3),
+            EQBand(type: .peak, frequency: 4500, gain: -5, q: 3),
         ]
         let result = EQFitter.fit(measurement: synthetic(truth), target: flat)
         #expect(result.errorBeforeDB > 2.5)
@@ -242,4 +242,14 @@ import TaplineDSP
     let r = EQFitter.fit(measurement: measurement, target: target)
     print("REAL fit in \(Date().timeIntervalSince(start))s error \(r.errorBeforeDB) -> \(r.errorAfterDB)")
     print(ParametricEQFormat.export(bands: r.bands, preampDB: 0))
+}
+
+@Test func trebleIsOnlyBroadlyCorrected() {
+    // A narrow 9 kHz coupler resonance must not produce a deep narrow cut.
+    let grid = ResponseCurve.logFrequencies(count: 600)
+    let resonance = ResponseCurve.responseDB(bands: [EQBand(type: .peak, frequency: 9000, gain: 10, q: 4)], frequencies: grid, sampleRate: 48_000)
+    let measurement = FrequencyResponse(frequencies: grid, levels: resonance.map { 70 + $0 })
+    let result = EQFitter.fit(measurement: measurement, target: FrequencyResponse(frequencies: [20, 20_000], levels: [0, 0]))
+    let eq = ResponseCurve.responseDB(bands: result.bands, frequencies: [9000], sampleRate: 48_000)[0]
+    #expect(eq > -4, "deep treble cut: \(eq) dB, bands \(result.bands.map { "\($0.type) \(Int($0.frequency)) \($0.gain) \($0.q)" })")
 }
