@@ -1,0 +1,83 @@
+import SwiftUI
+import TaplineCore
+
+struct SettingsPage: View {
+    @Environment(AppModel.self) private var model
+    @State private var confirmReset = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Card(title: "General", systemImage: "gearshape") {
+                    Toggle("Open Tapline at login", isOn: Binding(get: { _ = model.launchAtLoginRevision; return model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
+                    Toggle("Turn on processing when Tapline starts", isOn: Binding(get: { model.powerOn }, set: { _ in model.togglePower() }))
+                    Text("The interface language follows your system language (English or Simplified Chinese).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Card(title: "Analyzer", systemImage: "waveform") {
+                    Toggle("Show input spectrum (before EQ)", isOn: Binding(get: { model.showPreSpectrum }, set: { model.showPreSpectrum = $0 }))
+                    LabeledSlider(title: "Tilt", value: Binding(get: { model.analyzerTilt }, set: { model.analyzerTilt = $0.rounded(toPlaces: 1) }), range: 0...6, format: { String(format: "%.1f dB/oct", $0) })
+                    Text("Tilt raises high frequencies in the display only, so typical music looks flat. 3 dB/oct is a good default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Card(title: "Permission", systemImage: "lock.shield") {
+                    HStack {
+                        Text(permissionText)
+                        Spacer()
+                        Button("Open Privacy Settings") { NSWorkspace.shared.open(AudioCapturePermission.settingsURL) }
+                    }
+                    Text("Tapline uses the macOS audio tap API to process sound on your Mac. Nothing is recorded or sent anywhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Card(title: "Reset", systemImage: "arrow.counterclockwise") {
+                    HStack {
+                        Text("Remove all device EQs, app volumes and presets.")
+                        Spacer()
+                        Button("Reset Everything…", role: .destructive) { confirmReset = true }
+                    }
+                }
+
+                Card(title: "About", systemImage: "info.circle") {
+                    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+                    Text("Tapline \(version)")
+                        .font(.headline)
+                    Text("Open-source system-wide EQ and audio mixer for macOS, built on Core Audio process taps.")
+                        .foregroundStyle(.secondary)
+                    Text("Copyright © 2026 Tapline contributors. Free software under the GNU General Public License v3.0, with ABSOLUTELY NO WARRANTY.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Headphone measurements are provided by the AutoEQ project by Jaakko Pasanen and its contributors.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Link("GitHub", destination: URL(string: "https://github.com/belugaming/tapline")!)
+                        Link("AutoEQ", destination: URL(string: "https://github.com/jaakkopasanen/AutoEq")!)
+                        Link("License (GPL-3.0)", destination: URL(string: "https://www.gnu.org/licenses/gpl-3.0.html")!)
+                    }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
+        }
+        .confirmationDialog("Reset everything?", isPresented: $confirmReset) {
+            Button("Reset", role: .destructive) { model.resetEverything() }
+        } message: {
+            Text("This cannot be undone.")
+        }
+    }
+
+    private var permissionText: LocalizedStringKey {
+        switch AudioCapturePermission.status {
+        case .authorized: "System Audio Recording: allowed"
+        case .denied: "System Audio Recording: denied"
+        case .unknown: "System Audio Recording: not decided yet"
+        }
+    }
+}
