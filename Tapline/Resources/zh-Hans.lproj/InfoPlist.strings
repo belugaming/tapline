@@ -1,2 +1,3 @@
 "NSAudioCaptureUsageDescription" = "Tapline 会在声音到达扬声器或耳机之前对各个 App 的声音进行处理（EQ、音量、效果）。音频不会离开你的 Mac。";
 "CFBundleDisplayName" = "Tapline";
+"NSMicrophoneUsageDescription" = "只有在你为房间校正测量音箱时，Tapline 才会使用麦克风。不会保存录音，也不会发送到任何地方。";

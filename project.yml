@@ -38,6 +38,7 @@ targets:
         LSUIElement: true
         NSHumanReadableCopyright: "Copyright © 2026 Tapline contributors. Licensed under GPL-3.0."
         NSAudioCaptureUsageDescription: "Tapline processes the sound of your apps (EQ, volume, effects) before it reaches your speakers or headphones. Audio never leaves your Mac."
+        NSMicrophoneUsageDescription: "Tapline uses the microphone only while you measure your speakers for room correction. Nothing is recorded or sent anywhere."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.belugaming.Tapline

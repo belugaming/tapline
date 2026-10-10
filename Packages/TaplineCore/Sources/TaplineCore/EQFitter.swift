@@ -18,6 +18,12 @@ public enum EQFitter {
         /// Same defaults as AutoEQ: boosts are capped harder than cuts.
         public var maxBoostDB: Double = 6
         public var maxCutDB: Double = 12
+        /// Correct only below this frequency (room correction: leave the treble to the speakers).
+        public var correctOnlyBelow: Double?
+        /// Narrowest bell allowed. Room modes need more than headphones.
+        public var maxQ: Double = 6
+        /// Smoothing width in octaves below 1 kHz.
+        public var lowSmoothingOctaves: Double = 1.0 / 6
 
         public init(maxFilters: Int = 10, bassAdjustDB: Double = 0, tiltDBPerOctave: Double = 0, keepBassBelow: Double? = nil) {
             self.maxFilters = maxFilters
@@ -69,7 +75,8 @@ public enum EQFitter {
         // Like AutoEQ: fine smoothing below 6 kHz, two-octave smoothing above 8 kHz with
         // a crossfade in between. Measurement rigs disagree wildly up there (coupler
         // resonances, fit), so only the broad treble trend is worth correcting.
-        let fine = Smoothing.fractionalOctave(c, grid: f) { $0 < 1000 ? 1.0 / 6 : 1.0 / 5 }
+        let lowWidth = options.lowSmoothingOctaves
+        let fine = Smoothing.fractionalOctave(c, grid: f) { $0 < 1000 ? lowWidth : 1.0 / 5 }
         let broad = Smoothing.fractionalOctave(c, grid: f) { _ in 2.0 }
         for i in 0..<n {
             let k = (log2(f[i] / 6000) / log2(8000.0 / 6000)).clamped(to: 0...1)
@@ -78,6 +85,13 @@ public enum EQFitter {
         for i in 0..<n {
             if f[i] > 12_000 {
                 c[i] *= max(0, 1 - log(f[i] / 12_000) / log(20_000.0 / 12_000))
+            }
+            if let top = options.correctOnlyBelow {
+                if f[i] >= top * 2 { c[i] = 0 }
+                else if f[i] > top {
+                    let x = log2(f[i] / top)
+                    c[i] *= 1 - x * x * (3 - 2 * x)
+                }
             }
             if let keep = options.keepBassBelow {
                 if f[i] <= keep { c[i] = 0 }
@@ -157,13 +171,16 @@ private struct Model {
 
     var totalResponse: [Double] { total }
 
+    /// Highest bell frequency: 10 kHz, or a bit above the correction limit.
+    var peakCeiling: Double { min(10_000, (options.correctOnlyBelow ?? 10_000) * 1.5) }
+
     // Bounds per kind
     func clamp(_ x: Filter) -> Filter {
         var x = x
         switch x.kind {
         case .peak:
-            x.log2f = x.log2f.clamped(to: log2(20)...log2(10_000))
-            x.logq = x.logq.clamped(to: log(0.25)...log(6))
+            x.log2f = x.log2f.clamped(to: log2(20)...log2(peakCeiling))
+            x.logq = x.logq.clamped(to: log(0.25)...log(max(options.maxQ, 0.5)))
         case .lowShelf:
             x.log2f = x.log2f.clamped(to: log2(40)...log2(250))
             x.logq = x.logq.clamped(to: log(0.4)...log(1.2))
@@ -218,7 +235,7 @@ private struct Model {
             add(Filter(kind: .lowShelf, log2f: log2(105), gain: bass, logq: log(0.71)))
         }
         let treble = mean(of: c, from: 10_000, to: 14_000)
-        if abs(treble) > 0.5, filters.count < budget {
+        if abs(treble) > 0.5, filters.count < budget, options.correctOnlyBelow == nil {
             add(Filter(kind: .highShelf, log2f: log2(10_000), gain: treble * 0.6, logq: log(0.71)))
         }
         refine()
@@ -227,7 +244,7 @@ private struct Model {
             // Largest weighted residual in the band we trust.
             var best = -1
             var bestScore = 0.0
-            for i in f.indices where f[i] >= 25 && f[i] <= 10_000 {
+            for i in f.indices where f[i] >= 25 && f[i] <= peakCeiling {
                 let score = abs(c[i] - total[i]) * w[i]
                 if score > bestScore { bestScore = score; best = i }
             }

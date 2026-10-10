@@ -29,6 +29,7 @@ What makes it different:
 - **No driver to install.** Tapline uses the process tap API that macOS 14.2+ provides. Nothing is added to the system, and if Tapline quits, audio simply goes back to normal.
 - **An EQ you can see.** Drag bands on the frequency response, watch the spectrum before and after the EQ, compare A/B, undo anything.
 - **Headphone correction that keeps up.** Apply one of 5,000+ AutoEQ presets, or let Tapline fit an EQ from 40,000+ raw measurements on squig.link, including headphones released last week.
+- **Room correction for speakers.** Measure your speakers with a microphone where you sit and let Tapline tame the room's bass resonances.
 - **Made for listening, safe for production.** Bypass a DAW in the mixer and it plays untouched.
 - **Free and open source** (GPL-3.0), written in Swift with a realtime core in C.
 
@@ -40,12 +41,13 @@ What makes it different:
 - Tutorials
   - [1. Shape the sound with the EQ](#1-shape-the-sound-with-the-eq)
   - [2. Correct your headphones](#2-correct-your-headphones)
-  - [3. Quick adjustments without EQ knowledge](#3-quick-adjustments-without-eq-knowledge)
-  - [4. Set the volume of each app](#4-set-the-volume-of-each-app)
-  - [5. Effects](#5-effects)
-  - [6. Several outputs and setups](#6-several-outputs-and-setups)
-  - [7. Menu bar and keyboard shortcuts](#7-menu-bar-and-keyboard-shortcuts)
-  - [8. Reading the meters](#8-reading-the-meters)
+  - [3. Correct your speakers and room](#3-correct-your-speakers-and-room)
+  - [4. Quick adjustments without EQ knowledge](#4-quick-adjustments-without-eq-knowledge)
+  - [5. Set the volume of each app](#5-set-the-volume-of-each-app)
+  - [6. Effects](#6-effects)
+  - [7. Several outputs and setups](#7-several-outputs-and-setups)
+  - [8. Menu bar and keyboard shortcuts](#8-menu-bar-and-keyboard-shortcuts)
+  - [9. Reading the meters](#9-reading-the-meters)
 - [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [How it works](#how-it-works)
 - [Privacy and network use](#privacy-and-network-use)
@@ -132,7 +134,29 @@ Tips:
 - Treble above 8 kHz is only corrected broadly, because measurement rigs disagree a lot up there.
 - AirPods and other adaptive headphones change their own EQ with volume and fit. Corrections for them are approximate; compare with ⌃⌥⌘B and keep what sounds better.
 
-### 3. Quick adjustments without EQ knowledge
+### 3. Correct your speakers and room
+
+In a room, the bass of any speaker is shaped by the walls: some notes boom, others nearly vanish. The **Room** page measures your speakers with a microphone at your listening position and computes an EQ for the current output.
+
+![Room correction](docs/images/en/room.png)
+
+**What you need**: a microphone on an input your Mac can see. A measurement microphone (miniDSP UMIK-1/UMIK-2, or an XLR measurement mic on an audio interface) is best; a good studio condenser microphone works well for the bass. Condenser microphones need phantom power (48 V) on the interface. The Mac's built-in microphone only gives a rough idea.
+
+1. **Prepare**: pause all music, keep the room quiet and turn the volume down to a comfortable level. Measurements play at the current output volume.
+2. **Microphone**: choose the **Input** and **Channel** your microphone is on. Load its **Calibration** file if it came with one. Place it at ear height where you sit, pointing between the speakers.
+3. **Check Level**: Tapline plays three seconds of pink noise. Adjust the volume or the preamp gain until the microphone peaks between −30 and −10 dB.
+4. **Measure**: each measurement plays an 8-second sweep. Measure three to five positions a few centimetres apart around your head; Tapline averages them. **Both speakers** measures the system as you listen to it; **Left** and **Right** let you check each side.
+5. **Correct**: the chart shows the measured response (grey), the target (dashed) and the result (green).
+   - **Correct below** (default 500 Hz) limits the correction to the range the room dominates. Above it, your speakers' own tuning is left alone.
+   - **Max boost** (default 3 dB) keeps dips from being boosted much. Dips come from sound waves cancelling each other at your seat; boosting them mostly costs amplifier headroom.
+   - **Flat** or **Room curve** (a gentle bass lift and treble roll-off); fine-tune with **Bass** and **Tilt**.
+6. Click **Apply to …** to use the correction on that output. It is saved as a preset.
+
+**Copy Filters as Text** lists the filters so you can enter them into a hardware EQ instead, for example the parametric EQ of an RME ADI-2 DAC (set **Filters** to 5 to fit it). The correction then applies to every source connected to the DAC.
+
+Tips: set any room or placement switches on your speakers first (desk, wall, bass tilt), then correct what remains. Subwoofer crossover and phase alignment are not handled here; if your speakers support a calibration system of their own (such as Genelec GLM for SAM models), use that first.
+
+### 4. Quick adjustments without EQ knowledge
 
 Further down the **Assistant** page:
 
@@ -141,7 +165,7 @@ Further down the **Assistant** page:
 - **Presets**: every preset with a preview of its curve. Your own presets have rename and delete buttons.
 - **Import & Export**: paste or import Equalizer APO / AutoEQ `ParametricEQ.txt` files, or export yours.
 
-### 4. Set the volume of each app
+### 5. Set the volume of each app
 
 ![Mixer](docs/images/en/mixer.png)
 
@@ -154,7 +178,7 @@ The **Mixer** page lists the apps that use audio, with the ones playing right no
 
 The first time you change an app's volume, Tapline rebuilds its audio path, which causes a short gap. Helper processes (browser tabs, Electron apps) are grouped under their app.
 
-### 5. Effects
+### 6. Effects
 
 ![Effects](docs/images/en/effects.png)
 
@@ -165,7 +189,7 @@ The **Effects** page works on everything that plays through the current device:
 - **Balance**, **Stereo Width** (0% is mono), **Mono** and **Swap left and right**.
 - **Headphone Crossfeed**: blends a little of each channel into the other, like listening to speakers. It makes hard-panned recordings less tiring on headphones.
 
-### 6. Several outputs and setups
+### 7. Several outputs and setups
 
 ![Devices](docs/images/en/devices.png)
 
@@ -175,7 +199,7 @@ Tapline follows the output selected in macOS and keeps **a separate EQ and effec
 - The output menu in the toolbar switches devices from any page.
 - If one device feeds both headphones and speakers (an audio interface, for example), save two presets with **Include effects** ("Headphones" with crossfeed, "Speakers" without) and switch between them from the preset menu or the menu bar.
 
-### 7. Menu bar and keyboard shortcuts
+### 8. Menu bar and keyboard shortcuts
 
 <img src="docs/images/en/menubar.png" width="340" align="right" alt="Menu bar panel">
 
@@ -193,7 +217,7 @@ Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compare
 
 <br clear="right">
 
-### 8. Reading the meters
+### 9. Reading the meters
 
 The column next to the graph shows the output level of the left and right channel:
 
@@ -217,6 +241,9 @@ This has not been tested thoroughly. If an Atmos track or head-tracked Spatial A
 
 **Bluetooth headphones crackle or wobble.**
 Update to 0.1.1 or later, which taps the device's own stream and handles Bluetooth clocks correctly.
+
+**Can I use a studio microphone for room correction?**
+Yes. A good condenser microphone is accurate enough in the bass, which is what room correction is about. Point a cardioid microphone between the speakers at ear height, switch on phantom power, and measure a few positions. Tapline uses the microphone only while measuring; macOS asks for microphone access the first time.
 
 **SoundSource or another tool is running.**
 Quit it. Its audio daemon may stay in the background; Tapline only warns while it is actually processing audio.
@@ -288,6 +315,7 @@ The script checks that `main` is clean, bumps the version, turns the Unreleased 
 ## Known limitations
 
 - Apps that take exclusive (hog) mode on a device cannot be tapped.
+- Room correction applies one EQ to both channels and does not align subwoofers.
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).
 

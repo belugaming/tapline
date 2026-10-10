@@ -7,6 +7,7 @@ struct TaplineApp: App {
     @State private var model = AppModel()
     @State private var autoEQ = AutoEQService()
     @State private var squig = SquigService()
+    @State private var room = RoomMeasurementService()
 
     var body: some Scene {
         Window("Tapline", id: "main") {
@@ -14,6 +15,7 @@ struct TaplineApp: App {
                 .environment(model)
                 .environment(autoEQ)
                 .environment(squig)
+                .environment(room)
                 .frame(minWidth: 980, minHeight: 640)
         }
         .defaultSize(width: 1180, height: 760)

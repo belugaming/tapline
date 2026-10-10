@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Added
+- Room correction: measure your speakers with a microphone (sine sweeps, several positions averaged, microphone calibration files) and fit an EQ that cuts room resonances below a chosen frequency, with flat or room-curve targets. The filters can be copied for a hardware EQ such as the RME ADI-2's.
+
 ### Changed
 - When drift compensation is needed (USB, built-in and other wired outputs), the HAL now uses its highest-quality converter.
 

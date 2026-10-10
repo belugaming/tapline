@@ -282,3 +282,56 @@ import TaplineDSP
     #expect(abs(out[i * 10 + 6] - 0.25) < 1e-5)
     #expect(out[i * 10 + 0] == 0)
 }
+
+@Suite struct RoomTests {
+    /// Runs `x` through biquads (transposed direct form II), like a room would colour it.
+    func filter(_ x: [Float], _ bands: [EQBand], sampleRate: Double) -> [Float] {
+        var y = x.map(Double.init)
+        for band in bands {
+            let c = BiquadCoefficients(band: band, sampleRate: sampleRate)
+            var z1 = 0.0, z2 = 0.0
+            for i in y.indices {
+                let input = y[i]
+                let out = c.b0 * input + z1
+                z1 = c.b1 * input - c.a1 * out + z2
+                z2 = c.b2 * input - c.a2 * out
+                y[i] = out
+            }
+        }
+        return y.map(Float.init)
+    }
+
+    @Test func sweepMeasuresARoom() throws {
+        let sr = 48_000.0
+        let sweep = SineSweep(sampleRate: sr, duration: 3)
+        let room = [EQBand(type: .peak, frequency: 80, gain: 6, q: 4), EQBand(type: .peak, frequency: 200, gain: -4, q: 3)]
+        // 30 ms of latency before the sound reaches the microphone, plus a tail.
+        let recording = [Float](repeating: 0, count: Int(0.03 * sr)) + filter(sweep.signal, room, sampleRate: sr) + [Float](repeating: 0, count: Int(sr))
+        let ir = sweep.impulseResponse(from: recording)
+        let fr = try #require(RoomResponse.frequencyResponse(impulse: ir, sampleRate: sr))
+        let ref = fr.level(at: 1000)
+        #expect(abs(fr.level(at: 80) - ref - 6) < 1.0, "80 Hz: \(fr.level(at: 80) - ref)")
+        #expect(abs(fr.level(at: 200) - ref + 4) < 1.0, "200 Hz: \(fr.level(at: 200) - ref)")
+        #expect(abs(fr.level(at: 3000) - ref) < 0.5)
+        #expect(abs(ref) < 1.0, "unity gain expected, got \(ref) dB")
+    }
+
+    @Test func roomCorrectionCutsTheModeAndLeavesTheTreble() throws {
+        let grid = EQFitter.grid
+        let room = ResponseCurve.responseDB(bands: [EQBand(type: .peak, frequency: 63, gain: 9, q: 6),
+                                                    EQBand(type: .highShelf, frequency: 6000, gain: -3, q: 0.7)],
+                                            frequencies: grid, sampleRate: 48_000)
+        let measurement = FrequencyResponse(frequencies: grid, levels: room.map { 80 + $0 })
+        var options = EQFitter.Options()
+        options.correctOnlyBelow = 500
+        options.maxBoostDB = 3
+        options.maxQ = 10
+        options.lowSmoothingOctaves = 1.0 / 12
+        let result = EQFitter.fit(measurement: measurement, target: RoomResponse.flatTarget(), options: options)
+        let eq = ResponseCurve.responseDB(bands: result.bands, frequencies: [63, 1000, 8000], sampleRate: 48_000)
+        #expect(eq[0] < -6, "mode not cut: \(eq[0])")
+        #expect(abs(eq[1]) < 1, "mids touched: \(eq[1])")
+        #expect(abs(eq[2]) < 1, "treble touched: \(eq[2])")
+        #expect(result.bands.allSatisfy { $0.frequency <= 750 })
+    }
+}

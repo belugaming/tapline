@@ -2,7 +2,7 @@ import SwiftUI
 import TaplineCore
 
 enum Page: String, CaseIterable, Identifiable {
-    case equalizer, mixer, assistant, effects, devices, settings
+    case equalizer, mixer, assistant, room, effects, devices, settings
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .equalizer: "Equalizer"
         case .mixer: "Mixer"
         case .assistant: "Assistant"
+        case .room: "Room"
         case .effects: "Effects"
         case .devices: "Devices"
         case .settings: "Settings"
@@ -22,6 +23,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .equalizer: "slider.vertical.3"
         case .mixer: "speaker.wave.2"
         case .assistant: "wand.and.stars"
+        case .room: "waveform.badge.mic"
         case .effects: "dial.medium"
         case .devices: "hifispeaker.2"
         case .settings: "gearshape"
@@ -53,7 +55,7 @@ struct MainView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
             VStack(spacing: 0) {
-                if page == .equalizer || page == .assistant || page == .effects {
+                if page == .equalizer || page == .assistant || page == .effects || page == .room {
                     if model.processes.conflictingAppRunning {
                         ConflictBanner().padding(.horizontal, 16).padding(.top, 10)
                     } else if model.status != .running {
@@ -65,6 +67,7 @@ struct MainView: View {
                     case .equalizer: EqualizerPage()
                     case .mixer: MixerPage()
                     case .assistant: AssistantPage()
+                    case .room: RoomPage()
                     case .effects: EffectsPage()
                     case .devices: DevicesPage()
                     case .settings: SettingsPage()

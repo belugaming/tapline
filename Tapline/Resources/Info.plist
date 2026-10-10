@@ -35,5 +35,7 @@
 	<string>Tapline processes the sound of your apps (EQ, volume, effects) before it reaches your speakers or headphones. Audio never leaves your Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Tapline contributors. Licensed under GPL-3.0.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Tapline uses the microphone only while you measure your speakers for room correction. Nothing is recorded or sent anywhere.</string>
 </dict>
 </plist>
