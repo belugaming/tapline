@@ -56,10 +56,10 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          zip="dist/Tapline-$VERSION-arm64.zip"
-          ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "$zip"
-          shasum -a 256 "$zip" | tee dist/SHA256SUMS.txt
-          echo "ZIP=$zip" >> "$GITHUB_ENV"
+          name="Tapline-$VERSION-arm64.zip"
+          ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "dist/$name"
+          (cd dist && shasum -a 256 "$name" | tee SHA256SUMS.txt)
+          echo "ZIP=dist/$name" >> "$GITHUB_ENV"
 
       - name: Release notes
         run: |
