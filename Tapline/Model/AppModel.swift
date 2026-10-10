@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreAudio
 import Foundation
 import Observation
@@ -49,6 +50,14 @@ final class AppModel {
     }
     private(set) var launchAtLoginRevision = 0
     var lastError: String?
+    /// Set when the runaway guard switched processing off.
+    var safetyMessage: String?
+    var globalShortcutsEnabled: Bool {
+        didSet {
+            defaults.set(globalShortcutsEnabled, forKey: Keys.shortcuts)
+            updateShortcuts()
+        }
+    }
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var alternate: [String: DSPSettings] = [:]
@@ -63,6 +72,11 @@ final class AppModel {
     @ObservationIgnored private let preAnalyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
     @ObservationIgnored private var analyzerBuffer = [Float](repeating: 0, count: 8192)
     @ObservationIgnored private var tickCount = 0
+    @ObservationIgnored private var runawayTicks = 0
+    @ObservationIgnored private var lastCycles: UInt64 = 0
+    @ObservationIgnored private var stalledTicks = 0
+    @ObservationIgnored private var lastWatchdogRestart = Date.distantPast
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private let log = Logger(subsystem: "io.github.belugaming.Tapline", category: "meters")
 
     private enum Keys {
@@ -72,6 +86,7 @@ final class AppModel {
         static let presets = "userPresets"
         static let showPre = "showPreSpectrum"
         static let tilt = "analyzerTilt"
+        static let shortcuts = "globalShortcuts"
     }
 
     init() {
@@ -81,6 +96,7 @@ final class AppModel {
         userPresets = Self.decode([EQPreset].self, from: defaults.data(forKey: Keys.presets)) ?? []
         showPreSpectrum = defaults.object(forKey: Keys.showPre) as? Bool ?? true
         analyzerTilt = defaults.object(forKey: Keys.tilt) as? Double ?? 3
+        globalShortcutsEnabled = defaults.object(forKey: Keys.shortcuts) as? Bool ?? true
         postAnalyzer.tiltDBPerOctave = analyzerTilt
         preAnalyzer.tiltDBPerOctave = analyzerTilt
         preAnalyzer.decay = 0.9
@@ -88,6 +104,20 @@ final class AppModel {
 
         devices.onChange = { [weak self] in self?.scheduleReconcile() }
         processes.onChange = { [weak self] in self?.scheduleReconcile() }
+
+        // After sleep the HAL often tears down IO; rebuild the audio path.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    MainActor.assumeIsolated {
+                        guard let self, self.powerOn, self.status == .running else { return }
+                        self.log.info("woke from sleep, restarting engine")
+                        self.restartEngine()
+                    }
+                }
+            }
+        }
+        if !DebugSnapshot.isDevelopmentMode { updateShortcuts() }
 
         if DebugSnapshot.usesDemoData {
             var demo = DSPSettings.flat
@@ -120,6 +150,7 @@ final class AppModel {
         if on && DebugSnapshot.isDevelopmentMode { return }
         powerOn = on
         defaults.set(on, forKey: Keys.power)
+        if on { safetyMessage = nil }
         guard on else {
             engine.stop()
             status = .off
@@ -276,6 +307,8 @@ final class AppModel {
         let keys = engine.sources.map(\.key)
         let reading = engine.kernel.readMeters(sourceCount: keys.count)
         meters.ingest(reading, sourceKeys: keys, dt: dt)
+        guardAgainstRunaway(reading)
+        watchdog(reading)
         #if DEBUG
         tickCount += 1
         if tickCount % 60 == 0 {
@@ -296,6 +329,54 @@ final class AppModel {
     }
 
     var overloadCount: Int { engine.overloads.value }
+
+    /// Switches processing off if the output keeps slamming into the limiter or a tapped
+    /// stream is far above full scale for two seconds: the signature of a feedback loop.
+    private func guardAgainstRunaway(_ m: KernelMeters) {
+        let hottestSource = m.sourcePeaks.max() ?? 0
+        if m.gainReductionDB > 12 || hottestSource > 2.5 {
+            runawayTicks += 1
+        } else {
+            runawayTicks = max(0, runawayTicks - 2)
+        }
+        guard runawayTicks > 60 else { return }
+        runawayTicks = 0
+        log.error("runaway guard tripped: gr=\(m.gainReductionDB) source=\(hottestSource)")
+        safetyMessage = String(localized: "Tapline switched itself off because the output kept overloading. Another audio tool may be feeding Tapline's output back into it.")
+        Task { await setPower(false) }
+    }
+
+    /// Restarts the engine if the IO callback stops being called (device reset, driver hiccup).
+    private func watchdog(_ m: KernelMeters) {
+        if m.ioCycles != lastCycles {
+            lastCycles = m.ioCycles
+            stalledTicks = 0
+            return
+        }
+        stalledTicks += 1
+        guard stalledTicks > 60, Date().timeIntervalSince(lastWatchdogRestart) > 10 else { return }
+        stalledTicks = 0
+        lastWatchdogRestart = Date()
+        log.error("audio IO stalled, restarting engine")
+        restartEngine()
+    }
+
+    // MARK: - Global shortcuts
+
+    private func updateShortcuts() {
+        guard globalShortcutsEnabled else {
+            HotKeyCenter.shared.unregisterAll()
+            return
+        }
+        HotKeyCenter.shared.register([
+            .init(id: 1, keyCode: UInt32(kVK_ANSI_P), title: "Turn processing on or off") { [weak self] in self?.togglePower() },
+            .init(id: 2, keyCode: UInt32(kVK_ANSI_B), title: "Bypass EQ") { [weak self] in
+                guard let self else { return }
+                self.setEQEnabled(!self.settings.eqEnabled)
+            },
+            .init(id: 3, keyCode: UInt32(kVK_ANSI_K), title: "Compare A/B") { [weak self] in self?.toggleCompare() },
+        ])
+    }
 
     // MARK: - Device settings
 
@@ -414,8 +495,8 @@ final class AppModel {
     }
 
     @discardableResult
-    func saveCurrentAsPreset(named name: String, source: String? = nil) -> EQPreset {
-        let preset = EQPreset(name: name, from: settings, source: source)
+    func saveCurrentAsPreset(named name: String, source: String? = nil, includeEffects: Bool = false) -> EQPreset {
+        let preset = EQPreset(name: name, from: settings, source: source, includeEffects: includeEffects)
         userPresets.append(preset)
         scheduleSave()
         return preset

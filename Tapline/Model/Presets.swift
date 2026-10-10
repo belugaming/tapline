@@ -23,6 +23,9 @@ struct EQPreset: Codable, Hashable, Identifiable, Sendable {
     var tone: ToneSettings
     var isBuiltIn = false
     var source: String?
+    /// Saved with "Include effects": crossfeed, limiter, balance… switch together with the curve,
+    /// e.g. a "Headphones" and a "Speakers" setup for the same interface.
+    var effects: EffectsSettings?
 
     init(id: UUID = UUID(), name: String, bands: [EQBand], preampDB: Double = 0, autoPreamp: Bool = true, tone: ToneSettings = ToneSettings(), isBuiltIn: Bool = false, source: String? = nil) {
         self.id = id
@@ -35,8 +38,9 @@ struct EQPreset: Codable, Hashable, Identifiable, Sendable {
         self.source = source
     }
 
-    init(name: String, from settings: DSPSettings, source: String? = nil) {
+    init(name: String, from settings: DSPSettings, source: String? = nil, includeEffects: Bool = false) {
         self.init(name: name, bands: settings.bands, preampDB: settings.preampDB, autoPreamp: settings.autoPreamp, tone: settings.tone, source: source)
+        if includeEffects { effects = settings.effects }
     }
 
     func apply(to settings: inout DSPSettings) {
@@ -45,10 +49,12 @@ struct EQPreset: Codable, Hashable, Identifiable, Sendable {
         settings.autoPreamp = autoPreamp
         settings.tone = tone
         settings.eqEnabled = true
+        if let effects { settings.effects = effects }
     }
 
     func matches(_ settings: DSPSettings) -> Bool {
         func strip(_ b: [EQBand]) -> [EQBand] { b.map { var x = $0; x.id = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!; return x } }
+        if let effects, effects != settings.effects { return false }
         return strip(bands) == strip(settings.bands) && tone == settings.tone && autoPreamp == settings.autoPreamp && (autoPreamp || preampDB == settings.preampDB)
     }
 }

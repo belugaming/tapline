@@ -256,10 +256,16 @@ struct EngineOffBanner: View {
     var body: some View {
         HStack {
             Label {
-                Text(StatusText.message(for: model.status))
-                    .font(.callout)
+                if let safety = model.safetyMessage, model.status == .off {
+                    Text(safety)
+                        .font(.callout)
+                } else {
+                    Text(StatusText.message(for: model.status))
+                        .font(.callout)
+                }
             } icon: {
-                Image(systemName: "power").foregroundStyle(.secondary)
+                Image(systemName: model.safetyMessage != nil && model.status == .off ? "exclamationmark.triangle.fill" : "power")
+                    .foregroundStyle(model.safetyMessage != nil && model.status == .off ? Theme.warning : .secondary)
             }
             Spacer()
             if model.status == .permissionDenied || model.status == .requestingPermission {

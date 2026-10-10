@@ -6,6 +6,7 @@ struct EqualizerPage: View {
     @AppStorage("graphRange") private var graphRange = 12.0
     @State private var savingPreset = false
     @State private var presetName = ""
+    @State private var presetIncludesEffects = false
 
     // Fixed heights for everything except the graph, which gets the rest.
     private static let headerHeight: CGFloat = 28
@@ -38,8 +39,8 @@ struct EqualizerPage: View {
             .frame(width: geo.size.width, alignment: .top)
         }
         .sheet(isPresented: $savingPreset) {
-            SavePresetSheet(name: $presetName) { name in
-                model.saveCurrentAsPreset(named: name)
+            SavePresetSheet(name: $presetName, includeEffects: $presetIncludesEffects) { name in
+                model.saveCurrentAsPreset(named: name, includeEffects: presetIncludesEffects)
             }
         }
     }
@@ -391,6 +392,7 @@ struct CompareButton: View {
 
 struct SavePresetSheet: View {
     @Binding var name: String
+    var includeEffects: Binding<Bool>? = nil
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -401,6 +403,18 @@ struct SavePresetSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 280)
                 .onSubmit(save)
+            if let includeEffects {
+                Toggle(isOn: includeEffects) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Include effects")
+                        Text("Crossfeed, limiter, balance and width switch together with the curve.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(width: 280, alignment: .leading)
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }

@@ -149,6 +149,14 @@ private struct PresetLibraryCard: View {
                             HStack(spacing: 4) {
                                 Text(preset.name).lineLimit(1)
                                 if active { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                                if preset.effects != nil {
+                                    Text("FX")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Theme.accent.opacity(0.2), in: Capsule())
+                                        .help(Text("Includes effects"))
+                                }
                             }
                             .font(.callout)
                             Text(preset.isBuiltIn ? String(localized: "Built-in") : (preset.source ?? String(localized: "My preset")))

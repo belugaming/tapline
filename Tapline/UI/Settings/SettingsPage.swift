@@ -16,6 +16,17 @@ struct SettingsPage: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Card(title: "Keyboard Shortcuts", subtitle: "Work in every app, even when Tapline is in the background.", systemImage: "command") {
+                    Toggle("Enable global shortcuts", isOn: Binding(get: { model.globalShortcutsEnabled }, set: { model.globalShortcutsEnabled = $0 }))
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                        GridRow { Text("⌃⌥⌘P").monospaced(); Text("Turn processing on or off") }
+                        GridRow { Text("⌃⌥⌘B").monospaced(); Text("Bypass EQ (compare with the original sound)") }
+                        GridRow { Text("⌃⌥⌘K").monospaced(); Text("Compare A/B") }
+                    }
+                    .font(.callout)
+                    .foregroundStyle(model.globalShortcutsEnabled ? .primary : .secondary)
+                }
+
                 Card(title: "Analyzer", systemImage: "waveform") {
                     Toggle("Show input spectrum (before EQ)", isOn: Binding(get: { model.showPreSpectrum }, set: { model.showPreSpectrum = $0 }))
                     LabeledSlider(title: "Tilt", value: Binding(get: { model.analyzerTilt }, set: { model.analyzerTilt = $0.rounded(toPlaces: 1) }), range: 0...6, format: { String(format: "%.1f dB/oct", $0) })
