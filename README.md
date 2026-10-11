@@ -39,6 +39,7 @@ What makes it different:
 
 - [Requirements](#requirements)
 - [Install](#install)
+- [Windows (beta)](#windows-beta)
 - [Quick start](#quick-start)
 - Tutorials
   - [1. Shape the sound with the EQ](#1-shape-the-sound-with-the-eq)
@@ -69,6 +70,25 @@ What makes it different:
 3. Open Tapline. Release builds are ad-hoc signed and not notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Tapline. (Since macOS 15, right-clicking and choosing Open no longer works for this.)
 
 To update, quit Tapline and replace the app with the new one. macOS asks for the audio permission again after each update, because ad-hoc signed builds have a new identity every time.
+
+## Windows (beta)
+
+Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages (EQ, headphone and room correction, mixer, effects, devices) and keeps a separate EQ for every output device. It is new and has not been tested on many PCs yet: please report what works and what doesn't in [Issues](https://github.com/belugaming/tapline/issues).
+
+Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine and writes its EQ into Equalizer APO's configuration.
+
+1. Install [Equalizer APO](https://sourceforge.net/projects/equalizerapo/). At the end its Configurator opens: tick the output devices you use (speakers, headphones…), then restart Windows.
+2. Download `Tapline-x.y.z-win-x64-setup.exe` (or the portable `.zip`) from the [releases](https://github.com/belugaming/tapline/releases) whose title starts with "Tapline for Windows", and run it. It is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**.
+3. The first time, Tapline asks before it replaces Equalizer APO's configuration; the old one is kept as `config-before-tapline.txt` and can be restored under **Devices → Audio Engine**.
+
+Differences from macOS:
+
+- The EQ keeps working while Tapline is closed, because Equalizer APO applies it. Switch processing off (power button, tray panel or Ctrl+Alt+Shift+P) to hear the original sound.
+- There is no limiter: keep the preamp on **Auto** so boosts can't clip.
+- The mixer sets Windows' own per-app volumes (up to 100 %). Per-app bypass isn't possible; apps that use exclusive mode or ASIO are never processed.
+- The spectrum shows the output after the EQ only.
+- Tapline lives in the notification area instead of the menu bar. Global shortcuts are Ctrl+Alt+Shift+P / B / K.
+- Windows on ARM isn't supported, because Equalizer APO only exists for x64.
 
 ## Quick start
 
@@ -309,6 +329,18 @@ cd Packages/TaplineCore && swift test
 ```
 
 Local builds are ad-hoc signed too. Set your own team in Xcode to keep the audio permission across rebuilds.
+
+### Windows
+
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download). The Windows app is in `windows/`: `Tapline.Core` (the EQ, fitting and room-correction code, ported from Swift) and `Tapline` (the WPF app).
+
+```bash
+cd windows
+dotnet test tests/Tapline.Core.Tests
+dotnet publish src/Tapline/Tapline.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts/publish
+```
+
+The core tests also run on macOS and Linux, and the app builds there too (`EnableWindowsTargeting`), but it only runs on Windows. `TAPLINE_SNAPSHOT_DIR=<folder>` makes the app render every page into PNG files and quit, which CI uses to check the UI on a real Windows machine.
 
 ## Versioning and releases
 
