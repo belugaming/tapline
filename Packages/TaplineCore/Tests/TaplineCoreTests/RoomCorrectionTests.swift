@@ -260,6 +260,27 @@ private let rmeSample = """
         #expect(abs((a.arrivalDifference ?? 1) * sr) < 0.15)
     }
 
+    @Test func speakersAndMicrophoneMayRunAtDifferentRates() throws {
+        // Speakers on a 44.1 kHz interface, a 48 kHz microphone: the sweep can only reach
+        // 0.45 x 44.1 kHz, and the analysis at 48 kHz has to deconvolve with that same sweep.
+        let out = 44_100.0, sr = 48_000.0
+        let end = SineSweep.endFrequency(playbackRate: out, recordingRate: sr)
+        #expect(end == 0.45 * out)
+        #expect(SineSweep.endFrequency(playbackRate: sr, recordingRate: out) == end)
+        let played = StereoSweepPlan(sampleRate: out, sweepSeconds: 3, endFrequency: end)
+        // What the microphone hears: the same continuous signal, sampled at its own rate.
+        let heard = StereoSweepPlan(sampleRate: sr, sweepSeconds: 3, endFrequency: played.sweep.endFrequency)
+        let mic = record(plan: heard, leftDelay: 96, rightDelay: 103, rightGainDB: 1.5)
+        let a = try #require(StereoSweepPlan.analyze(recording: mic, inputRate: sr, outputRate: out, sweepSeconds: 3))
+        let refL = a.left.level(at: 1000), refR = a.right.level(at: 1000)
+        #expect(abs(a.left.level(at: 60) - refL - 6) < 1, "left mode \(a.left.level(at: 60) - refL)")
+        #expect(abs(a.right.level(at: 75) - refR + 5) < 1, "right dip \(a.right.level(at: 75) - refR)")
+        #expect(abs(a.left.level(at: 10_000) - refL) < 1, "left treble \(a.left.level(at: 10_000) - refL)")
+        #expect(abs(refR - refL - 1.5) < 0.2)
+        let dt = try #require(a.arrivalDifference)
+        #expect(abs(dt * sr - 7) < 0.15, "arrival difference \(dt * sr) samples")
+    }
+
     @Test func cancelsClockDriftBetweenInterfaces() throws {
         let sr = 48_000.0
         let plan = StereoSweepPlan(sampleRate: sr, sweepSeconds: 3)

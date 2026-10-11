@@ -170,7 +170,7 @@ extension DSPSettings {
             for i in 0..<Int(TL_MAX_STAGES) { ptr[i] = stages[i] }
         }
 
-        p.output_gain = Float(dbToLinear(effects.outputGainDB))
+        p.output_gain = Float(dbToLinear(effects.outputGainDB.clamped(to: EffectsSettings.outputGainRange)))
         p.balance = Float(effects.balance.clamped(to: -1...1))
         p.width = Float(effects.width.clamped(to: 0...2))
         p.mono = effects.mono ? 1 : 0

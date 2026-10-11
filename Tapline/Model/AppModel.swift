@@ -28,9 +28,9 @@ final class AppModel {
 
     private(set) var status: Status = .off
     private(set) var powerOn: Bool
-    private(set) var profiles: [String: DSPSettings]
-    private(set) var appSettings: [String: AppAudioSettings]
-    private(set) var userPresets: [EQPreset]
+    private(set) var profiles: [String: DSPSettings] = [:]
+    private(set) var appSettings: [String: AppAudioSettings] = [:]
+    private(set) var userPresets: [EQPreset] = []
     private(set) var compareSlot: CompareSlot = .a
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -64,6 +64,9 @@ final class AppModel {
     @ObservationIgnored private var undoStack: [DSPSettings] = []
     @ObservationIgnored private var redoStack: [DSPSettings] = []
     @ObservationIgnored private var saveScheduled = false
+    @ObservationIgnored private var storedProfiles = TolerantJSON()
+    @ObservationIgnored private var storedApps = TolerantJSON()
+    @ObservationIgnored private var storedPresets = TolerantJSON()
     @ObservationIgnored private var reconcileScheduled = false
     @ObservationIgnored private var meterTimer: Timer?
     @ObservationIgnored private var lastMeterTick = Date()
@@ -77,7 +80,10 @@ final class AppModel {
     @ObservationIgnored private var stalledTicks = 0
     @ObservationIgnored private var lastWatchdogRestart = Date.distantPast
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var terminateObserver: NSObjectProtocol?
+    @ObservationIgnored private var takeoverObserver: NSObjectProtocol?
     @ObservationIgnored private let log = Logger(subsystem: "io.github.belugaming.Tapline", category: "meters")
+    @ObservationIgnored private let settingsLog = Logger(subsystem: "io.github.belugaming.Tapline", category: "settings")
 
     private enum Keys {
         static let power = "powerOn"
@@ -91,12 +97,10 @@ final class AppModel {
 
     init() {
         powerOn = defaults.bool(forKey: Keys.power)
-        profiles = Self.decode([String: DSPSettings].self, from: defaults.data(forKey: Keys.profiles)) ?? [:]
-        appSettings = Self.decode([String: AppAudioSettings].self, from: defaults.data(forKey: Keys.apps)) ?? [:]
-        userPresets = Self.decode([EQPreset].self, from: defaults.data(forKey: Keys.presets)) ?? []
         showPreSpectrum = defaults.object(forKey: Keys.showPre) as? Bool ?? true
         analyzerTilt = defaults.object(forKey: Keys.tilt) as? Double ?? 3
         globalShortcutsEnabled = defaults.object(forKey: Keys.shortcuts) as? Bool ?? true
+        loadStoredSettings()
         postAnalyzer.tiltDBPerOctave = analyzerTilt
         preAnalyzer.tiltDBPerOctave = analyzerTilt
         preAnalyzer.decay = 0.9
@@ -116,6 +120,10 @@ final class AppModel {
                     }
                 }
             }
+        }
+        // ⌥⌘Q, the menu bar's quit, logging out: write what the debounced save has not yet.
+        terminateObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushPendingSave() }
         }
         if !DebugSnapshot.isDevelopmentMode { updateShortcuts() }
 
@@ -143,8 +151,27 @@ final class AppModel {
             status = .running
             return
         }
-        if powerOn && !DebugSnapshot.isDevelopmentMode && !SingleInstance.otherInstanceRunning {
+        if DebugSnapshot.isDevelopmentMode { return }
+        if SingleInstance.otherInstanceRunning {
+            waitForOtherInstanceToQuit()
+        } else if powerOn {
             Task { await self.setPower(true) }
+        }
+    }
+
+    /// A newer build was opened while an older one ran (see AppDelegate): once the old
+    /// copy has quit, pick up what it saved last and take over the audio.
+    private func waitForOtherInstanceToQuit() {
+        takeoverObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !SingleInstance.otherInstanceRunning, let observer = self.takeoverObserver else { return }
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+                self.takeoverObserver = nil
+                self.powerOn = self.defaults.bool(forKey: Keys.power)
+                self.loadStoredSettings()
+                self.log.info("other instance quit, taking over")
+                if self.powerOn { Task { await self.setPower(true) } }
+            }
         }
     }
 
@@ -153,10 +180,11 @@ final class AppModel {
     var currentOutput: AudioDevice? { devices.defaultOutput }
     var currentDeviceUID: String { currentOutput?.uid ?? "none" }
 
-    func setPower(_ on: Bool) async {
+    /// `remember: false` switches for this session only; the next launch starts as the user left it.
+    func setPower(_ on: Bool, remember: Bool = true) async {
         if on && DebugSnapshot.isDevelopmentMode { return }
         powerOn = on
-        defaults.set(on, forKey: Keys.power)
+        if remember { defaults.set(on, forKey: Keys.power) }
         if on { safetyMessage = nil }
         guard on else {
             engine.stop()
@@ -331,11 +359,15 @@ final class AppModel {
 
     var overloadCount: Int { engine.overloads.value }
 
-    /// Switches processing off if the output keeps slamming into the limiter or a tapped
-    /// stream is far above full scale for two seconds: the signature of a feedback loop.
+    /// Switches processing off if a tapped stream stays far above full scale (or not a number)
+    /// for two seconds: the signature of another tool feeding Tapline's output back into it.
+    /// Source peaks are read before the app volume, so the user's own gain (output gain,
+    /// preamp, app volume above 100 %) never trips it. Limiter gain reduction alone is no
+    /// signature either: loud settings cause plenty of it, and a loop through the limiter
+    /// looks just like loud music.
     private func guardAgainstRunaway(_ m: KernelMeters) {
         let hottestSource = m.sourcePeaks.max() ?? 0
-        if m.gainReductionDB > 12 || hottestSource > 2.5 {
+        if hottestSource > 2.5 {
             runawayTicks += 1
         } else {
             runawayTicks = max(0, runawayTicks - 2)
@@ -344,7 +376,8 @@ final class AppModel {
         runawayTicks = 0
         log.error("runaway guard tripped: gr=\(m.gainReductionDB) source=\(hottestSource)")
         safetyMessage = String(localized: "Tapline switched itself off because the output kept overloading. Another audio tool may be feeding Tapline's output back into it.")
-        Task { await setPower(false) }
+        // Not remembered: a loop is usually gone by the next launch.
+        Task { await setPower(false, remember: false) }
     }
 
     /// Restarts the engine if the IO callback stops being called (device reset, driver hiccup).
@@ -524,7 +557,7 @@ final class AppModel {
             s.eqEnabled = true
             if let pre = parsed.preampDB {
                 s.autoPreamp = false
-                s.preampDB = pre
+                s.preampDB = pre.clamped(to: DSPSettings.preampRange)
             } else {
                 s.autoPreamp = true
             }
@@ -542,7 +575,7 @@ final class AppModel {
             s.eqEnabled = true
             if let preampDB {
                 s.autoPreamp = false
-                s.preampDB = preampDB
+                s.preampDB = preampDB.clamped(to: DSPSettings.preampRange)
             } else {
                 s.autoPreamp = true
             }
@@ -632,6 +665,9 @@ final class AppModel {
         profiles = [:]
         appSettings = [:]
         userPresets = []
+        storedProfiles = TolerantJSON()
+        storedApps = TolerantJSON()
+        storedPresets = TolerantJSON()
         alternate = [:]
         undoStack = []
         redoStack = []
@@ -656,14 +692,37 @@ final class AppModel {
 
     func saveNow() {
         guard !DebugSnapshot.isActive else { return }
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(profiles) { defaults.set(data, forKey: Keys.profiles) }
-        if let data = try? encoder.encode(appSettings) { defaults.set(data, forKey: Keys.apps) }
-        if let data = try? encoder.encode(userPresets) { defaults.set(data, forKey: Keys.presets) }
+        if let data = storedProfiles.encode(profiles) { defaults.set(data, forKey: Keys.profiles) }
+        if let data = storedApps.encode(appSettings) { defaults.set(data, forKey: Keys.apps) }
+        if let data = storedPresets.encode(userPresets) { defaults.set(data, forKey: Keys.presets) }
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, from data: Data?) -> T? {
-        guard let data else { return nil }
-        return try? JSONDecoder().decode(type, from: data)
+    private func flushPendingSave() {
+        guard saveScheduled else { return }
+        saveScheduled = false
+        saveNow()
+    }
+
+    /// Reads the stored collections entry by entry: an entry this version cannot read is
+    /// kept as it is and written back on save (see `TolerantJSON`), never silently dropped.
+    private func loadStoredSettings() {
+        storedProfiles = TolerantJSON()
+        storedApps = TolerantJSON()
+        storedPresets = TolerantJSON()
+        profiles = load(Keys.profiles) { storedProfiles.decode([String: DSPSettings].self, from: $0) } ?? [:]
+        appSettings = load(Keys.apps) { storedApps.decode([String: AppAudioSettings].self, from: $0) } ?? [:]
+        userPresets = load(Keys.presets) { storedPresets.decode([EQPreset].self, from: $0) } ?? []
+        let unreadable = storedProfiles.unreadableCount + storedApps.unreadableCount + storedPresets.unreadableCount
+        if unreadable > 0 { settingsLog.error("kept \(unreadable) stored entries this version cannot read") }
+    }
+
+    /// Nil when nothing is stored. Data that is not readable at all (not even the outline of
+    /// the collection) is copied to "<key>.backup" before the next save replaces it.
+    private func load<T>(_ key: String, _ decode: (Data) -> T?) -> T? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        if let values = decode(data) { return values }
+        settingsLog.error("\(key, privacy: .public) is unreadable, keeping a copy as \(key, privacy: .public).backup")
+        defaults.set(data, forKey: key + ".backup")
+        return nil
     }
 }

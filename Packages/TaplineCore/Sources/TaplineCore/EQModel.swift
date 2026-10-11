@@ -64,11 +64,12 @@ public struct EQBand: Codable, Hashable, Identifiable, Sendable {
     public static let gainRange: ClosedRange<Double> = -24...24
     public static let qRange: ClosedRange<Double> = 0.1...18
 
+    /// Keeps every parameter in range. NaN becomes a neutral value (1 kHz, 0 dB, Q 1).
     public func clamped() -> EQBand {
         var b = self
-        b.frequency = frequency.clamped(to: Self.frequencyRange)
-        b.gain = gain.clamped(to: Self.gainRange)
-        b.q = q.clamped(to: Self.qRange)
+        b.frequency = frequency.isNaN ? 1000 : frequency.clamped(to: Self.frequencyRange)
+        b.gain = gain.isNaN ? 0 : gain.clamped(to: Self.gainRange)
+        b.q = q.isNaN ? 1 : q.clamped(to: Self.qRange)
         return b
     }
 }
@@ -114,6 +115,8 @@ public struct EffectsSettings: Codable, Hashable, Sendable {
     public var limiterCeilingDB: Double = -0.3
     public var outputGainDB: Double = 0
 
+    public static let outputGainRange: ClosedRange<Double> = -24...12
+
     public init() {}
 
     public init(from decoder: Decoder) throws {
@@ -134,6 +137,7 @@ public struct EffectsSettings: Codable, Hashable, Sendable {
 /// The full processing state for one output device.
 public struct DSPSettings: Codable, Hashable, Sendable {
     public static let maxBands = 24
+    public static let preampRange: ClosedRange<Double> = -24...12
 
     public var eqEnabled: Bool = true
     public var preampDB: Double = 0
@@ -174,7 +178,7 @@ public struct DSPSettings: Codable, Hashable, Sendable {
     /// Preamp that is actually applied: either the manual value, or enough
     /// headroom to cancel the largest boost of the curve.
     public func effectivePreampDB(sampleRate: Double = 48_000) -> Double {
-        guard autoPreamp else { return preampDB }
+        guard autoPreamp else { return preampDB.clamped(to: Self.preampRange) }
         let boost = ResponseCurve.maxBoostDB(bands: activeBands, sampleRate: sampleRate)
         return -max(0, boost)
     }
@@ -194,8 +198,10 @@ public struct DSPSettings: Codable, Hashable, Sendable {
 }
 
 extension Comparable {
+    /// NaN, which compares false with everything, ends up at the lower bound.
     public func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
+        if self > range.upperBound { return range.upperBound }
+        return self >= range.lowerBound ? self : range.lowerBound
     }
 }
 

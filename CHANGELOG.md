@@ -12,6 +12,16 @@ GitHub release notes, so write entries for users.
 ### Changed
 - Releases are now a disk image (`.dmg`) instead of a zip: open it and drag Tapline onto the Applications shortcut.
 
+### Fixed
+- Your EQ profiles, presets and app volumes are no longer wiped when part of them cannot be read, for example after going back to an older version. Whatever can't be read is kept as it is, and changes made just before quitting are saved.
+- The feedback guard no longer switches processing off because of loud settings (output gain, manual preamp, app volume above 100 %). It now reacts only to sound far above full scale, and processing comes back on at the next launch.
+- Your Mac can idle-sleep again while Tapline is running.
+- Invalid numbers (NaN, infinity) can no longer reach your speakers: Tapline silences them and recovers on its own. Imported EQ files with such values are skipped, and preamp values are limited to the range of the Preamp knob.
+- Opening a different version of Tapline (for example after an update) replaces the running copy instead of quietly quitting. Opening the same version again shows its window, even when it was hidden in the menu bar.
+- Typing in the squig.link search no longer makes the window stutter.
+- Room measurements are correct when the speakers and the microphone run at different sample rates (for example a 44.1 kHz interface and a 48 kHz measurement microphone).
+- `scripts/release.sh` accepts a final release after its pre-releases (0.3.0 after 0.3.0-beta.1).
+
 ## [0.2.1] - 2026-10-10
 
 ### Changed

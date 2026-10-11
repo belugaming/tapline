@@ -205,7 +205,7 @@ public enum ADI2Preset {
             if line.hasPrefix("</") { current = nil; continue }
             if line.hasPrefix("<val ") {
                 if let section = current, let (key, value) = entry(line),
-                   let number = Double(value.trimmingCharacters(in: CharacterSet(charactersIn: ", "))) {
+                   let number = Double(value.trimmingCharacters(in: CharacterSet(charactersIn: ", "))), number.isFinite {
                     out[section, default: [:]][key] = number
                 }
                 continue
