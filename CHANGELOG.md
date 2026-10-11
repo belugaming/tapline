@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- Room correction's **Check Level** judges the loudest moment of the test noise. It used to read the silence after the noise and almost always said the level was too quiet.
+
 ## [0.2.2] - 2026-10-11
 
 ### Changed
