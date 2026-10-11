@@ -1,9 +1,14 @@
 name: Release
 
 # Runs when a version tag is pushed (scripts/release.sh creates one).
+# Pull requests that change the release process run every step except Publish.
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/**
 
 permissions:
   contents: write
@@ -28,11 +33,14 @@ jobs:
 
       - name: Resolve version
         run: |
-          version="${GITHUB_REF_NAME#v}"
           project="$(scripts/version.sh)"
-          if [ "$version" != "$project" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project in project.yml. Use scripts/release.sh."
-            exit 1
+          version="$project"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [ "$version" != "$project" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project in project.yml. Use scripts/release.sh."
+              exit 1
+            fi
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "BUILD=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
@@ -55,11 +63,24 @@ jobs:
 
       - name: Package
         run: |
+          set -o pipefail
           mkdir -p dist
-          name="Tapline-$VERSION-arm64.zip"
-          ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "dist/$name"
+          name="Tapline-$VERSION-arm64.dmg"
+          # The disk image holds the app and an Applications shortcut to drag it onto.
+          stage="$(mktemp -d)/Tapline"
+          mkdir -p "$stage"
+          ditto build/Build/Products/Release/Tapline.app "$stage/Tapline.app"
+          ln -s /Applications "$stage/Applications"
+          # hdiutil sometimes fails with "Resource busy" on hosted runners; retry.
+          for attempt in 1 2 3 4 5; do
+            hdiutil create -volname "Tapline $VERSION" -srcfolder "$stage" \
+              -fs HFS+ -format UDZO -ov "dist/$name" && break
+            [ "$attempt" -lt 5 ] || exit 1
+            sleep 5
+          done
+          hdiutil verify "dist/$name"
           (cd dist && shasum -a 256 "$name" | tee SHA256SUMS.txt)
-          echo "ZIP=dist/$name" >> "$GITHUB_ENV"
+          echo "DMG=dist/$name" >> "$GITHUB_ENV"
 
       - name: Release notes
         run: |
@@ -67,24 +88,25 @@ jobs:
             scripts/changelog-section.sh "$VERSION"
             echo
             echo "### Install"
-            echo "Requires macOS 26 or later on Apple Silicon. Unzip and move **Tapline.app** to Applications. The app is ad-hoc signed and not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
+            echo "Requires macOS 26 or later on Apple Silicon. Open the .dmg and drag **Tapline.app** onto the Applications shortcut. The app is ad-hoc signed and not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
             echo
-            echo "需要 macOS 26 及以上、Apple Silicon。解压后把 Tapline.app 拖进“应用程序”。应用只有临时签名、未经公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
+            echo "需要 macOS 26 及以上、Apple Silicon。打开 .dmg，把 Tapline.app 拖到旁边的“应用程序”图标上。应用只有临时签名、未经公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
             echo
             echo "Build $BUILD · Xcode $XCODE · SHA-256 \`$(cut -d' ' -f1 dist/SHA256SUMS.txt)\`"
           } > dist/notes.md
           cat dist/notes.md
 
       - name: Publish
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           prerelease=""
           case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$ZIP" dist/SHA256SUMS.txt --clobber
+            gh release upload "$GITHUB_REF_NAME" "$DMG" dist/SHA256SUMS.txt --clobber
             gh release edit "$GITHUB_REF_NAME" --notes-file dist/notes.md
           else
-            gh release create "$GITHUB_REF_NAME" "$ZIP" dist/SHA256SUMS.txt \
+            gh release create "$GITHUB_REF_NAME" "$DMG" dist/SHA256SUMS.txt \
               --title "Tapline $VERSION" --notes-file dist/notes.md $prerelease
           fi

@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- Releases are now a disk image (`.dmg`) instead of a zip: open it and drag Tapline onto the Applications shortcut.
+
 ### Fixed
 - Your EQ profiles, presets and app volumes are no longer wiped when part of them cannot be read, for example after going back to an older version. Whatever can't be read is kept as it is, and changes made just before quitting are saved.
 - The feedback guard no longer switches processing off because of loud settings (output gain, manual preamp, app volume above 100 %). It now reacts only to sound far above full scale, and processing comes back on at the next launch.
