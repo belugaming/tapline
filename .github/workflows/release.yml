@@ -1,9 +1,14 @@
 name: Release
 
 # Runs when a version tag is pushed (scripts/release.sh creates one).
+# Pull requests that change the release process run every step except Publish.
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/**
 
 permissions:
   contents: write
@@ -28,11 +33,14 @@ jobs:
 
       - name: Resolve version
         run: |
-          version="${GITHUB_REF_NAME#v}"
           project="$(scripts/version.sh)"
-          if [ "$version" != "$project" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project in project.yml. Use scripts/release.sh."
-            exit 1
+          version="$project"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [ "$version" != "$project" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project in project.yml. Use scripts/release.sh."
+              exit 1
+            fi
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "BUILD=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
@@ -55,6 +63,7 @@ jobs:
 
       - name: Package
         run: |
+          set -o pipefail
           mkdir -p dist
           name="Tapline-$VERSION-arm64.dmg"
           # The disk image holds the app and an Applications shortcut to drag it onto.
@@ -88,6 +97,7 @@ jobs:
           cat dist/notes.md
 
       - name: Publish
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
