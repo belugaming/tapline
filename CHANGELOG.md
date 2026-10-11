@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-10
+
 ### Changed
 - ⌘Q now hides Tapline to the menu bar: the window closes and the Dock icon goes away, while audio processing keeps running. Quit completely with ⌥⌘Q or the power button in the menu bar panel.
 
@@ -62,7 +64,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/belugaming/tapline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/belugaming/tapline/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/belugaming/tapline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/belugaming/tapline/releases/tag/v0.1.0
