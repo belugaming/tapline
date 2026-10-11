@@ -39,6 +39,7 @@ Tapline 夹在各个 App 和你的音箱、耳机之间，让你调整听到的�
 
 - [系统要求](#系统要求)
 - [安装](#安装)
+- [Windows 版（测试版）](#windows-版测试版)
 - [快速上手](#快速上手)
 - 教程
   - [1. 用均衡器调声音](#1-用均衡器调声音)
@@ -69,6 +70,25 @@ Tapline 夹在各个 App 和你的音箱、耳机之间，让你调整听到的�
 3. 打开 Tapline。发布版目前只有临时签名，还没有经过 Apple 公证，所以第一次打开会被系统拦下。到 **系统设置 → 隐私与安全性**，拉到最下面，在 Tapline 的提示旁边点 **仍要打开**。（从 macOS 15 开始，右键选"打开"已经不能绕过这个检查。）
 
 更新时，退出 Tapline，用新版本替换掉旧的 App 就行。每次更新后系统都会重新要一次音频权限，因为临时签名的版本每次在系统看来都是一个新 App。
+
+## Windows 版（测试版）
+
+Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版有同样的页面（EQ、耳机校正、房间校正、混音器、效果器、设备），每个输出设备也各自保存一套 EQ。它刚推出，还没有在很多电脑上测试过，欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈哪些能用、哪些不行。
+
+Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎，把 EQ 写进 Equalizer APO 的配置。
+
+1. 安装 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)。安装结束时会弹出 Configurator：勾选你要用的输出设备（音箱、耳机……），然后重启 Windows。
+2. 在[发布页](https://github.com/belugaming/tapline/releases)中找到标题以 “Tapline for Windows” 开头的版本，下载 `Tapline-x.y.z-win-x64-setup.exe`（或便携版 `.zip`）并运行。程序还没有代码签名，SmartScreen 可能会拦截：点 **更多信息 → 仍要运行**。
+3. 第一次使用时，Tapline 会先征求你的同意再替换 Equalizer APO 的配置；原配置会备份为 `config-before-tapline.txt`，可以在 **设备 → 音频引擎** 中恢复。
+
+和 macOS 版的区别：
+
+- 关闭 Tapline 后 EQ 依然有效，因为是 Equalizer APO 在处理声音。要听原声，请关闭处理（电源按钮、托盘面板或 Ctrl+Alt+Shift+P）。
+- 没有限幅器：请把预增益保持在 **自动**，避免提升频段时破音。
+- 混音器调的是 Windows 自带的各应用音量（最高 100%）。不能单独让某个 App 直通；使用独占模式或 ASIO 的软件本来就不会被处理。
+- 频谱只显示 EQ 之后的输出。
+- Tapline 待在通知区域（托盘）而不是菜单栏。全局快捷键是 Ctrl+Alt+Shift+P / B / K。
+- 不支持 ARM 版 Windows，因为 Equalizer APO 只有 x64 版本。
 
 ## 快速上手
 
@@ -309,6 +329,18 @@ cd Packages/TaplineCore && swift test
 ```
 
 本地编译出来的也是临时签名。在 Xcode 里设置你自己的开发团队，重新编译后就不用反复授权了。
+
+### Windows
+
+需要 [.NET 10 SDK](https://dotnet.microsoft.com/download)。Windows 版在 `windows/` 目录：`Tapline.Core`（从 Swift 移植的 EQ、拟合和房间校正代码）和 `Tapline`（WPF 应用）。
+
+```bash
+cd windows
+dotnet test tests/Tapline.Core.Tests
+dotnet publish src/Tapline/Tapline.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts/publish
+```
+
+核心代码的测试在 macOS 和 Linux 上也能跑，应用本身在这些系统上也能编译（`EnableWindowsTargeting`），但只能在 Windows 上运行。设置 `TAPLINE_SNAPSHOT_DIR=<文件夹>` 后，应用会把每个页面渲染成 PNG 然后退出，CI 用它在真正的 Windows 机器上检查界面。
 
 ## 版本号与发布
 

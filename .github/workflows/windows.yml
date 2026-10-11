@@ -1,0 +1,69 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ["windows/**", "Tapline/Resources/zh-Hans.lproj/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**", "Tapline/Resources/zh-Hans.lproj/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test core
+        run: dotnet test tests/Tapline.Core.Tests -c Release
+
+      - name: Publish
+        run: >
+          dotnet publish src/Tapline/Tapline.csproj -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -o artifacts/publish
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Tapline-windows-x64
+          path: windows/artifacts/publish/Tapline.exe
+          retention-days: 14
+
+      # Starts the real app on this Windows machine and renders every page to PNG, in both languages.
+      - name: UI snapshots
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($lang in "en", "zh") {
+            $dir = Join-Path $PWD "artifacts/snapshots/$lang"
+            $env:TAPLINE_SNAPSHOT_DIR = $dir
+            $env:TAPLINE_LANG = $lang
+            $p = Start-Process -FilePath "artifacts/publish/Tapline.exe" -PassThru
+            if (-not $p.WaitForExit(180000)) { $p.Kill(); Write-Host "::error::Snapshot run ($lang) timed out"; $failed = $true }
+            $pngs = @(Get-ChildItem $dir -Filter *.png -ErrorAction SilentlyContinue)
+            Write-Host "$lang`: $($pngs.Count) images, exit code $($p.ExitCode)"
+            foreach ($log in "snapshot-errors.txt", "data/errors.log") {
+              $path = Join-Path $dir $log
+              if (Test-Path $path) { Write-Host "::error::$lang $log"; Get-Content $path; $failed = $true }
+            }
+            if ($pngs.Count -lt 8) { Write-Host "::error::Expected at least 8 images for $lang"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ui-snapshots
+          path: windows/artifacts/snapshots
+          retention-days: 14
