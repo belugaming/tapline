@@ -2,7 +2,7 @@
 
 ## 0.1.0-beta.2
 
-Brings over the fixes from Tapline 0.2.2 and 0.2.3 for macOS.
+Brings over the fixes from Tapline 0.2.2 for macOS.
 
 - Your EQ profiles and presets are no longer reset when part of Tapline's settings can't be read, for example after going back to an older version. Whatever can't be read is kept as it is, and changes made just before signing out or shutting down are saved.
 - Invalid numbers (NaN, infinity) can no longer reach Equalizer APO's configuration. Imported EQ files with such values are skipped, and preamp values are limited to the range of the Preamp knob.
