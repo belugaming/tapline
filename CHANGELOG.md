@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-11
+
 ### Changed
 - Releases are now a disk image (`.dmg`) instead of a zip: open it and drag Tapline onto the Applications shortcut.
 
@@ -77,7 +79,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/belugaming/tapline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/belugaming/tapline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/belugaming/tapline/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/belugaming/tapline/compare/v0.1.0...v0.1.1
