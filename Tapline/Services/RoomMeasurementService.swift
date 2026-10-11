@@ -126,20 +126,23 @@ final class RoomMeasurementService {
         defer { phase = .idle }
         do {
             let seconds = 3.0
-            _ = try await run(output: output, input: input, channel: channel, seconds: seconds + 0.3) { rate, _ in
+            let (recording, _, _) = try await run(output: output, input: input, channel: channel, seconds: seconds + 0.3) { rate, _ in
                 let noise = Self.pinkNoise(count: Int(seconds * rate), amplitude: 0.12)
                 let silent = [Float](repeating: 0, count: noise.count)
                 return (speakers == .right ? silent : noise, speakers == .left ? silent : noise)
             }
-            lastMessage = levelAdvice()
+            // The loudest moment of the whole check: the live meter's last reading is
+            // the silence after the noise has stopped.
+            let peak = Double(recording.map(abs).max() ?? 0)
+            lastMessage = levelAdvice(peakDB: 20 * log10(max(peak, 1e-9)))
         } catch {
             lastMessage = error.localizedDescription
         }
     }
 
-    private func levelAdvice() -> String {
-        if inputPeakDB > -3 { return String(localized: "Too loud: the microphone is close to clipping. Turn the volume or the preamp gain down.") }
-        if inputPeakDB < -45 { return String(localized: "Too quiet. Turn the volume up, raise the preamp gain, or check the microphone channel and phantom power.") }
+    private func levelAdvice(peakDB: Double) -> String {
+        if peakDB > -3 { return String(localized: "Too loud: the microphone is close to clipping. Turn the volume or the preamp gain down.") }
+        if peakDB < -45 { return String(localized: "Too quiet. Turn the volume up, raise the preamp gain, or check the microphone channel and phantom power.") }
         return String(localized: "Level looks good.")
     }
 
