@@ -1,5 +1,9 @@
 # Tapline for Windows changelog
 
+## Unreleased
+
+- Releases come as an installer only. The portable `.zip` is gone: it had no uninstaller, so deleting it left Tapline's EQ in Equalizer APO's configuration.
+
 ## 0.1.0-beta.2
 
 Brings over the fixes from Tapline 0.2.2 for macOS.

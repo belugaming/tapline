@@ -78,7 +78,7 @@ Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版有同样的�
 Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎，把 EQ 写进 Equalizer APO 的配置。
 
 1. 安装 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)。安装结束时会弹出 Configurator：勾选你要用的输出设备（音箱、耳机……），然后重启 Windows。
-2. 在[发布页](https://github.com/belugaming/tapline/releases)中找到标题以 “Tapline for Windows” 开头的版本，下载 `Tapline-x.y.z-win-x64-setup.exe`（或便携版 `.zip`）并运行。程序还没有代码签名，SmartScreen 可能会拦截：点 **更多信息 → 仍要运行**。
+2. 在[发布页](https://github.com/belugaming/tapline/releases)中找到标题以 “Tapline for Windows” 开头的版本，下载 `Tapline-x.y.z-win-x64-setup.exe` 并运行。程序还没有代码签名，SmartScreen 可能会拦截：点 **更多信息 → 仍要运行**。
 3. 第一次使用时，Tapline 会先征求你的同意再替换 Equalizer APO 的配置；原配置会备份为 `config-before-tapline.txt`，可以在 **设备 → 音频引擎** 中恢复。
 
 和 macOS 版的区别：
