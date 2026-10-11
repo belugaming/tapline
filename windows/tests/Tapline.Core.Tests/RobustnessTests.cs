@@ -79,7 +79,7 @@ public class SettingsStorageTests
     {
         var speakers = JsonSerializer.Serialize(new DspSettings(), Options);
         // "future": saved by a newer version with a filter type this one does not know.
-        var stored = JsonNode.Parse($$"""{"speakers": {{speakers}}, "future": {"bands": [{"type": "allPass"}]}}""");
+        var stored = JsonNode.Parse("{\"speakers\": " + speakers + ", \"future\": {\"bands\": [{\"type\": \"allPass\"}]}}");
         var store = new TolerantJson();
         var profiles = store.DecodeObject<DspSettings>(stored, Options);
         Assert.NotNull(profiles);
@@ -111,7 +111,7 @@ public class SettingsStorageTests
     public void KeepsElementsOfAListItCannotRead()
     {
         var band = JsonSerializer.Serialize(new EqBand(FilterType.Peak, 1000, 3), Options);
-        var stored = JsonNode.Parse($$"""[{{band}}, {"type": "allPass"}, {{band}}]""");
+        var stored = JsonNode.Parse("[" + band + ", {\"type\": \"allPass\"}, " + band + "]");
         var store = new TolerantJson();
         var bands = store.DecodeArray<EqBand>(stored, Options);
         Assert.NotNull(bands);
