@@ -44,12 +44,9 @@ jobs:
           choco install innosetup --no-progress -y
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" //DAppVersion="$VERSION" //DSourceDir="..\\artifacts\\publish" //DOutputDir="..\\artifacts\\dist" installer/Tapline.iss
 
-      - name: Package
-        run: |
-          mkdir -p artifacts/dist
-          cp ../LICENSE artifacts/publish/LICENSE.txt
-          (cd artifacts/publish && 7z a "../dist/Tapline-$VERSION-win-x64-portable.zip" Tapline.exe LICENSE.txt)
-          (cd artifacts/dist && sha256sum Tapline-* | tee SHA256SUMS.txt)
+      # Only the installer: its uninstaller gives Equalizer APO its configuration back.
+      - name: Checksums
+        run: (cd artifacts/dist && sha256sum Tapline-* | tee SHA256SUMS.txt)
 
       - name: Release notes
         run: |
@@ -57,9 +54,9 @@ jobs:
             awk -v v="$VERSION" '$0 ~ "^## " v {p=1; next} /^## / {p=0} p' CHANGELOG.md
             echo
             echo "### Install"
-            echo "Requires 64-bit Windows 10 or 11 and [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free). Install Equalizer APO first and tick your output devices in its Configurator, restart, then run **Tapline-$VERSION-win-x64-setup.exe**. Or unzip the portable build and run Tapline.exe. The app is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**."
+            echo "Requires 64-bit Windows 10 or 11 and [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free). Install Equalizer APO first and tick your output devices in its Configurator, restart, then run **Tapline-$VERSION-win-x64-setup.exe**. The app is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**."
             echo
-            echo "需要 64 位 Windows 10 或 11，以及免费的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)。先安装 Equalizer APO，在它的 Configurator 中勾选输出设备并重启，然后运行 **Tapline-$VERSION-win-x64-setup.exe**；也可以解压便携版直接运行 Tapline.exe。程序还没有代码签名，SmartScreen 可能会拦截：点“更多信息 → 仍要运行”。"
+            echo "需要 64 位 Windows 10 或 11，以及免费的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)。先安装 Equalizer APO，在它的 Configurator 中勾选输出设备并重启，然后运行 **Tapline-$VERSION-win-x64-setup.exe**。程序还没有代码签名，SmartScreen 可能会拦截：点“更多信息 → 仍要运行”。"
             echo
             echo "This is a beta built without testing on Windows hardware yet. Please report what works and what does not in [Issues](https://github.com/belugaming/tapline/issues)."
           } > artifacts/notes.md

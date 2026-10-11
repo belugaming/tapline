@@ -78,7 +78,7 @@ Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same 
 Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine and writes its EQ into Equalizer APO's configuration.
 
 1. Install [Equalizer APO](https://sourceforge.net/projects/equalizerapo/). At the end its Configurator opens: tick the output devices you use (speakers, headphones…), then restart Windows.
-2. Download `Tapline-x.y.z-win-x64-setup.exe` (or the portable `.zip`) from the [releases](https://github.com/belugaming/tapline/releases) whose title starts with "Tapline for Windows", and run it. It is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**.
+2. Download `Tapline-x.y.z-win-x64-setup.exe` from the [releases](https://github.com/belugaming/tapline/releases) whose title starts with "Tapline for Windows", and run it. It is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**.
 3. The first time, Tapline asks before it replaces Equalizer APO's configuration; the old one is kept as `config-before-tapline.txt` and can be restored under **Devices → Audio Engine**.
 
 Differences from macOS:

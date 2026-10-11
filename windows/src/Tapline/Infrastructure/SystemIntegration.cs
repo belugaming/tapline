@@ -6,7 +6,7 @@ using Microsoft.Win32;
 namespace Tapline.Infrastructure;
 
 /// One Tapline at a time. A second launch of the same build asks the first one to show its window
-/// and exits; a different build (an update, or another copy of the portable app) asks it to quit
+/// and exits; a different build (an update, or a copy run from another folder) asks it to quit
 /// and takes over once it has saved its settings.
 sealed class SingleInstance : IDisposable
 {
