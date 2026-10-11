@@ -722,6 +722,12 @@ sealed class AppModel
 
     public void Shutdown()
     {
+        // Quitting during a measurement: give the device its EQ back.
+        if (bypassDeviceGuid != null)
+        {
+            bypassDeviceGuid = null;
+            WriteConfig();
+        }
         SaveNow();
         meterTimer.Stop();
         sessionTimer.Stop();

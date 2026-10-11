@@ -75,7 +75,8 @@ sealed class UiScope
         object content = caption == null
             ? label
             : Ui.VStack(1, Ui.Text(label), Ui.Caption(caption));
-        var box = new CheckBox { Content = content, HorizontalAlignment = HorizontalAlignment.Left, ToolTip = tip, VerticalContentAlignment = VerticalAlignment.Center };
+        // Fluent's CheckBox has a MinWidth of 120, which clips it in narrow panels.
+        var box = new CheckBox { Content = content, HorizontalAlignment = HorizontalAlignment.Left, ToolTip = tip, VerticalContentAlignment = VerticalAlignment.Center, MinWidth = 0 };
         box.Checked += (_, _) => { if (!updating) set(true); };
         box.Unchecked += (_, _) => { if (!updating) set(false); };
         return Bind(box, b => { updating = true; b.IsChecked = get(); updating = false; });

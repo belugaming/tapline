@@ -1,0 +1,10 @@
+/* Simplified Chinese strings of the Windows room-correction page. Keys are the English source strings. */
+
+"Fits the ADI-2's own parametric EQ: five bands per channel (bands 4 and 5 from 200 Hz), 0.5 dB steps. The DAC then corrects every source, not only this PC." = "按 ADI-2 自带的参数 EQ 来拟合：每声道 5 段（第 4、5 段从 200 Hz 起），步进 0.5 dB。之后由解码器校正所有音源，不只是这台电脑。";
+"Tapline corrects what this PC plays, on the current output." = "由 Tapline 在当前输出上校正这台电脑播放的声音。";
+"Turn on “Let desktop apps access your microphone” in Settings › Privacy & security › Microphone, then try again." = "请在“设置 › 隐私和安全性 › 麦克风”中打开“允许桌面应用访问你的麦克风”，然后重试。";
+"The microphone sent only silence. Check that it is connected and not muted, and that Windows lets desktop apps use it (Settings › Privacy & security › Microphone)." = "麦克风传回的只有静音。请检查麦克风是否已连接、是否被静音，以及 Windows 是否允许桌面应用使用麦克风（设置 › 隐私和安全性 › 麦克风）。";
+"Open Microphone Settings" = "打开麦克风设置";
+/* Also used by the Assistant page; repeated so this file stands on its own. */
+"RME ADI-2 EQ preset" = "RME ADI-2 EQ 预设";
+"All files" = "所有文件";

@@ -1,0 +1,9 @@
+/* Simplified Chinese strings that only the Windows Assistant page uses. Keys are the English source strings. */
+
+"Describe what you hear. Each click makes a small change you can undo (Ctrl+Z)." = "说说你听到的问题。每点一次做一点小调整，可以用 Ctrl+Z 撤销。";
+"EQ files" = "EQ 文件";
+"All files" = "所有文件";
+"Text files" = "文本文件";
+"Measurement files" = "测量文件";
+"RME ADI-2 EQ preset" = "RME ADI-2 EQ 预设";
+"Could not read that file." = "无法读取这个文件。";
