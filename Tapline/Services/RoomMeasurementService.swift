@@ -126,7 +126,7 @@ final class RoomMeasurementService {
         defer { phase = .idle }
         do {
             let seconds = 3.0
-            _ = try await run(output: output, input: input, channel: channel, seconds: seconds + 0.3) { rate in
+            _ = try await run(output: output, input: input, channel: channel, seconds: seconds + 0.3) { rate, _ in
                 let noise = Self.pinkNoise(count: Int(seconds * rate), amplitude: 0.12)
                 let silent = [Float](repeating: 0, count: noise.count)
                 return (speakers == .right ? silent : noise, speakers == .left ? silent : noise)
@@ -160,8 +160,9 @@ final class RoomMeasurementService {
         }
         do {
             let total = Self.preRoll + Self.sweepSeconds + Self.tail
-            let (recording, inputRate) = try await run(output: output, input: input, channel: channel, seconds: total) { rate in
-                let padded = [Float](repeating: 0, count: Int(Self.preRoll * rate)) + SineSweep(sampleRate: rate, duration: Self.sweepSeconds).signal
+            let (recording, inputRate, outputRate) = try await run(output: output, input: input, channel: channel, seconds: total) { rate, micRate in
+                let end = SineSweep.endFrequency(playbackRate: rate, recordingRate: micRate)
+                let padded = [Float](repeating: 0, count: Int(Self.preRoll * rate)) + SineSweep(sampleRate: rate, duration: Self.sweepSeconds, endFrequency: end).signal
                 let silent = [Float](repeating: 0, count: padded.count)
                 return (speakers == .right ? silent : padded, speakers == .left ? silent : padded)
             }
@@ -170,7 +171,9 @@ final class RoomMeasurementService {
             let sweepRate = inputRate
             let calibration = calibration
             let result = await Task.detached(priority: .userInitiated) { () -> (FrequencyResponse?, Double, Double) in
-                let reference = SineSweep(sampleRate: sweepRate, duration: Self.sweepSeconds)
+                // The same sweep range as the one played, at the microphone's rate.
+                let end = SineSweep.endFrequency(playbackRate: outputRate, recordingRate: sweepRate)
+                let reference = SineSweep(sampleRate: sweepRate, duration: Self.sweepSeconds, endFrequency: end)
                 let ir = reference.impulseResponse(from: recording)
                 var fr = RoomResponse.frequencyResponse(impulse: ir, sampleRate: sweepRate)
                 if let cal = calibration, let measured = fr { fr = RoomResponse.applyCalibration(measured, calibration: cal) }
@@ -201,13 +204,14 @@ final class RoomMeasurementService {
         do {
             let sweepSeconds = Self.sweepSeconds
             let duration = StereoSweepPlan(sampleRate: 48_000, sweepSeconds: sweepSeconds).duration
-            let (recording, inputRate) = try await run(output: output, input: input, channel: channel, seconds: duration + 0.4) { rate in
-                StereoSweepPlan(sampleRate: rate, sweepSeconds: sweepSeconds).render()
+            let (recording, inputRate, outputRate) = try await run(output: output, input: input, channel: channel, seconds: duration + 0.4) { rate, micRate in
+                let end = SineSweep.endFrequency(playbackRate: rate, recordingRate: micRate)
+                return StereoSweepPlan(sampleRate: rate, sweepSeconds: sweepSeconds, endFrequency: end).render()
             }
             phase = .analyzing
             let calibration = calibration
             let analysis = await Task.detached(priority: .userInitiated) {
-                StereoSweepPlan.analyze(recording: recording, inputRate: inputRate, sweepSeconds: sweepSeconds)
+                StereoSweepPlan.analyze(recording: recording, inputRate: inputRate, outputRate: outputRate, sweepSeconds: sweepSeconds)
             }.value
             guard var a = analysis else {
                 lastMessage = String(localized: "The measurement failed. Check that the microphone hears the speakers.")
@@ -284,10 +288,11 @@ final class RoomMeasurementService {
         }
     }
 
-    /// Plays the left / right signals made by `signals` (at the output's actual
-    /// sample rate) on `output` and records one channel of `input` for `seconds`.
+    /// Plays the left / right signals made by `signals` (given the output's and the input's
+    /// actual sample rates) on `output` and records one channel of `input` for `seconds`.
+    /// Returns the recording, the input rate and the output rate.
     private func run(output: AudioDevice, input: AudioDevice, channel: Int, seconds: Double,
-                     signals: (Double) -> (left: [Float], right: [Float])) async throws -> ([Float], Double) {
+                     signals: (_ outputRate: Double, _ inputRate: Double) -> (left: [Float], right: [Float])) async throws -> ([Float], Double, Double) {
         let player = AVAudioEngine()
         let recorder = AVAudioEngine()
         let node = AVAudioPlayerNode()
@@ -298,8 +303,12 @@ final class RoomMeasurementService {
             throw MeasurementError.audio(String(localized: "Could not open the audio devices: \(error.localizedDescription)"))
         }
 
+        let inFormat = recorder.inputNode.outputFormat(forBus: 0)
+        guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else {
+            throw MeasurementError.audio(String(localized: "The selected input has no channels."))
+        }
         let outRate = player.outputNode.outputFormat(forBus: 0).sampleRate > 0 ? player.outputNode.outputFormat(forBus: 0).sampleRate : output.sampleRate
-        let (left, right) = signals(outRate)
+        let (left, right) = signals(outRate, inFormat.sampleRate)
         let count = min(left.count, right.count)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: outRate, channels: 2),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)) else {
@@ -312,10 +321,6 @@ final class RoomMeasurementService {
         player.connect(node, to: player.mainMixerNode, format: format)
         player.mainMixerNode.outputVolume = 1
 
-        let inFormat = recorder.inputNode.outputFormat(forBus: 0)
-        guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else {
-            throw MeasurementError.audio(String(localized: "The selected input has no channels."))
-        }
         let ch = min(max(channel, 0), Int(inFormat.channelCount) - 1)
         let store = Recorder()
         recorder.inputNode.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { pcm, _ in
@@ -351,7 +356,7 @@ final class RoomMeasurementService {
             inputRMSDB = 20 * log10(max(rms, 1e-9))
             if case .measuring = phase { phase = .measuring(min(1, Date().timeIntervalSince(start) / seconds)) }
         }
-        return (store.all, inFormat.sampleRate)
+        return (store.all, inFormat.sampleRate, outRate)
     }
 
     private nonisolated static func start(_ node: AVAudioPlayerNode, with buffer: AVAudioPCMBuffer) {

@@ -150,7 +150,15 @@ private struct SquigSection: View {
     @Environment(SquigService.self) private var squig
     @AppStorage(DebugSnapshot.key("squigKind")) private var kindFilter = "all"
     @State private var query = ""
+    @State private var results: [SquigService.Phone] = []
     @State private var selected: SquigService.Phone?
+
+    /// What the results depend on; a change restarts the search.
+    private struct SearchInput: Equatable {
+        var query: String
+        var kindFilter: String
+        var phoneCount: Int
+    }
 
     private var kinds: Set<SquigService.Kind> {
         if let k = SquigService.Kind(rawValue: kindFilter) { return [k] }
@@ -186,7 +194,6 @@ private struct SquigSection: View {
                 }
             }
 
-            let results = squig.search(query, kinds: kinds)
             HStack(alignment: .top, spacing: 14) {
                 List(results, selection: Binding(get: { selected?.id }, set: { id in selected = results.first { $0.id == id } })) { phone in
                     ResultRow(symbol: phone.database.kind == .headphones ? "headphones" : "earbuds",
@@ -226,6 +233,18 @@ private struct SquigSection: View {
                 query = q
                 selected = squig.search(q, kinds: kinds).first
             }
+        }
+        .task(id: SearchInput(query: query, kindFilter: kindFilter, phoneCount: squig.phones.count)) {
+            // Searching tens of thousands of entries on every keystroke would stall typing:
+            // wait for a pause, then search off the main thread.
+            let text = query, wanted = kinds, phones = squig.phones
+            guard !text.isEmpty else { results = []; return }
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached(priority: .userInitiated) {
+                SquigService.search(text, in: phones, kinds: wanted)
+            }.value
+            if !Task.isCancelled { results = found }
         }
     }
 }

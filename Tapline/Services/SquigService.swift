@@ -44,6 +44,16 @@ final class SquigService {
         /// File stem in the database's data directory, e.g. "Apple AirPods Pro 3 (ANC - vol-4)".
         let file: String
         let database: Database
+        /// Search words of brand, model and file, split once when the phone book loads.
+        let words: [String]
+
+        init(brand: String, model: String, file: String, database: Database) {
+            self.brand = brand
+            self.model = model
+            self.file = file
+            self.database = database
+            words = SquigService.words("\(brand) \(model) \(file)")
+        }
 
         var id: String { database.id + "|" + file }
 
@@ -159,29 +169,30 @@ final class SquigService {
 
     // MARK: - Search
 
-    /// Every query word must start a word of the entry, so "pro 3" does not match "53dB".
     func search(_ query: String, kinds: Set<Kind>, limit: Int = 150) -> [Phone] {
-        let tokens = Self.words(query)
+        Self.search(query, in: phones, kinds: kinds, limit: limit)
+    }
+
+    /// Every query word must start a word of the entry, so "pro 3" does not match "53dB".
+    /// Tens of thousands of entries: call it off the main thread while the user types.
+    nonisolated static func search(_ query: String, in phones: [Phone], kinds: Set<Kind>, limit: Int = 150) -> [Phone] {
+        let tokens = words(query)
         guard !tokens.isEmpty else { return [] }
-        let matches = phones.filter { p in
-            guard kinds.contains(p.database.kind) else { return false }
-            let words = Self.words("\(p.brand) \(p.model) \(p.file)")
-            return tokens.allSatisfy { t in words.contains { $0.hasPrefix(t) } }
-        }
         let phrase = tokens.joined(separator: " ")
-        func score(_ p: Phone) -> Int {
-            let words = Self.words("\(p.brand) \(p.model) \(p.file)")
-            var s = words.joined(separator: " ").contains(phrase) ? 100 : 0
-            s += tokens.filter { words.contains($0) }.count * 10
-            return s
+        let scored: [(phone: Phone, score: Int)] = phones.compactMap { p in
+            guard kinds.contains(p.database.kind),
+                  tokens.allSatisfy({ t in p.words.contains { $0.hasPrefix(t) } }) else { return nil }
+            var s = p.words.joined(separator: " ").contains(phrase) ? 100 : 0
+            s += tokens.filter { p.words.contains($0) }.count * 10
+            return (p, s)
         }
-        return Array(matches.sorted {
-            let a = score($0), b = score($1)
-            if a != b { return a > b }
-            if $0.model != $1.model { return $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending }
-            if $0.database.siteName != $1.database.siteName { return $0.database.siteName < $1.database.siteName }
-            return $0.file < $1.file
-        }.prefix(limit))
+        return scored.sorted { a, b in
+            if a.score != b.score { return a.score > b.score }
+            let x = a.phone, y = b.phone
+            if x.model != y.model { return x.model.localizedCaseInsensitiveCompare(y.model) == .orderedAscending }
+            if x.database.siteName != y.database.siteName { return x.database.siteName < y.database.siteName }
+            return x.file < y.file
+        }.prefix(limit).map { $0.phone }
     }
 
     nonisolated static func words(_ s: String) -> [String] {

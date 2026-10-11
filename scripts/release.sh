@@ -26,8 +26,22 @@ fail() { echo "error: $*" >&2; exit 1; }
 [[ "$(git branch --show-current)" == "main" ]] || fail "releases are cut from main"
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null && fail "tag $tag already exists"
 [[ "$version" != "$current" ]] || fail "project.yml is already at $version"
-newest="$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)"
-[[ "$newest" == "$version" ]] || fail "$version is lower than the current version $current"
+
+# Whether version $1 is newer than $2. Compares major.minor.patch first; with the same
+# numbers, a version without a suffix is newer than its pre-releases
+# (0.3.0 > 0.3.0-rc.1 > 0.3.0-beta.2). sort -V alone ranks 0.3.0-beta.1 above 0.3.0.
+newer() {
+  local a="${1%%-*}" b="${2%%-*}"
+  local a_pre="${1#"$a"}" b_pre="${2#"$b"}"
+  if [[ "$a" != "$b" ]]; then
+    [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n 1)" == "$a" ]]
+    return
+  fi
+  [[ -z "$b_pre" ]] && return 1
+  [[ -z "$a_pre" ]] && return 0
+  [[ "$(printf '%s\n%s\n' "${a_pre#-}" "${b_pre#-}" | sort -V | tail -n 1)" == "${a_pre#-}" ]]
+}
+newer "$version" "$current" || fail "$version is lower than the current version $current"
 
 unreleased="$(awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{if(f)exit} f' CHANGELOG.md | grep -c '[^[:space:]]' || true)"
 [[ "$unreleased" -gt 0 ]] || fail "the [Unreleased] section of CHANGELOG.md is empty"

@@ -70,6 +70,40 @@ import TaplineDSP
     @Test func rejectsGarbage() {
         #expect(throws: ParametricEQFormat.ParseError.noFilters) { try ParametricEQFormat.parse("hello") }
     }
+
+    @Test func skipsNonFiniteNumbers() throws {
+        // Double() reads "nan" and "inf"; none of them may become a filter or a preamp.
+        let parsed = try ParametricEQFormat.parse("""
+        Preamp: nan dB
+        Filter 1: ON PK Fc nan Hz Gain 3 dB Q 1
+        Filter 2: ON PK Fc 1000 Hz Gain inf dB Q 1
+        Filter 3: ON PK Fc 1000 Hz Gain 3 dB Q inf
+        Filter 4: ON PK Fc 2000 Hz Gain -2 dB Q 1.5
+        """)
+        #expect(parsed.preampDB == nil)
+        #expect(parsed.bands.count == 1)
+        #expect(parsed.bands.first?.frequency == 2000)
+        #expect(throws: ParametricEQFormat.ParseError.noFilters) { try ParametricEQFormat.parse("Filter 1: ON PK Fc inf Hz Gain 3 dB Q 1") }
+    }
+
+    @Test func clampingTurnsNaNIntoSafeValues() {
+        let band = EQBand(frequency: .nan, gain: .nan, q: .nan).clamped()
+        #expect(band.frequency == 1000 && band.gain == 0 && band.q == 1)
+        #expect(Double.nan.clamped(to: -1...1) == -1)
+        #expect(5.0.clamped(to: -1...1) == 1)
+        #expect(0.5.clamped(to: -1...1) == 0.5)
+
+        var s = DSPSettings()
+        s.autoPreamp = false
+        s.preampDB = .nan
+        s.effects.outputGainDB = .nan
+        let p = s.kernelParams(sampleRate: 48_000)
+        #expect(p.preamp.isFinite && p.output_gain.isFinite)
+        s.preampDB = 40
+        s.effects.outputGainDB = 40
+        #expect(s.effectivePreampDB() == 12)
+        #expect(abs(s.kernelParams(sampleRate: 48_000).output_gain - Float(dbToLinear(12))) < 1e-4)
+    }
 }
 
 @Suite struct KernelTests {
@@ -114,6 +148,41 @@ import TaplineDSP
         (0..<frames).flatMap { _ in [l, r] }
     }
 
+    func makeKernel(_ settings: DSPSettings) -> DSPKernel {
+        let kernel = DSPKernel()
+        kernel.configure(sampleRate: 48_000, layout: KernelLayout(sourceBufferIndices: [1], leftBuffer: 0, leftChannel: 0, rightBuffer: 0, rightChannel: 1))
+        kernel.setSettings(settings, sampleRate: 48_000)
+        return kernel
+    }
+
+    /// One IO cycle of `kernel` over an interleaved stereo source, laid out as in `render`.
+    func cycle(_ kernel: DSPKernel, input: [Float], frames: Int) -> (left: [Float], right: [Float]) {
+        let inList = AudioBufferList.allocate(maximumBuffers: 2)
+        let outList = AudioBufferList.allocate(maximumBuffers: 1)
+        defer { free(inList.unsafeMutablePointer); free(outList.unsafeMutablePointer) }
+
+        var mic = [Float](repeating: 0, count: frames * 10)
+        var src = input
+        var out = [Float](repeating: 0, count: frames * 10)
+        var left: [Float] = []
+        var right: [Float] = []
+        mic.withUnsafeMutableBytes { micRaw in
+            src.withUnsafeMutableBytes { srcRaw in
+                out.withUnsafeMutableBytes { outRaw in
+                    inList[0] = AudioBuffer(mNumberChannels: 10, mDataByteSize: UInt32(micRaw.count), mData: micRaw.baseAddress)
+                    inList[1] = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(srcRaw.count), mData: srcRaw.baseAddress)
+                    outList[0] = AudioBuffer(mNumberChannels: 10, mDataByteSize: UInt32(outRaw.count), mData: outRaw.baseAddress)
+                    var ts = AudioTimeStamp()
+                    _ = tl_ioproc(0, &ts, inList.unsafePointer, &ts, outList.unsafeMutablePointer, &ts, kernel.clientData)
+                    let o = outRaw.bindMemory(to: Float.self)
+                    left = (0..<frames).map { o[$0 * 10] }
+                    right = (0..<frames).map { o[$0 * 10 + 1] }
+                }
+            }
+        }
+        return (left, right)
+    }
+
     @Test func passesThroughUnity() {
         var s = DSPSettings()
         s.effects.limiterEnabled = false
@@ -155,6 +224,120 @@ import TaplineDSP
         let total = kernel.copyAnalyzer(post: true, into: &buf)
         #expect(total == 1024)
         #expect(abs(buf[255] - 0.5) < 1e-4)
+    }
+
+    @Test func nonFiniteSourceSamplesNeverReachTheDevice() {
+        var s = DSPSettings()
+        s.bands = [EQBand(type: .peak, frequency: 1000, gain: 6, q: 1)]
+        s.effects.crossfeedEnabled = true
+        let kernel = makeKernel(s)
+        var input = dcInput(frames: 512, l: 0.5, r: 0.5)
+        input[100] = .nan
+        input[201] = .infinity
+        input[300] = -.infinity
+        let (l, r) = cycle(kernel, input: input, frames: 512)
+        #expect(l.allSatisfy(\.isFinite) && r.allSatisfy(\.isFinite))
+        let m = kernel.readMeters(sourceCount: 1)
+        #expect(m.sourcePeaks[0] == .infinity, "the meter and the runaway guard must see it")
+        #expect(m.peakL.isFinite && m.peakR.isFinite)
+        // Only the broken samples were dropped: the stream keeps playing.
+        let next = cycle(kernel, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512)
+        #expect(next.left.allSatisfy(\.isFinite) && abs(next.left[511]) > 0.1)
+    }
+
+    @Test func recoversFromAFilterThatBlewUp() {
+        var s = DSPSettings()
+        s.bands = []
+        s.effects.crossfeedEnabled = true
+        s.effects.limiterEnabled = false
+        let kernel = makeKernel(s)
+        // A pole outside the unit circle: the signal overflows to inf, then NaN, within the buffer.
+        var p = s.kernelParams(sampleRate: 48_000)
+        p.stages.0 = tl_biquad(b0: 1, b1: 0, b2: 0, a1: -3, a2: 0, active: 1, channels: 0)
+        tl_kernel_set_params(kernel.pointer, &p)
+        let blown = cycle(kernel, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512)
+        #expect(blown.left.allSatisfy(\.isFinite) && blown.right.allSatisfy(\.isFinite))
+
+        // Back to a sane curve: no filter or crossfeed state may stay poisoned.
+        kernel.setSettings(s, sampleRate: 48_000)
+        var left: [Float] = []
+        for _ in 0..<3 { left = cycle(kernel, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512).left }
+        let clean = render(settings: s, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512).left
+        #expect(abs(left[511] - clean[511]) < 1e-3, "got \(left[511]), want \(clean[511])")
+    }
+
+    @Test func nonFiniteParametersAreNeutralised() {
+        var s = DSPSettings()
+        s.effects.crossfeedEnabled = true
+        let kernel = makeKernel(s)
+        var p = s.kernelParams(sampleRate: 48_000)
+        p.preamp = .nan
+        p.output_gain = .infinity
+        p.balance = .nan
+        p.width = .nan
+        p.crossfeed = .nan
+        p.limiter_ceiling = .nan
+        p.stages.1 = tl_biquad(b0: .nan, b1: 0, b2: 0, a1: 0, a2: 0, active: 1, channels: 0)
+        tl_kernel_set_params(kernel.pointer, &p)
+        let (l, r) = cycle(kernel, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512)
+        #expect(l.allSatisfy(\.isFinite) && r.allSatisfy(\.isFinite))
+
+        kernel.setSettings(s, sampleRate: 48_000)
+        var left: [Float] = []
+        for _ in 0..<3 { left = cycle(kernel, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512).left }
+        let clean = render(settings: s, input: dcInput(frames: 512, l: 0.5, r: 0.5), frames: 512).left
+        #expect(abs(left[511] - clean[511]) < 1e-3, "got \(left[511]), want \(clean[511])")
+    }
+}
+
+@Suite struct SettingsStorageTests {
+    @Test func keepsEntriesItCannotRead() throws {
+        let speakers = String(decoding: try JSONEncoder().encode(DSPSettings.flat), as: UTF8.self)
+        // "future": saved by a newer version with a filter type this one does not know.
+        let stored = #"{"speakers": \#(speakers), "future": {"bands": [{"type": "allPass"}]}}"#
+        var store = TolerantJSON()
+        let decoded = store.decode([String: DSPSettings].self, from: Data(stored.utf8))
+        let profiles = try #require(decoded)
+        #expect(Array(profiles.keys) == ["speakers"])
+        #expect(store.unreadableCount == 1)
+
+        // Saving writes the unreadable entry back as it was...
+        let saved = try #require(store.encode(profiles))
+        let object = try #require((try? JSONSerialization.jsonObject(with: saved)) as? [String: Any])
+        #expect(Set(object.keys) == ["speakers", "future"])
+        var reread = TolerantJSON()
+        let again = reread.decode([String: DSPSettings].self, from: saved)
+        #expect(again == profiles)
+        #expect(reread.unreadableCount == 1)
+
+        // ...until a new value takes its key.
+        var replaced = profiles
+        replaced["future"] = .flat
+        let savedAgain = try #require(store.encode(replaced))
+        var fresh = TolerantJSON()
+        let all = fresh.decode([String: DSPSettings].self, from: savedAgain)
+        #expect(all == replaced)
+        #expect(fresh.unreadableCount == 0)
+    }
+
+    @Test func keepsElementsOfAListItCannotRead() throws {
+        let band = String(decoding: try JSONEncoder().encode(EQBand(frequency: 1000, gain: 3)), as: UTF8.self)
+        let stored = "[\(band), {\"type\": \"allPass\"}, \(band)]"
+        var store = TolerantJSON()
+        let decoded = store.decode([EQBand].self, from: Data(stored.utf8))
+        let bands = try #require(decoded)
+        #expect(bands.count == 2 && store.unreadableCount == 1)
+        let saved = try #require(store.encode(bands))
+        let array = try #require((try? JSONSerialization.jsonObject(with: saved)) as? [Any])
+        #expect(array.count == 3)
+    }
+
+    @Test func refusesDataOfAnotherShape() {
+        var store = TolerantJSON()
+        let profiles = store.decode([String: DSPSettings].self, from: Data("not json".utf8))
+        let bands = store.decode([EQBand].self, from: Data("{}".utf8))
+        #expect(profiles == nil)
+        #expect(bands == nil)
     }
 }
 

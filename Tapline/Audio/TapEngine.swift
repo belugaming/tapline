@@ -213,6 +213,14 @@ final class TapEngine {
         overloadBlock = block
         AudioObjectAddPropertyListenerBlock(aggregate, &overloadAddress, DispatchQueue.global(qos: .utility), block)
 
+        // The IOProc runs as long as processing is on, even in silence. A process with running IO
+        // keeps the Mac from idle-sleeping unless it allows it; apps that really play still do.
+        do {
+            try CA.write(CA.system, kAudioHardwarePropertySleepingIsAllowed, value: UInt32(1))
+        } catch {
+            diagnostics.append("idle sleep not allowed (\(error.localizedDescription))")
+        }
+
         try CA.check(AudioDeviceStart(aggregate, proc), "Start audio device")
         outputDevice = output
     }

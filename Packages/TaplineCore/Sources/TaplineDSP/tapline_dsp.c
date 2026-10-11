@@ -1,5 +1,6 @@
 #include "tapline_dsp.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -70,6 +71,8 @@ static inline uint32_t f2u(float v) { uint32_t u; memcpy(&u, &v, 4); return u; }
 static inline float u2f(uint32_t u) { float v; memcpy(&v, &u, 4); return v; }
 
 static inline void atomic_max_float(_Atomic uint32_t *slot, float value) {
+    // NaN reads as +inf so meters and the runaway guard see it instead of dropping it.
+    if (isnan(value)) value = INFINITY;
     if (!(value > 0.0f)) return;
     uint32_t next = f2u(value);
     uint32_t current = atomic_load_explicit(slot, memory_order_relaxed);
@@ -163,15 +166,33 @@ void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layo
     k->lim_release = (float)exp(-1.0 / (0.120 * sample_rate));
 }
 
+// Non-finite parameters would latch the gain ramps and filter states: replace them with
+// neutral values here, on the writer's thread, so the IO thread never has to check.
+static void sanitize_params(tl_params *p) {
+    for (int i = 0; i < TL_MAX_STAGES; i++) {
+        tl_biquad *c = &p->stages[i];
+        if (!isfinite(c->b0) || !isfinite(c->b1) || !isfinite(c->b2) || !isfinite(c->a1) || !isfinite(c->a2)) {
+            c->active = 0;
+        }
+    }
+    if (!isfinite(p->preamp)) p->preamp = 0.0f;
+    if (!isfinite(p->output_gain)) p->output_gain = 0.0f;
+    if (!isfinite(p->balance)) p->balance = 0.0f;
+    if (!isfinite(p->width)) p->width = 1.0f;
+    if (!isfinite(p->crossfeed)) p->crossfeed = 0.0f;
+    if (!(p->limiter_ceiling > 0.0f && p->limiter_ceiling <= 1.0f)) p->limiter_ceiling = 1.0f;
+}
+
 void tl_kernel_set_params(tl_kernel *k, const tl_params *params) {
     k->slots[k->back] = *params;
+    sanitize_params(&k->slots[k->back]);
     int previous = atomic_exchange_explicit(&k->middle, k->back | TL_DIRTY, memory_order_acq_rel);
     k->back = previous & 3;
 }
 
 void tl_kernel_set_source_gain(tl_kernel *k, int32_t source, float gain) {
     if (source < 0 || source >= TL_MAX_SOURCES) return;
-    if (!(gain >= 0.0f)) gain = 0.0f;
+    if (!(gain >= 0.0f) || !isfinite(gain)) gain = 0.0f;
     atomic_store_explicit(&k->source_gain_target[source], gain, memory_order_relaxed);
 }
 
@@ -259,6 +280,12 @@ static inline void apply_gain_ramp(float *x, float *y, uint32_t frames, float *c
     *current = target;
 }
 
+// Clamps to +-limit; NaN and infinities become silence.
+static inline float guard_sample(float x, float limit) {
+    if (fabsf(x) <= limit) return x;
+    return isfinite(x) ? copysignf(limit, x) : 0.0f;
+}
+
 // MARK: - IOProc
 
 OSStatus tl_ioproc(AudioObjectID device,
@@ -324,8 +351,12 @@ OSStatus tl_ioproc(AudioObjectID device,
             const float step = (target - g) / (float)(n ? n : 1);
             float peak = 0.0f;
             for (uint32_t i = 0; i < n; i++) {
-                const float sl = src[i * ch + cl];
-                const float sr = src[i * ch + cr];
+                float sl = src[i * ch + cl];
+                float sr = src[i * ch + cr];
+                // A broken stream must not poison the mix: drop its NaN / inf samples,
+                // but let the meter (and the runaway guard) see them.
+                if (!isfinite(sl)) { sl = 0.0f; peak = INFINITY; }
+                if (!isfinite(sr)) { sr = 0.0f; peak = INFINITY; }
                 const float al = fabsf(sl), ar = fabsf(sr);
                 if (al > peak) peak = al;
                 if (ar > peak) peak = ar;
@@ -395,6 +426,12 @@ OSStatus tl_ioproc(AudioObjectID device,
         }
         k->xf_amount_current = xf_target;
         if (xf_target == 0.0f) { k->xf_lp_l = k->xf_lp_r = 0.0f; }
+        // A NaN that got this far (an unstable filter) would latch in the low-pass forever.
+        if (!isfinite(k->xf_lp_l) || !isfinite(k->xf_lp_r)) {
+            k->xf_lp_l = k->xf_lp_r = 0.0f;
+            memset(k->xf_ring_l, 0, sizeof(k->xf_ring_l));
+            memset(k->xf_ring_r, 0, sizeof(k->xf_ring_r));
+        }
     }
 
     // 6. Balance
@@ -415,9 +452,9 @@ OSStatus tl_ioproc(AudioObjectID device,
     // 7. Output gain
     apply_gain_ramp(l, r, frames, &k->output_current, p->output_gain);
 
-    // 8. Look-ahead limiter
+    // 8. Look-ahead limiter, then the output guard: nothing non-finite reaches the device.
     {
-        const float ceiling = p->limiter_enabled ? p->limiter_ceiling : 1e9f;
+        const float ceiling = p->limiter_enabled ? p->limiter_ceiling : FLT_MAX;
         const uint32_t n = k->lim_lookahead;
         float held = k->lim_held, gain = k->lim_gain, min_gain = 1.0f;
         uint32_t hold = k->lim_hold, lp = k->lim_pos;
@@ -437,13 +474,8 @@ OSStatus tl_ioproc(AudioObjectID device,
             k->lim_ring_l[lp] = in_l;
             k->lim_ring_r[lp] = in_r;
             lp = (lp + 1 >= n) ? 0 : lp + 1;
-            float ol = dl * gain, orr = dr * gain;
-            if (p->limiter_enabled) {
-                if (ol > ceiling) ol = ceiling; else if (ol < -ceiling) ol = -ceiling;
-                if (orr > ceiling) orr = ceiling; else if (orr < -ceiling) orr = -ceiling;
-            }
-            l[i] = ol;
-            r[i] = orr;
+            l[i] = guard_sample(dl * gain, ceiling);
+            r[i] = guard_sample(dr * gain, ceiling);
             if (gain < min_gain) min_gain = gain;
         }
         k->lim_held = held; k->lim_gain = gain; k->lim_hold = hold; k->lim_pos = lp;

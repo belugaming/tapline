@@ -53,6 +53,13 @@ public struct SineSweep: Sendable {
         self.inverse = inverse.map { $0 / amplitude }
     }
 
+    /// Top of a sweep played at one sample rate and recorded at another. The played sweep and
+    /// the reference that deconvolves the recording must cover the same range, or the impulse
+    /// response smears and the measured response comes out wrong.
+    public static func endFrequency(playbackRate: Double, recordingRate: Double, upTo limit: Double = 20_000) -> Double {
+        min(limit, 0.45 * min(playbackRate, recordingRate))
+    }
+
     /// Impulse response of whatever the sweep went through.
     public func impulseResponse(from recording: [Float]) -> [Float] {
         Self.convolve(recording, inverse)
@@ -237,11 +244,13 @@ public struct StereoSweepPlan: Sendable {
     public static let chirpSpacing = 0.5
     public static let tail = 0.8
 
-    public init(sampleRate: Double, sweepSeconds: Double = 8) {
+    /// `endFrequency`: the top of the sweeps, the same for the played signal and the analysis
+    /// (see `SineSweep.endFrequency(playbackRate:recordingRate:)`).
+    public init(sampleRate: Double, sweepSeconds: Double = 8, endFrequency: Double = 20_000) {
         self.sampleRate = sampleRate
-        sweep = SineSweep(sampleRate: sampleRate, duration: sweepSeconds)
+        sweep = SineSweep(sampleRate: sampleRate, duration: sweepSeconds, endFrequency: endFrequency)
         // Above the subwoofer, where the direct sound gives a sharp peak.
-        chirp = SineSweep(sampleRate: sampleRate, duration: Self.chirpSeconds, startFrequency: 500, endFrequency: 16_000)
+        chirp = SineSweep(sampleRate: sampleRate, duration: Self.chirpSeconds, startFrequency: 500, endFrequency: min(16_000, endFrequency))
     }
 
     // Start times in seconds.
@@ -283,8 +292,10 @@ public struct StereoSweepPlan: Sendable {
     }
 
     /// Analyses a mono microphone recording at `inputRate` that started before playback.
-    public static func analyze(recording: [Float], inputRate: Double, sweepSeconds: Double = 8, windowSeconds: Double = 0.5) -> Analysis? {
-        let plan = StereoSweepPlan(sampleRate: inputRate, sweepSeconds: sweepSeconds)
+    /// `outputRate` is the rate the plan was played at, when it differs from the microphone's.
+    public static func analyze(recording: [Float], inputRate: Double, outputRate: Double? = nil, sweepSeconds: Double = 8, windowSeconds: Double = 0.5) -> Analysis? {
+        let end = SineSweep.endFrequency(playbackRate: outputRate ?? inputRate, recordingRate: inputRate)
+        let plan = StereoSweepPlan(sampleRate: inputRate, sweepSeconds: sweepSeconds, endFrequency: end)
         let fs = inputRate
         let n = plan.sweep.signal.count
         guard recording.count > Int(plan.chirpStarts[0] * fs) else { return nil }

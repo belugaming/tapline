@@ -41,7 +41,8 @@ final class LiveMeters {
         ioCycles = m.ioCycles
         var peaks: [String: Float] = [:]
         for (i, key) in sourceKeys.enumerated() where i < m.sourcePeaks.count {
-            peaks[key] = max(m.sourcePeaks[i], (appPeaks[key] ?? 0) * fall)
+            // A source that sent NaN / inf reads +inf; hold it at +24 dBFS so the meter can fall again.
+            peaks[key] = max(min(m.sourcePeaks[i], 16), (appPeaks[key] ?? 0) * fall)
         }
         appPeaks = peaks
     }

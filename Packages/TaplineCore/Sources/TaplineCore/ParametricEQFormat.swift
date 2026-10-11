@@ -31,7 +31,7 @@ public enum ParametricEQFormat {
 
             if lower.hasPrefix("preamp:") {
                 let tokens = tokenize(String(line.dropFirst("preamp:".count)))
-                preamp = tokens.compactMap(Double.init).first
+                preamp = tokens.compactMap(Double.init).first(where: \.isFinite)
                 continue
             }
             if lower.hasPrefix("channel:") {
@@ -76,6 +76,8 @@ public enum ParametricEQFormat {
         guard let fc = value(after: "Fc") else { return nil }
         let gain = value(after: "Gain") ?? 0
         var q = value(after: "Q")
+        // Double() reads "nan" and "inf": such a filter is skipped, not imported.
+        guard fc.isFinite, gain.isFinite, q?.isFinite ?? true else { return nil }
 
         let type: FilterType
         switch typeCode {
