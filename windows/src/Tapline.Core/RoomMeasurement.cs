@@ -264,8 +264,7 @@ public sealed class StereoSweepPlan
     /// <paramref name="outputRate"/> is the rate the plan was played at, when it differs from the microphone's.</summary>
     public static Analysis? Analyze(ReadOnlySpan<float> recording, double inputRate, double? outputRate = null, double sweepSeconds = 8, double windowSeconds = 0.5)
     {
-        var end = SineSweep.EndFrequencyFor(outputRate ?? inputRate, inputRate);
-        var plan = new StereoSweepPlan(inputRate, sweepSeconds, end);
+        var plan = new StereoSweepPlan(inputRate, sweepSeconds, SineSweep.EndFrequencyFor(outputRate ?? inputRate, inputRate));
         double fs = inputRate;
         int n = plan.Sweep.Signal.Length;
         var chirpStarts = plan.ChirpStarts;

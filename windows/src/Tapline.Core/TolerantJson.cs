@@ -25,7 +25,7 @@ public sealed class TolerantJson
         var values = new Dictionary<string, T>();
         foreach (var (key, value) in obj)
         {
-            if (TryDecode(value, options, out T? decoded)) values[key] = decoded;
+            if (TryDecode<T>(value, options, out var decoded)) values[key] = decoded;
             else unreadableEntries[key] = value?.DeepClone();
         }
         return values;
@@ -39,7 +39,7 @@ public sealed class TolerantJson
         var values = new List<T>();
         foreach (var element in array)
         {
-            if (TryDecode(element, options, out T? decoded)) values.Add(decoded);
+            if (TryDecode<T>(element, options, out var decoded)) values.Add(decoded);
             else unreadableElements.Add(element?.DeepClone());
         }
         return values;
