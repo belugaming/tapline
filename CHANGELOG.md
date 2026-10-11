@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- Releases are now a disk image (`.dmg`) instead of a zip: open it and drag Tapline onto the Applications shortcut.
+
 ## [0.2.1] - 2026-10-10
 
 ### Changed
