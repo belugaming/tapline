@@ -618,7 +618,7 @@ sealed class AppModel
             if (parsed.PreampDb is double pre)
             {
                 s.AutoPreamp = false;
-                s.PreampDb = pre;
+                s.PreampDb = pre.Clamp(DspSettings.PreampMin, DspSettings.PreampMax);
             }
             else
             {
@@ -641,7 +641,7 @@ sealed class AppModel
             if (preampDb is double pre)
             {
                 s.AutoPreamp = false;
-                s.PreampDb = pre;
+                s.PreampDb = pre.Clamp(DspSettings.PreampMin, DspSettings.PreampMax);
             }
             else
             {
@@ -697,6 +697,7 @@ sealed class AppModel
     {
         state.Profiles.Clear();
         state.UserPresets.Clear();
+        StateStore.ForgetUnreadable();
         alternate.Clear();
         undoStack.Clear();
         redoStack.Clear();

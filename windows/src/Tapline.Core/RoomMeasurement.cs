@@ -13,6 +13,12 @@ public sealed class SineSweep
     /// <c>Signal ⊛ Inverse</c> has unity gain (0 dB at 1 kHz).</summary>
     public float[] Inverse { get; }
 
+    /// <summary>Top of a sweep played at one sample rate and recorded at another. The played sweep and
+    /// the reference that deconvolves the recording must cover the same range, or the impulse
+    /// response smears and the measured response comes out wrong.</summary>
+    public static double EndFrequencyFor(double playbackRate, double recordingRate, double limit = 20_000) =>
+        Math.Min(limit, 0.45 * Math.Min(playbackRate, recordingRate));
+
     public SineSweep(double sampleRate, double duration = 8, double startFrequency = 20, double endFrequency = 20_000, float amplitude = 0.25f)
     {
         SampleRate = sampleRate;
@@ -198,12 +204,14 @@ public sealed class StereoSweepPlan
     public const double ChirpSpacing = 0.5;
     public const double Tail = 0.8;
 
-    public StereoSweepPlan(double sampleRate, double sweepSeconds = 8)
+    /// <param name="endFrequency">The top of the sweeps, the same for the played signal and the analysis
+    /// (see <see cref="SineSweep.EndFrequencyFor"/>).</param>
+    public StereoSweepPlan(double sampleRate, double sweepSeconds = 8, double endFrequency = 20_000)
     {
         SampleRate = sampleRate;
-        Sweep = new SineSweep(sampleRate, sweepSeconds);
+        Sweep = new SineSweep(sampleRate, sweepSeconds, endFrequency: endFrequency);
         // Above the subwoofer, where the direct sound gives a sharp peak.
-        Chirp = new SineSweep(sampleRate, ChirpSeconds, startFrequency: 500, endFrequency: 16_000);
+        Chirp = new SineSweep(sampleRate, ChirpSeconds, startFrequency: 500, endFrequency: Math.Min(16_000, endFrequency));
     }
 
     // Start times in seconds.
@@ -252,10 +260,11 @@ public sealed class StereoSweepPlan
         public double PeakDb { get; init; }
     }
 
-    /// <summary>Analyses a mono microphone recording at <paramref name="inputRate"/> that started before playback.</summary>
-    public static Analysis? Analyze(ReadOnlySpan<float> recording, double inputRate, double sweepSeconds = 8, double windowSeconds = 0.5)
+    /// <summary>Analyses a mono microphone recording at <paramref name="inputRate"/> that started before playback.
+    /// <paramref name="outputRate"/> is the rate the plan was played at, when it differs from the microphone's.</summary>
+    public static Analysis? Analyze(ReadOnlySpan<float> recording, double inputRate, double? outputRate = null, double sweepSeconds = 8, double windowSeconds = 0.5)
     {
-        var plan = new StereoSweepPlan(inputRate, sweepSeconds);
+        var plan = new StereoSweepPlan(inputRate, sweepSeconds, SineSweep.EndFrequencyFor(outputRate ?? inputRate, inputRate));
         double fs = inputRate;
         int n = plan.Sweep.Signal.Length;
         var chirpStarts = plan.ChirpStarts;

@@ -24,7 +24,8 @@ sealed class App : Application
         var app = new App();
         if (!Snapshot.IsActive)
         {
-            app.instance = SingleInstance.Acquire(() => app.Dispatcher.BeginInvoke(() => app.window?.BringToFront()));
+            app.instance = SingleInstance.Acquire(() => app.Dispatcher.BeginInvoke(() => app.window?.BringToFront()),
+                                                  () => app.Dispatcher.BeginInvoke(() => app.Quit()));
             if (app.instance == null) return 0;
         }
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -39,6 +40,8 @@ sealed class App : Application
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) => CrashLog.Write(e.ExceptionObject as Exception);
         app.Startup += (_, _) => app.Start(args.Contains(LaunchAtLogin.BackgroundArgument));
+        // Signing out, shutting down or an update closing Tapline: changes from the last half second are saved too.
+        app.SessionEnding += (_, _) => app.model?.SaveNow();
         return app.Run();
     }
 

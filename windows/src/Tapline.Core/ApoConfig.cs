@@ -49,7 +49,7 @@ public static class ApoConfig
             if (Math.Abs(preamp) >= 0.005) sb.AppendLine($"Preamp: {N(preamp, 2)} dB");
             // Bells and shelves at 0 dB do nothing: leave them out.
             var bands = s.Bands.Take(DspSettings.MaxBands).Where(b => b.IsEnabled).Select(b => b.Clamped())
-                .Concat(s.Tone.Bands.Where(b => b.IsEnabled))
+                .Concat(s.Tone.Bands.Where(b => b.IsEnabled).Select(b => b.Clamped()))
                 .Where(b => !b.Type.UsesGain() || Math.Abs(b.Gain) >= 0.005)
                 .ToList();
             var both = bands.Where(b => b.Channels == EqChannels.Both || (!stereo && b.Channels == EqChannels.Left)).ToList();
@@ -69,18 +69,20 @@ public static class ApoConfig
         }
 
         var fx = s.Effects;
-        var outputGain = Db.ToLinear(fx.OutputGainDb);
+        // Clamp (NaN-safe) every value that is written, so the configuration never holds "NaN".
+        var outputGainDb = fx.OutputGainDb.Clamp(EffectsSettings.OutputGainMin, EffectsSettings.OutputGainMax);
+        var outputGain = Db.ToLinear(outputGainDb);
         if (!stereo)
         {
-            if (Math.Abs(fx.OutputGainDb) >= 0.005) sb.AppendLine($"Preamp: {N(fx.OutputGainDb, 2)} dB");
+            if (Math.Abs(outputGainDb) >= 0.005) sb.AppendLine($"Preamp: {N(outputGainDb, 2)} dB");
             return;
         }
 
         // Swap, then mid/side width (0 = mono), as one matrix.
-        var w = fx.Mono ? 0 : Math.Clamp(fx.Width, 0, 2);
+        var w = fx.Mono ? 0 : fx.Width.Clamp(EffectsSettings.WidthMin, EffectsSettings.WidthMax);
         double a = 0.5 + 0.5 * w, c = 0.5 - 0.5 * w;
         var (m11, m12, m21, m22) = fx.SwapChannels ? (c, a, a, c) : (a, c, c, a);
-        var balance = Math.Clamp(fx.Balance, -1, 1);
+        var balance = fx.Balance.Clamp(EffectsSettings.BalanceMin, EffectsSettings.BalanceMax);
         var gainL = balance > 0 ? 1 - balance : 1;
         var gainR = balance < 0 ? 1 + balance : 1;
         var others = Enumerable.Range(3, Math.Max(0, d.Channels - 2)).ToList();
@@ -88,7 +90,7 @@ public static class ApoConfig
         if (fx.CrossfeedEnabled && fx.Crossfeed > 0.001)
         {
             // ~300 µs interaural delay and a soft 700 Hz low-pass on the cross path, in two virtual channels.
-            var kx = 0.45 * Math.Clamp(fx.Crossfeed, 0, 1);
+            var kx = 0.45 * fx.Crossfeed.Clamp(EffectsSettings.CrossfeedMin, EffectsSettings.CrossfeedMax);
             var norm = 1 / (1 + 0.7 * kx);
             sb.AppendLine("Copy: " + string.Join(" ",
                 new[] { $"1={Sum((m11, "1"), (m12, "2"))}", $"2={Sum((m21, "1"), (m22, "2"))}",

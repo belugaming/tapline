@@ -255,7 +255,7 @@ public static class Adi2Preset
             if (line.StartsWith("<val ", StringComparison.Ordinal))
             {
                 if (current is not null && Entry(line) is { } entry
-                    && Swift.TryParseDouble(entry.Value.Trim(',', ' '), out double number))
+                    && Swift.TryParseDouble(entry.Value.Trim(',', ' '), out double number) && double.IsFinite(number))
                 {
                     result[current][entry.Key] = number;
                 }

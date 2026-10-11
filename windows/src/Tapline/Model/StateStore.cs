@@ -26,26 +26,75 @@ sealed class PersistedState
 
 static class StateStore
 {
+    private static readonly JsonNodeOptions CaseInsensitive = new() { PropertyNameCaseInsensitive = true };
+    // What this version could not read, written back on save (see TolerantJson): profiles and
+    // presets entry by entry, and top-level settings it does not know (saved by a newer Tapline).
+    private static readonly TolerantJson profiles = new(), presets = new();
+    private static readonly Dictionary<string, JsonNode?> unknown = [];
+
     public static PersistedState Load()
     {
+        if (!File.Exists(AppPaths.State)) return new PersistedState();
+        JsonObject? root;
         try
         {
-            if (File.Exists(AppPaths.State))
-                return JsonSerializer.Deserialize<PersistedState>(File.ReadAllText(AppPaths.State), TaplineJson.Options) ?? new PersistedState();
+            root = JsonNode.Parse(File.ReadAllText(AppPaths.State), CaseInsensitive) as JsonObject;
         }
-        catch
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
-            // A damaged file: keep a copy for inspection and start fresh.
-            try { File.Copy(AppPaths.State, AppPaths.State + ".damaged", overwrite: true); } catch { }
+            root = null;
         }
-        return new PersistedState();
+        if (root == null)
+        {
+            // Not readable at all: keep a copy for inspection and start fresh.
+            try { File.Copy(AppPaths.State, AppPaths.State + ".damaged", overwrite: true); } catch { }
+            return new PersistedState();
+        }
+
+        // Setting by setting, so one value this version cannot read only resets itself.
+        var state = new PersistedState();
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in typeof(PersistedState).GetProperties())
+        {
+            var key = JsonNamingPolicy.CamelCase.ConvertName(property.Name);
+            known.Add(key);
+            if (property.Name is nameof(PersistedState.Profiles) or nameof(PersistedState.UserPresets)) continue;
+            if (root[key] is not { } node) continue;
+            try
+            {
+                if (node.Deserialize(property.PropertyType, TaplineJson.Options) is { } value) property.SetValue(state, value);
+            }
+            catch
+            {
+                // The default stays.
+            }
+        }
+        state.Profiles = profiles.DecodeObject<DspSettings>(root[nameof(PersistedState.Profiles)], TaplineJson.Options) ?? [];
+        state.UserPresets = presets.DecodeArray<EqPreset>(root[nameof(PersistedState.UserPresets)], TaplineJson.Options) ?? [];
+        unknown.Clear();
+        foreach (var (key, value) in root)
+            if (!known.Contains(key)) unknown[key] = value?.DeepClone();
+        return state;
     }
 
     public static void Save(PersistedState state)
     {
+        var root = JsonSerializer.SerializeToNode(state, TaplineJson.Options) as JsonObject ?? new JsonObject();
+        root[JsonNamingPolicy.CamelCase.ConvertName(nameof(PersistedState.Profiles))] = profiles.EncodeObject(state.Profiles, TaplineJson.Options);
+        root[JsonNamingPolicy.CamelCase.ConvertName(nameof(PersistedState.UserPresets))] = presets.EncodeArray(state.UserPresets, TaplineJson.Options);
+        foreach (var (key, value) in unknown)
+            if (!root.ContainsKey(key)) root[key] = value?.DeepClone();
         var temp = AppPaths.State + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(state, TaplineJson.Options));
+        File.WriteAllText(temp, root.ToJsonString(TaplineJson.Options));
         File.Move(temp, AppPaths.State, overwrite: true);
+    }
+
+    /// <summary>For "reset everything": the next save writes only what Tapline holds.</summary>
+    public static void ForgetUnreadable()
+    {
+        profiles.Forget();
+        presets.Forget();
+        unknown.Clear();
     }
 }
 

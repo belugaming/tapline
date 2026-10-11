@@ -11,12 +11,11 @@ public static class Db
 /// <summary>Helpers for <c>(Min, Max)</c> ranges, the counterpart of Swift's <c>ClosedRange</c>.</summary>
 public static class RangeExtensions
 {
-    /// <summary><c>min(max(value, Min), Max)</c>, like Swift's <c>clamped(to:)</c>.</summary>
-    public static double Clamp(this double value, (double Min, double Max) range) =>
-        Math.Min(Math.Max(value, range.Min), range.Max);
+    /// <summary>Like Swift's <c>clamped(to:)</c>: NaN, which compares false with everything, ends up at the lower bound.</summary>
+    public static double Clamp(this double value, (double Min, double Max) range) => value.Clamp(range.Min, range.Max);
 
-    /// <summary><c>min(max(value, min), max)</c>; unlike <see cref="Math.Clamp(double, double, double)"/> it never throws.</summary>
-    public static double Clamp(this double value, double min, double max) => Math.Min(Math.Max(value, min), max);
+    /// <summary>Unlike <see cref="Math.Clamp(double, double, double)"/> it never throws, and NaN becomes <paramref name="min"/>.</summary>
+    public static double Clamp(this double value, double min, double max) => value > max ? max : (value >= min ? value : min);
 
     public static bool Contains(this (double Min, double Max) range, double value) =>
         value >= range.Min && value <= range.Max;
