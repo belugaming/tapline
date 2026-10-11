@@ -66,11 +66,12 @@ public record struct EqBand
         Channels = channels;
     }
 
+    /// <summary>Keeps every parameter in range. NaN becomes a neutral value (1 kHz, 0 dB, Q 1).</summary>
     public readonly EqBand Clamped() => this with
     {
-        Frequency = Frequency.Clamp((FrequencyMin, FrequencyMax)),
-        Gain = Gain.Clamp((GainMin, GainMax)),
-        Q = Q.Clamp((QMin, QMax)),
+        Frequency = double.IsNaN(Frequency) ? 1000 : Frequency.Clamp((FrequencyMin, FrequencyMax)),
+        Gain = double.IsNaN(Gain) ? 0 : Gain.Clamp((GainMin, GainMax)),
+        Q = double.IsNaN(Q) ? 1 : Q.Clamp((QMin, QMax)),
     };
 }
 
@@ -117,6 +118,7 @@ public record struct EffectsSettings
     public const double WidthMin = 0, WidthMax = 2;
     public const double CrossfeedMin = 0, CrossfeedMax = 1;
     public const double LimiterCeilingMin = -12, LimiterCeilingMax = 0;
+    public const double OutputGainMin = -24, OutputGainMax = 12;
 
     public double Balance { get; set; } = 0;          // -1 ... 1
     public double Width { get; set; } = 1;            // 0 ... 2
@@ -138,6 +140,7 @@ public record struct EffectsSettings
 public sealed class DspSettings : IEquatable<DspSettings>
 {
     public const int MaxBands = 24;
+    public const double PreampMin = -24, PreampMax = 12;
 
     private List<EqBand> _bands = [];
 
@@ -174,8 +177,9 @@ public sealed class DspSettings : IEquatable<DspSettings>
     /// headroom to cancel the largest boost of the curve.</summary>
     public double EffectivePreampDb(double sampleRate = 48_000)
     {
-        if (!AutoPreamp) return PreampDb;
-        double boost = ResponseCurve.MaxBoostDb(ActiveBands, sampleRate);
+        if (!AutoPreamp) return PreampDb.Clamp(PreampMin, PreampMax);
+        // Clamped like the bands Equalizer APO gets, so a NaN band cannot make the preamp NaN.
+        double boost = ResponseCurve.MaxBoostDb([.. ActiveBands.Select(b => b.Clamped())], sampleRate);
         return -Math.Max(0, boost);
     }
 

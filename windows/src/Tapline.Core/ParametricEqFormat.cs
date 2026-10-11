@@ -45,7 +45,7 @@ public static class ParametricEqFormat
 
             if (lower.StartsWith("preamp:", StringComparison.Ordinal))
             {
-                preamp = Tokenize(line["preamp:".Length..]).Select(Swift.ParseDouble).FirstOrDefault(v => v is not null);
+                preamp = Tokenize(line["preamp:".Length..]).Select(Swift.ParseDouble).FirstOrDefault(v => v is { } x && double.IsFinite(x));
                 continue;
             }
             if (lower.StartsWith("channel:", StringComparison.Ordinal))
@@ -92,6 +92,8 @@ public static class ParametricEqFormat
         if (Value("Fc") is not { } fc) return null;
         double gain = Value("Gain") ?? 0;
         double? q = Value("Q");
+        // "NaN", "Infinity" and "1e999" parse as numbers: such a filter is skipped, not imported.
+        if (!double.IsFinite(fc) || !double.IsFinite(gain) || (q is { } qv && !double.IsFinite(qv))) return null;
 
         FilterType type;
         switch (typeCode)

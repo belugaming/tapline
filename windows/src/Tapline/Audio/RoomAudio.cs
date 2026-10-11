@@ -194,7 +194,7 @@ sealed class RoomAudio(AppModel model)
         try
         {
             const double seconds = 3.0;
-            await Record(output, input, channel, 0.3, rate =>
+            await Record(output, input, channel, 0.3, (rate, _) =>
             {
                 var noise = PinkNoise((int)(seconds * rate), 0.12f);
                 var silent = new float[noise.Length];
@@ -250,9 +250,9 @@ sealed class RoomAudio(AppModel model)
 
     private async Task MeasureSingle(AudioDevice output, AudioDevice input, int channel, RoomSpeakers speakers)
     {
-        var (recording, inputRate) = await Record(output, input, channel, Tail, rate =>
+        var (recording, inputRate, outputRate) = await Record(output, input, channel, Tail, (rate, micRate) =>
         {
-            var sweep = new SineSweep(rate, SweepSeconds).Signal;
+            var sweep = new SineSweep(rate, SweepSeconds, endFrequency: SineSweep.EndFrequencyFor(rate, micRate)).Signal;
             var preRoll = (int)(PreRoll * rate);
             var padded = new float[preRoll + sweep.Length];
             sweep.CopyTo(padded, preRoll);
@@ -265,7 +265,8 @@ sealed class RoomAudio(AppModel model)
         var calibration = Calibration;
         var (response, peakDb, snrDb) = await Task.Run(() =>
         {
-            var reference = new SineSweep(inputRate, SweepSeconds);
+            // The same sweep range as the one played, at the microphone's rate.
+            var reference = new SineSweep(inputRate, SweepSeconds, endFrequency: SineSweep.EndFrequencyFor(outputRate, inputRate));
             var ir = reference.ImpulseResponse(recording);
             var fr = RoomResponse.FromImpulse(ir, inputRate);
             if (calibration != null && fr != null) fr = RoomResponse.ApplyCalibration(fr, calibration);
@@ -290,13 +291,13 @@ sealed class RoomAudio(AppModel model)
     private async Task MeasureStereo(AudioDevice output, AudioDevice input, int channel)
     {
         const double sweepSeconds = SweepSeconds;
-        var (recording, inputRate) = await Record(output, input, channel, 0.4,
-            rate => new StereoSweepPlan(rate, sweepSeconds).Render());
+        var (recording, inputRate, outputRate) = await Record(output, input, channel, 0.4,
+            (rate, micRate) => new StereoSweepPlan(rate, sweepSeconds, SineSweep.EndFrequencyFor(rate, micRate)).Render());
 
         Phase = RoomPhase.Analyzing;
         Changed?.Invoke();
         var calibration = Calibration;
-        var analysis = await Task.Run(() => StereoSweepPlan.Analyze(recording, inputRate, sweepSeconds));
+        var analysis = await Task.Run(() => StereoSweepPlan.Analyze(recording, inputRate, outputRate, sweepSeconds));
         if (analysis == null)
         {
             LastMessage = L.T("The measurement failed. Check that the microphone hears the speakers.");
@@ -361,10 +362,10 @@ sealed class RoomAudio(AppModel model)
     // MARK: - Playback + recording
 
     /// Runs one playback + recording with the output taken out of Equalizer APO.
-    private async Task<(float[] Recording, double InputRate)> Record(AudioDevice output, AudioDevice input, int channel, double extraSeconds,
-                                                                     Func<double, (float[] Left, float[] Right)> signals)
+    private async Task<(float[] Recording, double InputRate, double OutputRate)> Record(AudioDevice output, AudioDevice input, int channel, double extraSeconds,
+                                                                                        Func<double, double, (float[] Left, float[] Right)> signals)
     {
-        (float[] Recording, double InputRate) result = (Array.Empty<float>(), 0);
+        (float[] Recording, double InputRate, double OutputRate) result = (Array.Empty<float>(), 0, 0);
         await model.BypassWhile(output, async () => result = await Run(output, input, channel, extraSeconds, signals));
         return result;
     }
@@ -475,10 +476,11 @@ sealed class RoomAudio(AppModel model)
     private const int EAccessDenied = unchecked((int)0x80070005);
     private const int AudclntDeviceInUse = unchecked((int)0x8889000A);
 
-    /// Plays the left / right signals made by `signals` (at the output's mix-format sample rate)
-    /// on `output` and records one channel of `input` for the signal's length plus `extraSeconds`.
-    private async Task<(float[] Recording, double InputRate)> Run(AudioDevice output, AudioDevice input, int channel, double extraSeconds,
-                                                                  Func<double, (float[] Left, float[] Right)> signals)
+    /// Plays the left / right signals made by `signals` (given the output's mix-format sample rate and
+    /// the input's rate) on `output` and records one channel of `input` for the signal's length plus
+    /// `extraSeconds`. Returns the recording, the input rate and the output rate.
+    private async Task<(float[] Recording, double InputRate, double OutputRate)> Run(AudioDevice output, AudioDevice input, int channel, double extraSeconds,
+                                                                                     Func<double, double, (float[] Left, float[] Right)> signals)
     {
         MMDevice? outDevice = null, inDevice = null;
         WasapiOut? player = null;
@@ -526,7 +528,7 @@ sealed class RoomAudio(AppModel model)
             float[] left, right;
             try
             {
-                (left, right) = await Task.Run(() => signals(outFormat.SampleRate));
+                (left, right) = await Task.Run(() => signals(outFormat.SampleRate, inFormat.SampleRate));
             }
             catch (Exception e)
             {
@@ -595,7 +597,7 @@ sealed class RoomAudio(AppModel model)
                     "The microphone sent only silence. Check that it is connected and not muted, and that Windows lets desktop apps use it (Settings › Privacy & security › Microphone)."),
                     microphoneBlocked: true);
             }
-            return (store.All(), inFormat.SampleRate);
+            return (store.All(), inFormat.SampleRate, outFormat.SampleRate);
         }
         finally
         {

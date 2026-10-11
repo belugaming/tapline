@@ -49,10 +49,15 @@ public sealed class SquigService
     public event Action? Changed;
 
     public IReadOnlyList<Database> Databases { get; private set; } = [];
-    public IReadOnlyList<Phone> Phones { get; private set; } = [];
+    public IReadOnlyList<Phone> Phones => _index.Phones;
     public int LoadedDatabases => Volatile.Read(ref _loadedDatabases);
     public bool IsLoading => Volatile.Read(ref _isLoading) != 0;
     public string? ErrorMessage { get; private set; }
+
+    /// <summary>The phones and their search words, split once at load; replaced as a whole, so a
+    /// search on another thread always sees a matching pair.</summary>
+    private sealed record SearchIndex(IReadOnlyList<Phone> Phones, IReadOnlyList<string[]> Words);
+    private volatile SearchIndex _index = new([], []);
 
     private int _loadedDatabases;
     private int _isLoading;
@@ -123,7 +128,7 @@ public sealed class SquigService
                 }
             }).ToList();
             await Task.WhenAll(tasks).ConfigureAwait(false);
-            Phones = collected;
+            _index = new SearchIndex(collected, [.. collected.Select(p => Words($"{p.Brand} {p.Model} {p.File}").ToArray())]);
         }
         finally
         {
@@ -215,10 +220,12 @@ public sealed class SquigService
         if (tokens.Count == 0) return [];
         var phrase = string.Join(" ", tokens);
         var scored = new List<(Phone Phone, int Score)>();
-        foreach (var p in Phones)
+        var index = _index;
+        for (int i = 0; i < index.Phones.Count; i++)
         {
+            var p = index.Phones[i];
             if (!kinds.Contains(p.Database.Kind)) continue;
-            var words = Words($"{p.Brand} {p.Model} {p.File}");
+            var words = index.Words[i];
             if (!tokens.All(t => words.Any(w => w.StartsWith(t, StringComparison.Ordinal)))) continue;
             int score = string.Join(" ", words).Contains(phrase, StringComparison.Ordinal) ? 100 : 0;
             score += tokens.Count(t => words.Contains(t)) * 10;

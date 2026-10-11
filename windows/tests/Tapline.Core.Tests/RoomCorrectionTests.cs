@@ -174,6 +174,16 @@ public class Adi2PresetTests
     }
 
     [Fact]
+    public void SkipsNonFiniteValues()
+    {
+        var text = RmeSample.Replace("<val e=\"EQBand1Type\" v=\"1.00,\"/>", "<val e=\"EQBand1Type\" v=\"0.00,\"/>");
+        text = text.Replace("<val e=\"EQBand1Gain\" v=\"0.00,\"/>", "<val e=\"EQBand1Gain\" v=\"NaN,\"/>");
+        text = text.Replace("<val e=\"EQBassGain\" v=\"0.00,\"/>", "<val e=\"EQBassGain\" v=\"Infinity,\"/>");
+        var parsed = Adi2Preset.Parse(text);
+        Assert.All(parsed.Bands, b => Assert.True(double.IsFinite(b.Frequency) && double.IsFinite(b.Gain) && double.IsFinite(b.Q)));
+    }
+
+    [Fact]
     public void FitStaysWithinTheHardware()
     {
         var grid = EqFitter.Grid;
@@ -308,6 +318,30 @@ public class StereoMeasurementTests
         Assert.NotNull(a);
         Assert.True(a.OppositePolarity);
         Assert.True(Math.Abs((a.ArrivalDifference ?? 1) * sr) < 0.15);
+    }
+
+    [Fact]
+    public void SpeakersAndMicrophoneMayRunAtDifferentRates()
+    {
+        // Speakers on a 44.1 kHz interface, a 48 kHz microphone: the sweep can only reach
+        // 0.45 x 44.1 kHz, and the analysis at 48 kHz has to deconvolve with that same sweep.
+        const double output = 44_100.0, sr = 48_000.0;
+        double end = SineSweep.EndFrequencyFor(output, sr);
+        Assert.Equal(0.45 * output, end);
+        Assert.Equal(end, SineSweep.EndFrequencyFor(sr, output));
+        var played = new StereoSweepPlan(output, sweepSeconds: 3, endFrequency: end);
+        // What the microphone hears: the same continuous signal, sampled at its own rate.
+        var heard = new StereoSweepPlan(sr, sweepSeconds: 3, endFrequency: played.Sweep.EndFrequency);
+        var mic = Record(heard, leftDelay: 96, rightDelay: 103, rightGainDb: 1.5);
+        var a = StereoSweepPlan.Analyze(mic, sr, outputRate: output, sweepSeconds: 3);
+        Assert.NotNull(a);
+        double refL = a.Left.LevelAt(1000), refR = a.Right.LevelAt(1000);
+        Assert.True(Math.Abs(a.Left.LevelAt(60) - refL - 6) < 1, $"left mode {a.Left.LevelAt(60) - refL}");
+        Assert.True(Math.Abs(a.Right.LevelAt(75) - refR + 5) < 1, $"right dip {a.Right.LevelAt(75) - refR}");
+        Assert.True(Math.Abs(a.Left.LevelAt(10_000) - refL) < 1, $"left treble {a.Left.LevelAt(10_000) - refL}");
+        Assert.True(Math.Abs(refR - refL - 1.5) < 0.2);
+        Assert.NotNull(a.ArrivalDifference);
+        Assert.True(Math.Abs(a.ArrivalDifference.Value * sr - 7) < 0.15, $"arrival difference {a.ArrivalDifference.Value * sr} samples");
     }
 
     [Fact]

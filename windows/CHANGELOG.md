@@ -1,5 +1,15 @@
 # Tapline for Windows changelog
 
+## 0.1.0-beta.2
+
+Brings over the fixes from Tapline 0.2.2 and 0.2.3 for macOS.
+
+- Your EQ profiles and presets are no longer reset when part of Tapline's settings can't be read, for example after going back to an older version. Whatever can't be read is kept as it is, and changes made just before signing out or shutting down are saved.
+- Invalid numbers (NaN, infinity) can no longer reach Equalizer APO's configuration. Imported EQ files with such values are skipped, and preamp values are limited to the range of the Preamp knob.
+- Opening a different version of Tapline (for example after an update, or another portable copy) replaces the running one instead of only showing its window.
+- Room measurements are correct when the speakers and the microphone run at different sample rates (for example a 44.1 kHz interface and a 48 kHz measurement microphone).
+- Searching the squig.link measurements is faster.
+
 ## 0.1.0-beta.1
 
 First Windows build: a port of Tapline 0.2.1 for macOS, built on Equalizer APO.
