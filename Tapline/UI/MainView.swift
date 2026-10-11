@@ -173,6 +173,12 @@ struct TaplineCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        CommandGroup(replacing: .appTermination) {
+            Button("Hide to Menu Bar") { AppDelegate.hideToMenuBar() }
+                .keyboardShortcut("q")
+            Button("Quit Tapline") { NSApp.terminate(nil) }
+                .keyboardShortcut("q", modifiers: [.command, .option])
+        }
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { model.undo() }
                 .keyboardShortcut("z")

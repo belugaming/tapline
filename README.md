@@ -78,7 +78,7 @@ To update, quit Tapline and replace the app with the new one. macOS asks for the
 4. **Play something.** The spectrum starts moving and the meters on the right show the output level.
 5. **Pick a preset** from the menu at the top of the Equalizer page, or continue with the tutorials below.
 
-Tapline keeps running in the menu bar when you close the window. Turn on **Settings → Open Tapline at login** to have it start with your Mac.
+Tapline keeps running in the menu bar when you close the window or press ⌘Q; the Dock icon goes away until you open the window again. To quit completely, use the power button in the menu bar panel or ⌥⌘Q. Turn on **Settings → Open Tapline at login** to have it start with your Mac.
 
 ## Tutorials
 
@@ -221,7 +221,7 @@ Global shortcuts work in every app (turn them off in **Settings**):
 | ⌃⌥⌘B | Bypass the EQ (compare with the original) |
 | ⌃⌥⌘K | Switch between A and B |
 
-Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compares A/B.
+Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compares A/B, ⌘Q hides Tapline to the menu bar, ⌥⌘Q quits.
 
 <br clear="right">
 

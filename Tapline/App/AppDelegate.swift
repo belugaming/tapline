@@ -43,14 +43,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     @MainActor
+    private static var mainWindow: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue == "main" || $0.title == "Tapline" }
+    }
+
+    @MainActor
     static func showMainWindow() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" || $0.title == "Tapline" }) {
+        if let window = mainWindow {
             window.makeKeyAndOrderFront(nil)
         } else {
             OpenWindowBridge.shared.open?("main")
         }
+    }
+
+    /// ⌘Q: close the window and leave the Dock, but keep processing audio in the menu bar.
+    @MainActor
+    static func hideToMenuBar() {
+        mainWindow?.close()
+        updateActivationPolicy()
     }
 
     @MainActor

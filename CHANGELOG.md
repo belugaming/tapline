@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- ⌘Q now hides Tapline to the menu bar: the window closes and the Dock icon goes away, while audio processing keeps running. Quit completely with ⌥⌘Q or the power button in the menu bar panel.
+
 ## [0.2.0] - 2026-10-10
 
 ### Added
