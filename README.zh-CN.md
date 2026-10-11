@@ -64,8 +64,8 @@ Tapline 夹在各个 App 和你的音箱、耳机之间，让你调整听到的�
 
 ## 安装
 
-1. 从[最新版本](https://github.com/belugaming/tapline/releases/latest)下载 `Tapline-x.y.z-arm64.zip`。
-2. 解压，把 **Tapline.app** 拖进 **应用程序** 文件夹。
+1. 从[最新版本](https://github.com/belugaming/tapline/releases/latest)下载 `Tapline-x.y.z-arm64.dmg`。
+2. 打开它，把 **Tapline.app** 拖到旁边的 **应用程序** 图标上。
 3. 打开 Tapline。发布版目前只有临时签名，还没有经过 Apple 公证，所以第一次打开会被系统拦下。到 **系统设置 → 隐私与安全性**，拉到最下面，在 Tapline 的提示旁边点 **仍要打开**。（从 macOS 15 开始，右键选"打开"已经不能绕过这个检查。）
 
 更新时，退出 Tapline，用新版本替换掉旧的 App 就行。每次更新后系统都会重新要一次音频权限，因为临时签名的版本每次在系统看来都是一个新 App。
@@ -318,7 +318,7 @@ cd Packages/TaplineCore && swift test
 scripts/release.sh 0.2.0 --push
 ```
 
-这个脚本会检查 `main` 分支有没有未提交的改动，然后更新版本号，把 Unreleased 整理成 `0.2.0`，提交、打 `v0.2.0` 标签并推送。接着[发布工作流](.github/workflows/release.yml)会在 GitHub 的 macOS 服务器上测试、编译，把压缩包连同这一段更新日志发布到 Releases。带后缀的版本（比如 `0.3.0-beta.1`）会标记为预发布版。每次推送到 `main`，[CI 工作流](.github/workflows/ci.yml)都会用 Xcode 26 和 Xcode 27 各编译一遍。
+这个脚本会检查 `main` 分支有没有未提交的改动，然后更新版本号，把 Unreleased 整理成 `0.2.0`，提交、打 `v0.2.0` 标签并推送。接着[发布工作流](.github/workflows/release.yml)会在 GitHub 的 macOS 服务器上测试、编译，把 .dmg 磁盘映像连同这一段更新日志发布到 Releases。带后缀的版本（比如 `0.3.0-beta.1`）会标记为预发布版。每次推送到 `main`，[CI 工作流](.github/workflows/ci.yml)都会用 Xcode 26 和 Xcode 27 各编译一遍。
 
 ## 已知限制
 
