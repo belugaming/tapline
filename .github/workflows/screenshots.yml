@@ -15,9 +15,9 @@ concurrency:
 
 jobs:
   room:
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
-      XCODE: "26.6"
+      XCODE: "27.0"
     steps:
       - uses: actions/checkout@v5
 

@@ -382,7 +382,7 @@ Audio is processed on your computer and is never recorded or sent anywhere. Tapl
 
 ## Build from source
 
-Requires Xcode 26 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Requires Xcode 27 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 brew install xcodegen
@@ -421,7 +421,7 @@ Tapline follows [Semantic Versioning](https://semver.org/). The version is defin
 scripts/release.sh 0.2.0 --push
 ```
 
-The script checks that `main` is clean, bumps the version, turns the Unreleased section into `0.2.0`, commits, tags `v0.2.0` and pushes. The [Release workflow](.github/workflows/release.yml) then tests and builds Tapline on GitHub's macOS runners and publishes the disk image with that changelog section as release notes. Versions with a suffix such as `0.3.0-beta.1` become pre-releases. Every push to `main` is built with Xcode 26 and Xcode 27 by the [CI workflow](.github/workflows/ci.yml).
+The script checks that `main` is clean, bumps the version, turns the Unreleased section into `0.2.0`, commits, tags `v0.2.0` and pushes. The [Release workflow](.github/workflows/release.yml) then tests and builds Tapline on GitHub's macOS runners and publishes the disk image with that changelog section as release notes. Versions with a suffix such as `0.3.0-beta.1` become pre-releases. Every push to `main` is built with Xcode 27 by the [CI workflow](.github/workflows/ci.yml).
 
 The Windows beta is versioned and released separately. Add a section such as `## 0.1.0-beta.4` to [windows/CHANGELOG.md](windows/CHANGELOG.md), then push a tag with the same version:
 
