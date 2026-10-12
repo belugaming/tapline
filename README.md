@@ -9,12 +9,14 @@
   <a href="https://github.com/belugaming/tapline/releases/latest"><img src="https://img.shields.io/github/v/release/belugaming/tapline?include_prereleases&sort=semver" alt="Release"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-black" alt="Apple Silicon">
+  <a href="#windows-beta"><img src="https://img.shields.io/badge/Windows-10%2B%20(beta)-0078D4" alt="Windows 10+ (beta)"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/belugaming/tapline" alt="License: GPL-3.0"></a>
 </p>
 
 <p align="center">
-  <b>A system-wide parametric EQ, per-app mixer and headphone correction tool for macOS.</b><br>
-  No audio driver, no virtual device: Tapline is built on Core Audio process taps.<br>
+  <b>A system-wide parametric EQ, per-app mixer and headphone correction tool for macOS, now also for Windows (beta).</b><br>
+  No audio driver, no virtual device on macOS: Tapline is built on Core Audio process taps.<br>
+  The <a href="#windows-beta">Windows version</a> is a beta, built on Equalizer APO.<br>
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
@@ -26,14 +28,16 @@ https://github.com/user-attachments/assets/63696f9b-a6cf-421d-9467-1525775c0ca1
 
 Tapline sits between your apps and your speakers or headphones and lets you shape everything you hear: a precise parametric EQ with a live spectrum analyzer, per-app volume, headphone correction curves computed from published measurements, and a handful of listening effects. It lives in the menu bar, follows whatever output macOS is using, and keeps a separate setup for every device.
 
+Tapline is also available for Windows 10 and 11 as a **beta**, with the same pages, built on Equalizer APO. See [Windows (beta)](#windows-beta).
+
 What makes it different:
 
-- **No driver to install.** Tapline uses the process tap API that macOS 14.2+ provides. Nothing is added to the system, and if Tapline quits, audio simply goes back to normal.
+- **No driver to install.** On macOS, Tapline uses the process tap API that macOS 14.2+ provides. Nothing is added to the system, and if Tapline quits, audio simply goes back to normal.
 - **An EQ you can see.** Drag bands on the frequency response, watch the spectrum before and after the EQ, compare A/B, undo anything.
 - **Headphone correction that keeps up.** Apply one of 5,000+ AutoEQ presets, or let Tapline fit an EQ from 40,000+ raw measurements on squig.link, including headphones released last week.
 - **Room correction for speakers.** Measure your speakers with a microphone where you sit: Tapline checks balance, distance, polarity and placement, tames the room's bass resonances, and can write the correction into an RME ADI-2 DAC.
 - **Made for listening, safe for production.** Bypass a DAW in the mixer and it plays untouched.
-- **Free and open source** (GPL-3.0), written in Swift with a realtime core in C.
+- **Free and open source** (GPL-3.0), written in Swift with a realtime core in C; the Windows version is written in C#.
 
 ## Contents
 
@@ -60,10 +64,19 @@ What makes it different:
 
 ## Requirements
 
+**macOS**
+
 - macOS 26 Tahoe or later
 - A Mac with Apple Silicon
 
+**Windows (beta)**
+
+- 64-bit Windows 10 or 11 on an x64 PC (Windows on ARM isn't supported)
+- [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free) on the output devices you use
+
 ## Install
+
+These steps are for macOS. For Windows, see [Windows (beta)](#windows-beta).
 
 1. Download `Tapline-x.y.z-arm64.dmg` from the [latest release](https://github.com/belugaming/tapline/releases/latest).
 2. Open it and drag **Tapline.app** onto the **Applications** shortcut next to it.
@@ -73,13 +86,20 @@ To update, quit Tapline and replace the app with the new one. macOS asks for the
 
 ## Windows (beta)
 
-Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages (EQ, headphone and room correction, mixer, effects, devices) and keeps a separate EQ for every output device. It is new and has not been tested on many PCs yet: please report what works and what doesn't in [Issues](https://github.com/belugaming/tapline/issues).
+Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages (EQ, headphone and room correction, mixer, effects, devices) and keeps a separate EQ for every output device.
+
+> [!NOTE]
+> The Windows version is a **beta**. It is new and has not been tested on many PCs yet, so expect rough edges. Please report what works and what doesn't in [Issues](https://github.com/belugaming/tapline/issues).
+
+Windows releases have their own version numbers (0.1.0-beta.x) and are published as pre-releases titled "Tapline for Windows". What changed in each one is in [windows/CHANGELOG.md](windows/CHANGELOG.md).
 
 Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine and writes its EQ into Equalizer APO's configuration.
 
 1. Install [Equalizer APO](https://sourceforge.net/projects/equalizerapo/). At the end its Configurator opens: tick the output devices you use (speakers, headphones…), then restart Windows.
-2. Download `Tapline-x.y.z-win-x64-setup.exe` from the [releases](https://github.com/belugaming/tapline/releases) whose title starts with "Tapline for Windows", and run it. It is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**.
+2. Download `Tapline-x.y.z-win-x64-setup.exe` from the newest [release](https://github.com/belugaming/tapline/releases?q=windows) whose title starts with "Tapline for Windows", and run it. It is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**.
 3. The first time, Tapline asks before it replaces Equalizer APO's configuration; the old one is kept as `config-before-tapline.txt` and can be restored under **Devices → Audio Engine**.
+
+To update, run the installer of the new version; your EQ and presets are kept. To uninstall, remove Tapline in **Settings → Apps**: the uninstaller gives Equalizer APO its previous configuration back. Tapline's settings stay in `%APPDATA%\Tapline`; delete that folder to remove them too.
 
 Differences from macOS:
 
@@ -91,6 +111,8 @@ Differences from macOS:
 - Windows on ARM isn't supported, because Equalizer APO only exists for x64.
 
 ## Quick start
+
+The quick start and the tutorials describe the macOS version. On Windows the pages are the same, with the differences listed under [Windows (beta)](#windows-beta).
 
 1. **Quit other audio tools** such as SoundSource or eqMac. Two tools processing the same audio interfere with each other; Tapline shows a warning while one is running.
 2. **Turn Tapline on** with the power button at the bottom left of the window (or press ⌃⌥⌘P).
@@ -304,7 +326,7 @@ apps ──► process taps of the output device's stream (apps are muted at the
 
 ## Privacy and network use
 
-Audio is processed on your Mac and is never recorded or sent anywhere. Tapline only goes online when you use headphone correction:
+Audio is processed on your computer and is never recorded or sent anywhere. Tapline only goes online when you use headphone correction:
 
 - **AutoEQ**: the index and profiles are downloaded from GitHub and cached for a week.
 - **squig.link**: the site directory, each database's list of headphones, target curves and the measurements you open are downloaded from the reviewers' squig.link sites and cached. Sites on squig.link's own opt-out list are never contacted.
@@ -352,6 +374,14 @@ scripts/release.sh 0.2.0 --push
 
 The script checks that `main` is clean, bumps the version, turns the Unreleased section into `0.2.0`, commits, tags `v0.2.0` and pushes. The [Release workflow](.github/workflows/release.yml) then tests and builds Tapline on GitHub's macOS runners and publishes the disk image with that changelog section as release notes. Versions with a suffix such as `0.3.0-beta.1` become pre-releases. Every push to `main` is built with Xcode 26 and Xcode 27 by the [CI workflow](.github/workflows/ci.yml).
 
+The Windows beta is versioned and released separately. Add a section such as `## 0.1.0-beta.4` to [windows/CHANGELOG.md](windows/CHANGELOG.md), then push a tag with the same version:
+
+```bash
+git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
+```
+
+The [Windows release workflow](.github/workflows/release-windows.yml) tests and builds Tapline on a Windows runner and publishes the installer as "Tapline for Windows 0.1.0-beta.4", with that changelog section as release notes. Versions with a suffix become pre-releases, and Windows releases are never marked as the latest release, so the download link in [Install](#install) keeps pointing to the Mac version. Changes to `windows/` are built on Windows by the [Windows workflow](.github/workflows/windows.yml).
+
 ## Known limitations
 
 - Apps that take exclusive (hog) mode on a device cannot be tapped.
@@ -359,6 +389,7 @@ The script checks that `main` is clean, bumps the version, turns the Unreleased 
 - The ADI-2 export writes files for the ADI-2 DAC (FS); the ADI-2 Pro and 2/4 Pro use other file types.
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).
+- The Windows version is a beta and is not code-signed yet. Its differences from macOS are listed under [Windows (beta)](#windows-beta).
 
 ## Credits
 
