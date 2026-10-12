@@ -355,9 +355,13 @@ final class RoomMeasurementService {
         let player = AVAudioEngine()
         let recorder = AVAudioEngine()
         let node = AVAudioPlayerNode()
+        // Every call that sets up or starts the engines goes through ObjCException.catching:
+        // AVFoundation raises Objective-C exceptions for what it finds wrong only at run time.
         do {
-            try player.outputNode.auAudioUnit.setDeviceID(output.id)
-            try recorder.inputNode.auAudioUnit.setDeviceID(input.id)
+            try ObjCException.catching {
+                try player.outputNode.auAudioUnit.setDeviceID(output.id)
+                try recorder.inputNode.auAudioUnit.setDeviceID(input.id)
+            }
         } catch {
             throw MeasurementError.audio(String(localized: "Could not open the audio devices: \(error.localizedDescription)"))
         }
@@ -376,33 +380,26 @@ final class RoomMeasurementService {
         buffer.frameLength = AVAudioFrameCount(count)
         left.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: count) }
         right.withUnsafeBufferPointer { buffer.floatChannelData![1].update(from: $0.baseAddress!, count: count) }
-        player.attach(node)
-        player.connect(node, to: player.mainMixerNode, format: format)
-        player.mainMixerNode.outputVolume = 1
 
         let ch = min(max(channel, 0), Int(inFormat.channelCount) - 1)
         let store = Recorder()
-        Self.record(recorder.inputNode, format: inFormat, channel: ch, into: store)
-
         do {
-            recorder.prepare()
-            try recorder.start()
-            player.prepare()
-            try player.start()
+            try ObjCException.catching {
+                player.attach(node)
+                player.connect(node, to: player.mainMixerNode, format: format)
+                player.mainMixerNode.outputVolume = 1
+                Self.record(recorder.inputNode, format: inFormat, channel: ch, into: store)
+                recorder.prepare()
+                try recorder.start()
+                player.prepare()
+                try player.start()
+                Self.start(node, with: buffer)
+            }
         } catch {
-            recorder.inputNode.removeTap(onBus: 0)
-            recorder.stop()
-            player.stop()
+            Self.stop(player, node, recorder)
             throw MeasurementError.audio(String(localized: "Could not start the audio devices: \(error.localizedDescription)"))
         }
-        defer {
-            node.stop()
-            player.stop()
-            recorder.inputNode.removeTap(onBus: 0)
-            recorder.stop()
-        }
-
-        Self.start(node, with: buffer)
+        defer { Self.stop(player, node, recorder) }
 
         let start = Date()
         runSeconds = seconds
@@ -416,6 +413,15 @@ final class RoomMeasurementService {
             if case .measuring = phase { phase = .measuring(min(1, elapsedSeconds / seconds)) }
         }
         return (store.all, inFormat.sampleRate, outRate)
+    }
+
+    /// Stops what `run` started, each call on its own: an exception from one (a node that
+    /// was never attached) must not leave the other engine running.
+    private static func stop(_ player: AVAudioEngine, _ node: AVAudioPlayerNode, _ recorder: AVAudioEngine) {
+        try? ObjCException.catching { node.stop() }
+        try? ObjCException.catching { player.stop() }
+        try? ObjCException.catching { recorder.inputNode.removeTap(onBus: 0) }
+        try? ObjCException.catching { recorder.stop() }
     }
 
     private nonisolated static func start(_ node: AVAudioPlayerNode, with buffer: AVAudioPCMBuffer) {

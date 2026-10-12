@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- Tapline no longer crashes when Room correction's **Check Level** or **Measure** cannot start the speakers or the microphone. It shows the reason instead.
+
 ## [0.3.0] - 2026-10-12
 
 ### Added
