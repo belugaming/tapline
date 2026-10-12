@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- Tapline uses less energy while only its menu bar icon is showing, or its window is minimized or covered. It then checks the audio 4 times a second instead of 30, and the spectrum analyzer pauses.
+
 ## [0.3.1] - 2026-10-12
 
 ### Fixed
