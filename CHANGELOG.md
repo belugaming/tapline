@@ -10,7 +10,7 @@ GitHub release notes, so write entries for users.
 ## [Unreleased]
 
 ### Fixed
-- Room correction's **Check Level** and **Measure** work with a microphone or audio interface whose sample rate or channel count differs from the Mac's default input. Tapline used to crash.
+- Room correction's **Check Level** and **Measure** no longer crash Tapline as they start (seen on macOS 27.2): the microphone is recorded in the format it actually runs at.
 - When the audio devices for a room measurement cannot start, Room correction shows why instead of crashing Tapline.
 
 ## [0.3.0] - 2026-10-12

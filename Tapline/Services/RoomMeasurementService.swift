@@ -366,10 +366,9 @@ final class RoomMeasurementService {
             throw MeasurementError.audio(String(localized: "Could not open the audio devices: \(error.localizedDescription)"))
         }
 
-        // Tap in the format the selected input runs at. The input node's output format is
-        // still the one of the default input it was made with, and a tap in it raises
-        // "Failed to create tap due to format mismatch" when the selected input has another
-        // rate or other channels. Its input format is the selected device's.
+        // Tap in the format the selected input runs at: the input node's input format. Its
+        // output format is not always the device's (on macOS 27.2 a tap in it raised
+        // "Failed to create tap due to format mismatch", 1 ch at 48 kHz).
         let hardware = recorder.inputNode.inputFormat(forBus: 0)
         guard hardware.channelCount > 0, hardware.sampleRate > 0 else {
             throw MeasurementError.audio(String(localized: "The selected input has no channels."))
