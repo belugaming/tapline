@@ -366,10 +366,15 @@ final class RoomMeasurementService {
             throw MeasurementError.audio(String(localized: "Could not open the audio devices: \(error.localizedDescription)"))
         }
 
-        let inFormat = recorder.inputNode.outputFormat(forBus: 0)
-        guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else {
+        // Tap in the format the selected input runs at. The input node's output format is
+        // still the one of the default input it was made with, and a tap in it raises
+        // "Failed to create tap due to format mismatch" when the selected input has another
+        // rate or other channels. Its input format is the selected device's.
+        let hardware = recorder.inputNode.inputFormat(forBus: 0)
+        guard hardware.channelCount > 0, hardware.sampleRate > 0 else {
             throw MeasurementError.audio(String(localized: "The selected input has no channels."))
         }
+        let inFormat = Self.tapFormat(for: hardware)
         let outRate = player.outputNode.outputFormat(forBus: 0).sampleRate > 0 ? player.outputNode.outputFormat(forBus: 0).sampleRate : output.sampleRate
         let (left, right) = signals(outRate, inFormat.sampleRate)
         let count = min(left.count, right.count)
@@ -413,6 +418,16 @@ final class RoomMeasurementService {
             if case .measuring = phase { phase = .measuring(min(1, elapsedSeconds / seconds)) }
         }
         return (store.all, inFormat.sampleRate, outRate)
+    }
+
+    /// `hardware` as deinterleaved Float32, which the tap block reads channel by channel.
+    private static func tapFormat(for hardware: AVAudioFormat) -> AVAudioFormat {
+        if hardware.commonFormat == .pcmFormatFloat32, !hardware.isInterleaved { return hardware }
+        // Above two channels a format needs a channel layout.
+        if let layout = hardware.channelLayout {
+            return AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channelLayout: layout)
+        }
+        return AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channels: hardware.channelCount) ?? hardware
     }
 
     /// Stops what `run` started, each call on its own: an exception from one (a node that

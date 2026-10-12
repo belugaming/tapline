@@ -10,7 +10,8 @@ GitHub release notes, so write entries for users.
 ## [Unreleased]
 
 ### Fixed
-- Tapline no longer crashes when Room correction's **Check Level** or **Measure** cannot start the speakers or the microphone. It shows the reason instead.
+- Room correction's **Check Level** and **Measure** work with a microphone or audio interface whose sample rate or channel count differs from the Mac's default input. Tapline used to crash.
+- When the audio devices for a room measurement cannot start, Room correction shows why instead of crashing Tapline.
 
 ## [0.3.0] - 2026-10-12
 
