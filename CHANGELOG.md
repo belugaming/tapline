@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-12
+
 ### Added
 - Room correction guides the measurement: a map shows where to put the microphone next (your listening spot, then about 20 cm to each side, in front and behind) and how many positions are done, with a note once there are enough to correct.
 - While measuring, Room correction shows which speaker is playing, the seconds left and the microphone level.
@@ -97,7 +99,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/belugaming/tapline/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/belugaming/tapline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/belugaming/tapline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/belugaming/tapline/compare/v0.2.0...v0.2.1
