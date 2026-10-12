@@ -25,11 +25,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$work/cert.p12"
+# Secrets pasted from a file or from base64 output keep its line breaks; a password with
+# a newline at the end fails the import with "MAC verification failed".
+cert_password="${MACOS_CERT_PASSWORD//[$'\r\n']/}"
+printf '%s' "$MACOS_CERT_P12" | tr -d '[:space:]' | base64 --decode > "$work/cert.p12"
 security create-keychain -p "$keychain_password" "$keychain"
 security set-keychain-settings -lut 3600 "$keychain"
 security unlock-keychain -p "$keychain_password" "$keychain"
-security import "$work/cert.p12" -k "$keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+security import "$work/cert.p12" -k "$keychain" -P "$cert_password" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
 # codesign looks up the identity in the search list.
 security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
