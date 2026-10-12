@@ -1,0 +1,84 @@
+name: Screenshots
+
+# Renders the README's Room screenshots with the app's snapshot mode (DebugSnapshot:
+# demo data, no real audio) and commits them to the branch it runs on. Run it from
+# the Actions tab after changing the Room page.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  room:
+    runs-on: macos-26
+    env:
+      XCODE: "26.6"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE}.app"
+
+      - name: Install XcodeGen and Pillow
+        run: |
+          brew install xcodegen
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pillow
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild -project Tapline.xcodeproj -scheme Tapline -configuration Release \
+            -derivedDataPath build CODE_SIGN_IDENTITY=- -quiet build
+
+      # The window is 1180 points wide (the app's default size; the runner's small screen
+      # needs it set explicitly and limits the height). The README shows the column right
+      # of the sidebar, in dark mode at 2x like a Retina Mac. The toolbar's glass and the
+      # sidebar's edge do not render in snapshots, so the image starts below the toolbar
+      # and a little right of the sidebar.
+      - name: Capture
+        run: |
+          app=build/Build/Products/Release/Tapline.app/Contents/MacOS/Tapline
+          for lang in en zh; do
+            dir="$RUNNER_TEMP/snapshots/$lang"
+            apple=en; [ "$lang" = zh ] && apple=zh-Hans
+            TAPLINE_SNAPSHOT_DIR="$dir" TAPLINE_SNAPSHOT_SCROLL=measure TAPLINE_SNAPSHOT_SIZE=1180x1500 \
+              TAPLINE_SNAPSHOT_SCALE=2 TAPLINE_SNAPSHOT_DARK=1 "$app" -AppleLanguages "($apple)" &
+            pid=$!
+            for _ in $(seq 120); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+            if kill -0 "$pid" 2>/dev/null; then kill "$pid"; echo "::error::Snapshot run ($lang) timed out"; exit 1; fi
+            ls -l "$dir"
+            src="$(ls "$dir"/*-room.png)"
+            "$RUNNER_TEMP/venv/bin/python" - "$src" "docs/images/$lang/room.png" 2 <<'PY'
+          import sys
+          from PIL import Image
+          src, dst, scale = sys.argv[1], sys.argv[2], float(sys.argv[3])
+          image = Image.open(src)
+          print(f"{src}: {image.width}x{image.height} px")
+          if image.width != round(1180 * scale):
+              print(f"::warning::The window is {image.width / scale:g} points wide, not 1180.")
+          column, edge, toolbar = round(960 * scale), round(10 * scale), round(52 * scale)
+          image.crop((image.width - column + edge, toolbar, image.width, image.height)).save(dst, optimize=True)
+          PY
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: snapshots
+          path: ${{ runner.temp }}/snapshots
+          retention-days: 7
+
+      - name: Commit
+        run: |
+          git add docs/images
+          if git diff --cached --quiet; then echo "Screenshots unchanged."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "README: regenerate the Room screenshots"
+          git push origin "HEAD:$GITHUB_REF_NAME"

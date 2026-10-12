@@ -95,6 +95,9 @@ static class Glyphs
     public const string Info = "";
     public const string Warning = "";
     public const string Check = "";
+    /// A check mark in a circle.
+    public const string Completed = "";
+    public const string ErrorBadge = "";
     public const string Add = "";
     public const string Delete = "";
     public const string Undo = "";

@@ -69,7 +69,7 @@ struct RoomPage: View {
                 VStack(alignment: .leading, spacing: 16) {
                     intro
                     microphoneCard
-                    measureCard
+                    measureCard.id("measure")
                     checkCard.id("check")
                     correctionCard.id("correct")
                 }

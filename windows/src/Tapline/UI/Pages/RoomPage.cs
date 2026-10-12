@@ -40,6 +40,7 @@ sealed class RoomPage : PageBase
     private Fits? fits;
     private bool applied;
     private EqChannels chartChannel = EqChannels.Left;
+    private bool showPositions;
     private string? correctionMessage;
     private FitKey? lastKey;
     private CancellationTokenSource? fitCancel;
@@ -50,7 +51,7 @@ sealed class RoomPage : PageBase
         inputUid = prefs.Get("roomInputUID", "");
         inputChannel = Math.Max(0, prefs.Get("roomInputChannel", 0));
         speakers = RoomAudio.ParseSpeakers(prefs.Get("roomSpeakers", "stereo"));
-        correctBelow = Math.Clamp(prefs.Get("roomCorrectBelow", 500.0), 100, 2000);
+        correctBelow = Math.Clamp(prefs.Get("roomCorrectBelow", 500.0), 100, 20_000);
         maxBoost = Math.Clamp(prefs.Get("roomMaxBoost", 3.0), 0, 6);
         tilt = Math.Clamp(prefs.Get("roomTilt", 0.0), -1.5, 0.5);
         bass = Math.Clamp(prefs.Get("roomBass", 0.0), -3, 8);
@@ -59,6 +60,7 @@ sealed class RoomPage : PageBase
         separate = prefs.Get("roomSeparate", true);
 
         room = new RoomAudio(model);
+        if (Snapshot.UsesDemoData) room.ApplyDemo();
         room.Changed += Update;
 
         Content = Ui.Page(Ui.VStack(16,
@@ -98,6 +100,11 @@ sealed class RoomPage : PageBase
 
     private static T Visible<T>(UiScope scope, T element, Func<bool> visible) where T : UIElement =>
         scope.Bind(element, e => e.Visibility = visible() ? Visibility.Visible : Visibility.Collapsed);
+
+    /// A warning with its icon, hidden while `text` returns null.
+    private FrameworkElement DeviceWarning(Func<string?> text) =>
+        Visible(Scope, Ui.HStack(8, Ui.Glyph(Glyphs.Warning, 13, Theme.Warning).Top().Margin(0, 2, 0, 0),
+            Scope.Text(() => text() ?? "", 13, null, null, wrap: true).Filling()), () => text() != null);
 
     // MARK: - Intro
 
@@ -167,6 +174,9 @@ sealed class RoomPage : PageBase
                 (L.T("Input"), inputPicker),
                 (L.T("Channel"), channelPicker),
                 (L.T("Calibration"), calibration)),
+            DeviceWarning(() => Input is { IsVirtual: true } input
+                ? L.F("%@ is a virtual input, not a microphone. Choose the microphone's own device as the input.", input.Name)
+                : null),
             Ui.HStack(12, checkLevel, levelBar),
             Ui.Caption(L.T("Plays pink noise for three seconds. Aim for peaks between −30 and −10 dB on the microphone.")));
     }
@@ -230,6 +240,14 @@ sealed class RoomPage : PageBase
             Update();
         }), () => room.Measurements.Count > 0);
 
+        var liveMeter = new MeterBar { Horizontal = true, Height = 8, VerticalAlignment = VerticalAlignment.Center };
+        Scope.Bind(liveMeter, m => m.Set((float)Math.Pow(10, room.InputPeakDb / 20), (float)Math.Pow(10, room.InputRmsDb / 20), 0));
+        var status = Visible(Scope, Ui.HStack(12,
+            Ui.Glyph(Glyphs.Volume3, 13, Theme.Secondary),
+            Scope.Text(() => room.NowPlaying ?? ""),
+            Tabular(Scope.Text(() => L.F("%lld s left", room.SecondsLeft), 13, null, Theme.Secondary)),
+            liveMeter.Width(240)), () => room.Phase == RoomPhase.Measuring);
+
         var explanation = Scope.Text(() => speakers == RoomSpeakers.Stereo
             ? L.T("Left & right: an 8-second sweep on each speaker, then three short clicks for timing (about 22 seconds). Needed for balance, distance and polarity checks, and for correcting each speaker separately.")
             : L.T("One 8-second sweep on the chosen speakers."), 11.5, null, Theme.Secondary, wrap: true);
@@ -238,7 +256,21 @@ sealed class RoomPage : PageBase
         var privacy = Visible(Scope, Ui.Button(L.T("Open Microphone Settings"), RoomAudio.OpenMicrophoneSettings, Glyphs.OpenExternal, small: true),
             () => room.MicrophoneBlocked);
 
-        var rows = Visible(Scope, Scope.Dynamic(() => string.Join(",", room.Measurements.Select(m => m.Id)), _ =>
+        var outputWarning = DeviceWarning(() => Model.CurrentOutput is { IsVirtual: true } output
+            ? L.F("%@ is a virtual output. If it belongs to software that changes the sound (such as SoundID Reference or an EQ app), that change ends up in the measurement: switch it off, or make the speakers' own device the output.", output.Name)
+            : null);
+
+        var map = new PositionMap { Width = 168, Height = 118 };
+        Scope.Bind(map, m => m.Set(room.MeasuredPositions, room.NextPosition));
+        var positionBar = new ProgressBar { Minimum = 0, Maximum = RoomAudio.PositionCount, Width = 260, Height = 6, HorizontalAlignment = HorizontalAlignment.Left };
+        Scope.Bind(positionBar, b => b.Value = room.MeasuredPositions.Count);
+        var guide = Ui.HStack(16, map, Ui.VStack(6,
+            Tabular(Scope.Text(() => L.F("%lld of %lld positions measured", room.MeasuredPositions.Count, RoomAudio.PositionCount), 13, FontWeights.SemiBold)),
+            positionBar,
+            Scope.Text(() => PositionAdvice(room.MeasuredPositions.Count, room.NextPosition), 13, null, Theme.Secondary, wrap: true)).Filling());
+
+        // Rebuilt when the measurements change, and when a fit marks one as unlike the others.
+        var rows = Visible(Scope, Scope.Dynamic(() => string.Join(",", room.Measurements.Select(m => m.Id)) + "|" + string.Join(",", fits?.Outliers ?? []), _ =>
         {
             if (room.Measurements.Count == 0) return null;
             var list = Ui.VStack(4);
@@ -251,6 +283,7 @@ sealed class RoomPage : PageBase
                     Tabular(Ui.Text("#" + (index + 1).ToString(CultureInfo.InvariantCulture), 13, null, Theme.Secondary)),
                     Ui.Text(RoomAudio.Title(m.Speakers)),
                     Ui.Text(m.Date.ToString("t", CultureInfo.CurrentCulture), 13, null, Theme.Secondary),
+                    QualityBadge(m.Quality, fits?.Outliers.Contains(id) == true),
                     Tabular(Ui.Text(L.F("SNR %.0f dB · peak %.0f dB", m.SnrDb, m.PeakDb), 11.5, null, warn ? Theme.Warning : Theme.Secondary)),
                     m.ArrivalDifference is { } dt ? Tabular(Ui.Text(L.F("R − L %+.2f ms", dt * 1000), 11.5, null, Theme.Secondary)) : null,
                     Ui.Spacer(),
@@ -261,9 +294,44 @@ sealed class RoomPage : PageBase
 
         return Ui.Card(L.T("2. Measure"), L.T("Measure a few positions around your head; Tapline averages them."), Glyphs.Spectrum,
             Ui.HStack(12, picker, measure, progress, analyzing, Ui.Spacer(), clear),
+            status,
             explanation,
+            outputWarning,
             Visible(Scope, Ui.HStack(10, message.Filling(), privacy), () => room.LastMessage != null || room.MicrophoneBlocked),
+            guide,
             rows);
+    }
+
+    private static string PositionAdvice(int measured, int? next)
+    {
+        if (next is not { } n) return L.T("All positions measured. The correction below uses their average.");
+        var step = n switch
+        {
+            0 => L.T("Put the microphone where your head is when you listen, at ear height, then click Measure."),
+            1 => L.T("Next: about 20 cm to the left of your listening spot."),
+            2 => L.T("Next: about 20 cm to the right of your listening spot."),
+            3 => L.T("Next: about 20 cm in front of your listening spot, towards the speakers."),
+            _ => L.T("Next: about 20 cm behind your listening spot."),
+        };
+        return measured >= 3 ? step + " " + L.T("Enough to correct already; more positions make it steadier.") : step;
+    }
+
+    /// Good, fair or measure again, with the reason as a tooltip.
+    private static FrameworkElement QualityBadge(MeasurementQuality quality, bool differs)
+    {
+        var (glyph, brush, title, detail) = quality switch
+        {
+            MeasurementQuality.Clipped => (Glyphs.ErrorBadge, Theme.Danger, L.T("Measure again"),
+                L.T("The microphone clipped during the sweep. Lower the volume and measure again.")),
+            MeasurementQuality.Noisy => (Glyphs.Warning, Theme.Warning, L.T("Measure again"),
+                L.T("The room is noisy or the level is low. The result may be unreliable.")),
+            _ when differs => (Glyphs.Warning, Theme.Warning, L.T("Differs"),
+                L.T("Clearly unlike the other positions: a noise during the sweep, or a bumped or turned microphone? If in doubt, delete it and measure that spot again.")),
+            MeasurementQuality.Fair => (Glyphs.Check, Theme.Secondary, L.T("Fair"),
+                L.T("Usable. A little more volume or a quieter room gives a cleaner measurement.")),
+            _ => (Glyphs.Completed, Theme.Accent, L.T("Good"), L.T("A clean measurement.")),
+        };
+        return Ui.HStack(4, Ui.Glyph(glyph, 11, brush), Ui.Text(title, 11.5, FontWeights.Medium, brush)).Tip(detail);
     }
 
     private void Measure()
@@ -410,7 +478,7 @@ sealed class RoomPage : PageBase
                 Update();
             }).Width(160), () => fits?.IsSeparate == true);
 
-        var chart = Scope.Dynamic(() => (fits, chartChannel), _ =>
+        var chart = Scope.Dynamic(() => (fits, chartChannel, showPositions), inner =>
         {
             if (fits is not { } f)
             {
@@ -421,25 +489,37 @@ sealed class RoomPage : PageBase
                 };
             }
             var shown = f.ResultFor(chartChannel);
+            var overlay = f.OverlayFor(chartChannel);
             var graph = new MeasurementChart { Height = 200 };
             graph.Set(shown.Frequencies, shown.Measurement, shown.Target, shown.Predicted);
+            graph.SetPositions(overlay.Low, overlay.High, showPositions ? overlay.Positions : []);
             var deviation = Tabular(Ui.Text(L.F("Deviation %.1f → %.1f dB", shown.ErrorBeforeDb, shown.ErrorAfterDb), 11.5, null, Theme.Secondary));
+            var several = overlay.Positions.Length > 0;
             var legend = Ui.HStack(14,
                 Legend(Brushes.Gray, "Measured"),
                 Legend(Brushes.White, "Target", dashed: true),
                 Legend(Theme.Accent, "With EQ"),
+                several ? Legend(MeasurementChart.SpreadBrush, "Spread", band: true)
+                    .Tip(L.T("One standard deviation between the measured positions. Where it is wide, the response changes from spot to spot and the average is less certain.")) : null,
+                several ? inner.Check(L.T("Positions"), () => showPositions, v =>
+                {
+                    showPositions = v;
+                    Update();
+                }, tip: L.T("Show the curve of each measured position")) : null,
                 Ui.Spacer(),
                 deviation);
             return Ui.VStack(10, graph, legend, FilterList(f.IsSeparate ? shown.Bands : f.Combined.Bands));
         });
 
         var sliders = Ui.VStack(6,
-            Scope.LabeledSlider(L.T("Correct below"), 100, 2000, () => correctBelow, (v, _) =>
+            // On a log scale, so the bass end stays as fine as before.
+            Scope.LabeledSlider(L.T("Correct below"), Math.Log10(CorrectBelowMin), Math.Log10(CorrectBelowMax),
+                () => Math.Log10(Math.Clamp(correctBelow, CorrectBelowMin, CorrectBelowMax)), (v, _) =>
             {
-                correctBelow = v;
-                Save("roomCorrectBelow", v);
+                correctBelow = RoundedFrequency(Math.Pow(10, v));
+                Save("roomCorrectBelow", correctBelow);
                 Update();
-            }, v => Format.Frequency(Math.Round(v, MidpointRounding.AwayFromZero)), titleWidth: 110),
+            }, _ => Format.Frequency(Math.Round(correctBelow, MidpointRounding.AwayFromZero)), titleWidth: 110),
             Scope.LabeledSlider(L.T("Max boost"), 0, 6, () => maxBoost, (v, _) =>
             {
                 maxBoost = Step(v);
@@ -459,6 +539,9 @@ sealed class RoomPage : PageBase
                 Update();
             }, v => Printf.Format("%+.1f dB/oct", [v]), 0.1, titleWidth: 110),
             FiltersRow());
+
+        var speakersNote = Visible(Scope, Ui.Caption(L.T("Above 2 kHz the EQ also corrects the speakers themselves (crossover, tweeter). Measure several positions, preferably with a calibration file. If the treble ends up too bright, choose Room curve or lower the Tilt.")),
+            () => correctBelow > 2000);
 
         var presets = Ui.HStack(8,
             Ui.Button(L.T("Flat"), () => SetTarget(0, 0)),
@@ -492,7 +575,7 @@ sealed class RoomPage : PageBase
         return Ui.Card(L.T("4. Correct"),
             L.T("Cuts room resonances first. Dips are only lifted a little: they come from sound cancelling itself and boosting them mostly wastes amplifier power."),
             Glyphs.Wand,
-            runOn, where, chartPicker, chart, sliders, presets, actions, message, adiHint);
+            runOn, where, chartPicker, chart, sliders, speakersNote, presets, actions, message, adiHint);
     }
 
     private FrameworkElement FiltersRow()
@@ -514,6 +597,17 @@ sealed class RoomPage : PageBase
         var row = Ui.Columns((label, Ui.Px(110)), (value, Ui.Star()));
         row.MinHeight = 28;
         return row;
+    }
+
+    /// Up to the whole audio band: above about 2 kHz the EQ corrects the speakers
+    /// themselves (crossover, tweeter) rather than the room.
+    private const double CorrectBelowMin = 100, CorrectBelowMax = 20_000;
+
+    /// Whole hertz below 1 kHz, 10 Hz below 10 kHz, 100 Hz above, as displayed.
+    private static double RoundedFrequency(double f)
+    {
+        double step = f < 1000 ? 1 : f < 10_000 ? 10 : 100;
+        return Math.Clamp(Math.Round(f / step, MidpointRounding.AwayFromZero) * step, CorrectBelowMin, CorrectBelowMax);
     }
 
     /// A slider value on its 0.1 grid, without a negative zero ("-0.0 dB/oct").
@@ -539,8 +633,8 @@ sealed class RoomPage : PageBase
         Update();
     }
 
-    private static FrameworkElement Legend(Brush brush, string text, bool dashed = false) =>
-        Ui.HStack(5, new LegendSwatch(brush, dashed), Ui.Text(L.T(text), 11.5, null, Theme.Secondary));
+    private static FrameworkElement Legend(Brush brush, string text, bool dashed = false, bool band = false) =>
+        Ui.HStack(5, new LegendSwatch(brush, dashed, band), Ui.Text(L.T(text), 11.5, null, Theme.Secondary));
 
     /// The fitted filters, as they would be entered into a hardware EQ.
     private static FrameworkElement? FilterList(IReadOnlyList<EqBand> bands)
@@ -614,6 +708,12 @@ sealed class RoomPage : PageBase
         public EqFitter.Result? Left { get; } = left;
         public EqFitter.Result? Right { get; } = right;
         public List<RoomAdvice> Advice { get; } = advice;
+        /// Each measured position's shape (`RoomResponse.Shapes`), for the chart.
+        public double[][] Shapes { get; init; } = [];
+        public double[][] LeftShapes { get; init; } = [];
+        public double[][] RightShapes { get; init; } = [];
+        /// Measurements clearly unlike the others.
+        public HashSet<Guid> Outliers { get; init; } = [];
 
         public bool IsSeparate => Left != null && Right != null;
 
@@ -623,11 +723,41 @@ sealed class RoomPage : PageBase
             return (channel == EqChannels.Right ? Right : Left) ?? Combined;
         }
 
+        /// The measured positions at the chart's level, and one standard deviation around their mean.
+        public Overlay OverlayFor(EqChannels channel)
+        {
+            var shown = ResultFor(channel);
+            var shapes = IsSeparate ? (channel == EqChannels.Right ? RightShapes : LeftShapes) : Shapes;
+            var f = shown.Frequencies;
+            if (RoomResponse.Spread(shapes) is not { } spread || spread.Length != f.Length) return new Overlay([], [], []);
+            double level = 0;
+            var mids = 0;
+            for (var i = 0; i < f.Length; i++)
+            {
+                if (f[i] < 200 || f[i] > 2000) continue;
+                level += shown.Measurement[i];
+                mids++;
+            }
+            level /= Math.Max(mids, 1);
+            var positions = shapes.Select(shape => shape.Select(v => v + level).ToArray()).ToArray();
+            var low = new double[f.Length];
+            var high = new double[f.Length];
+            for (var i = 0; i < f.Length; i++)
+            {
+                var mean = positions.Average(p => p[i]);
+                low[i] = mean - spread[i];
+                high[i] = mean + spread[i];
+            }
+            return new Overlay(positions, low, high);
+        }
+
         /// The correction as Tapline bands: per channel when separate.
         public List<EqBand> Bands => Left is { } l && Right is { } r
             ? [.. l.Bands.Select(b => b with { Channels = EqChannels.Left }), .. r.Bands.Select(b => b with { Channels = EqChannels.Right })]
             : Combined.Bands;
     }
+
+    private sealed record Overlay(double[][] Positions, double[] Low, double[] High);
 
     private sealed record FitKey(string Measurements, double CorrectBelow, double MaxBoost, double Tilt, double Bass,
                                  int Filters, Hardware Hardware, bool Separate, bool Calibrated);
@@ -683,6 +813,10 @@ sealed class RoomPage : PageBase
         var positions = room.Measurements.Count;
         var snr = room.WorstSnrDb;
         var calibrated = room.Calibration != null;
+        var ids = room.Measurements.Select(m => m.Id).ToArray();
+        var responses = room.Measurements.Select(m => m.Response).ToList();
+        var lefts = room.Measurements.Select(m => m.LeftResponse).OfType<FrequencyResponse>().ToList();
+        var rights = room.Measurements.Select(m => m.RightResponse).OfType<FrequencyResponse>().ToList();
 
         Fits fitted;
         try
@@ -704,8 +838,16 @@ sealed class RoomPage : PageBase
                     new FrequencyResponse(grid, combined.Measurement),
                     new FrequencyResponse(grid, combined.Target),
                     positions, snr, calibrated, left, right, arrival, polarity));
-                if (!perChannel || left == null || right == null) return new Fits(combined, null, null, advice);
-                return new Fits(combined, Fit(left), Fit(right), advice);
+                var shapes = RoomResponse.Shapes(responses);
+                var outliers = RoomResponse.Outliers(shapes).Select(i => ids[i]).ToHashSet();
+                if (!perChannel || left == null || right == null) return new Fits(combined, null, null, advice) { Shapes = shapes, Outliers = outliers };
+                return new Fits(combined, Fit(left), Fit(right), advice)
+                {
+                    Shapes = shapes,
+                    LeftShapes = RoomResponse.Shapes(lefts),
+                    RightShapes = RoomResponse.Shapes(rights),
+                    Outliers = outliers,
+                };
             });
         }
         catch (Exception e)

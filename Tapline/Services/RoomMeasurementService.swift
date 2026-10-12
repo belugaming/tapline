@@ -38,7 +38,7 @@ final class RoomMeasurementService {
 
     struct Measurement: Identifiable {
         let id = UUID()
-        let date = Date()
+        var date = Date()
         let speakers: Speakers
         /// Both speakers (for a stereo run: the power average of the two).
         let response: FrequencyResponse
@@ -435,16 +435,16 @@ final class RoomMeasurementService {
     }
 
     /// A synthetic room (modes, a cancellation dip, a slightly louder and farther
-    /// right speaker) for screenshots.
+    /// right speaker) measured at four positions, for screenshots.
     func applyDemo() {
         guard measurements.isEmpty else { return }
         let grid = EQFitter.grid
-        func speaker(_ extra: [EQBand], level: Double, seed start: UInt64) -> FrequencyResponse {
+        func speaker(_ extra: [EQBand], level: Double, seed start: UInt64, shift: Double) -> FrequencyResponse {
             let room = ResponseCurve.responseDB(bands: [
                 EQBand(type: .highPass, frequency: 38, q: 0.8),
-                EQBand(type: .peak, frequency: 47, gain: 8, q: 5),
-                EQBand(type: .peak, frequency: 112, gain: -9, q: 4),
-                EQBand(type: .peak, frequency: 176, gain: 5, q: 6),
+                EQBand(type: .peak, frequency: 47, gain: 8 + shift, q: 5),
+                EQBand(type: .peak, frequency: 112, gain: -9 - shift, q: 4),
+                EQBand(type: .peak, frequency: 176, gain: 5 - shift / 2, q: 6),
                 EQBand(type: .peak, frequency: 300, gain: -3, q: 3),
                 EQBand(type: .highShelf, frequency: 9000, gain: -2, q: 0.7),
             ] + extra, frequencies: grid, sampleRate: 48_000)
@@ -456,11 +456,20 @@ final class RoomMeasurementService {
             }
             return FrequencyResponse(frequencies: grid, levels: levels)
         }
-        let left = speaker([EQBand(type: .peak, frequency: 68, gain: 3, q: 4)], level: 82, seed: 42)
-        let right = speaker([EQBand(type: .peak, frequency: 68, gain: -4, q: 4)], level: 82.9, seed: 7)
-        let both = RoomResponse.average([left, right]) ?? left
-        measurements = [Measurement(speakers: .stereo, response: both, left: left, right: right,
-                                    arrivalDifference: 0.00011, oppositePolarity: false, peakDB: -14, snrDB: 52, position: 0)]
+        // The modes change a little from one position to the next; the third was taken in a noisier moment.
+        let spots: [(shift: Double, level: Double, snr: Double, peak: Double)] = [
+            (0, 0, 52, -14), (3, -0.4, 47, -15), (-2.5, 0.3, 27, -18), (1.5, -0.2, 50, -14),
+        ]
+        measurements = spots.enumerated().map { i, spot -> Measurement in
+            let seed = UInt64(i) * 101
+            let left = speaker([EQBand(type: .peak, frequency: 68, gain: 3, q: 4)], level: 82 + spot.level, seed: 42 + seed, shift: spot.shift)
+            let right = speaker([EQBand(type: .peak, frequency: 68, gain: -4, q: 4)], level: 82.9 + spot.level, seed: 7 + seed, shift: spot.shift)
+            let both = RoomResponse.average([left, right]) ?? left
+            // Fixed times, so snapshots come out the same on every run.
+            let date = Calendar.current.date(bySettingHour: 9, minute: 41 + 2 * i, second: 0, of: Date()) ?? Date()
+            return Measurement(date: date, speakers: .stereo, response: both, left: left, right: right,
+                               arrivalDifference: 0.00011, oppositePolarity: false, peakDB: spot.peak, snrDB: spot.snr, position: i)
+        }
     }
 
     /// Paul Kellet's economy pink noise filter.

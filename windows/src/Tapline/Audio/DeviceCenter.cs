@@ -27,6 +27,14 @@ sealed record AudioDevice(string Id, string Name, string Adapter, bool IsOutput,
     };
 
     public bool IsHeadphones => FormFactor is FormFactor.Headphones or FormFactor.Headset;
+
+    /// Software devices (virtual cables, mixers, other apps' correction drivers). Windows lists them
+    /// like hardware, so they are recognised by name.
+    public bool IsVirtual => VirtualNames.Any(n => Name.Contains(n, StringComparison.OrdinalIgnoreCase)
+                                                  || Adapter.Contains(n, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] VirtualNames =
+        ["Virtual", "VB-Audio", "Voicemeeter", "SoundID", "Sonarworks", "Steam Streaming", "NVIDIA Broadcast", "Krisp"];
 }
 
 /// Lists the audio endpoints, follows the default output and input, and controls the output volume.

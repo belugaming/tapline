@@ -36,6 +36,14 @@ enum DebugSnapshot {
     /// TAPLINE_SNAPSHOT_SCROLL=correct scrolls long pages to that section before capturing.
     static var scrollAnchor: String? { isActive ? ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SCROLL"] : nil }
 
+    /// TAPLINE_SNAPSHOT_SCALE=2 renders at twice the resolution even on a 1x display (CI runners).
+    static var scale: CGFloat? {
+        ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SCALE"].flatMap { Double($0) }.map { CGFloat($0) }
+    }
+
+    /// TAPLINE_SNAPSHOT_DARK=1 renders in dark mode whatever the system uses.
+    static var forcesDark: Bool { isActive && ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_DARK"] != nil }
+
     /// TAPLINE_SNAPSHOT_SIZE=900x600 resizes the window before capturing.
     static var windowSize: CGSize? {
         guard let s = ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SIZE"] else { return nil }
@@ -45,6 +53,7 @@ enum DebugSnapshot {
 
     static func run() {
         guard let directory else { return }
+        if forcesDark { NSApp.appearance = NSAppearance(named: .darkAqua) }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let pages = Page.allCases
         var index = 0
@@ -57,7 +66,8 @@ enum DebugSnapshot {
             }
             let page = pages[index]
             UserDefaults.standard.set(page.rawValue, forKey: pageKey)
-            let wait = page == .assistant && squigQuery != nil ? 12.0 : 1.2
+            // The Room page fits up to three EQs in the background before its setup check and chart appear.
+            let wait = page == .assistant && squigQuery != nil ? 12.0 : (page == .room ? 4.0 : 1.2)
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                 MainActor.assumeIsolated {
                     capture(name: "\(index)-\(page.rawValue)", in: directory)
@@ -131,7 +141,7 @@ enum DebugSnapshot {
         window.orderFront(nil)
         view.layoutSubtreeIfNeeded()
         view.display()
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        guard let rep = bitmap(for: view) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         if let data = rep.representation(using: .png, properties: [:]) {
             try? data.write(to: directory.appendingPathComponent("menubar.png"))
@@ -142,9 +152,21 @@ enum DebugSnapshot {
     private static func capture(name: String, in directory: URL) {
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }),
               let view = window.contentView?.superview ?? window.contentView,
-              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+              let rep = bitmap(for: view) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         guard let data = rep.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: directory.appendingPathComponent("\(name).png"))
+    }
+
+    /// The view's own backing resolution, or `scale` when that is higher.
+    private static func bitmap(for view: NSView) -> NSBitmapImageRep? {
+        let backing = view.window?.backingScaleFactor ?? 1
+        guard let scale, scale > backing else { return view.bitmapImageRepForCachingDisplay(in: view.bounds) }
+        let size = view.bounds.size
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((size.width * scale).rounded()), pixelsHigh: Int((size.height * scale).rounded()),
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        rep?.size = size
+        return rep
     }
 }
