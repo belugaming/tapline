@@ -9,6 +9,10 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- Releases are signed with Tapline's own certificate instead of a new ad-hoc signature for every build, so macOS keeps Tapline's audio and microphone permissions across updates. Updating to the first signed release asks for them once more. It is still not notarized: the first launch still needs **Open Anyway**.
+- Tapline uses less energy while only its menu bar icon is showing, or its window is minimized or covered. It then checks the audio 4 times a second instead of 30, and the spectrum analyzer pauses.
+
 ## [0.3.1] - 2026-10-12
 
 ### Fixed

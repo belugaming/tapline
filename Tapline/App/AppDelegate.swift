@@ -49,7 +49,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private static var mainWindow: NSWindow? {
-        NSApp.windows.first { $0.identifier?.rawValue == "main" || $0.title == "Tapline" }
+        NSApp.windows.first { isMainWindow($0) }
+    }
+
+    /// Whether the main window is on screen: open, not minimized and not entirely covered.
+    @MainActor
+    static var mainWindowIsOnScreen: Bool {
+        NSApp.windows.contains { isMainWindow($0) && $0.occlusionState.contains(.visible) }
+    }
+
+    @MainActor
+    private static func isMainWindow(_ window: NSWindow) -> Bool {
+        window.identifier?.rawValue == "main" || window.title == "Tapline"
     }
 
     @MainActor

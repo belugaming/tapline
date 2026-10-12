@@ -69,15 +69,16 @@ final class AppModel {
     @ObservationIgnored private var storedPresets = TolerantJSON()
     @ObservationIgnored private var reconcileScheduled = false
     @ObservationIgnored private var meterTimer: Timer?
+    @ObservationIgnored private var meterInterval: TimeInterval = 0
     @ObservationIgnored private var lastMeterTick = Date()
     @ObservationIgnored private var analyzerViewers = 0
     @ObservationIgnored private let postAnalyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
     @ObservationIgnored private let preAnalyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
     @ObservationIgnored private var analyzerBuffer = [Float](repeating: 0, count: 8192)
     @ObservationIgnored private var tickCount = 0
-    @ObservationIgnored private var runawayTicks = 0
+    @ObservationIgnored private var runawaySeconds = 0.0
     @ObservationIgnored private var lastCycles: UInt64 = 0
-    @ObservationIgnored private var stalledTicks = 0
+    @ObservationIgnored private var stalledSeconds = 0.0
     @ObservationIgnored private var lastWatchdogRestart = Date.distantPast
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
@@ -312,14 +313,32 @@ final class AppModel {
     func analyzerAppeared() { analyzerViewers += 1 }
     func analyzerDisappeared() { analyzerViewers = max(0, analyzerViewers - 1) }
 
+    /// Meters tick 30 times a second while the main window is on screen. Otherwise (only the
+    /// menu bar icon, or the window minimized or covered) nothing shows them, and four ticks a
+    /// second keep the runaway guard and the watchdog going while waking the Mac less.
+    private static let visibleMeterInterval = 1.0 / 30.0
+    private static let hiddenMeterInterval = 0.25
+
+    private var wantedMeterInterval: TimeInterval {
+        AppDelegate.mainWindowIsOnScreen ? Self.visibleMeterInterval : Self.hiddenMeterInterval
+    }
+
     private func startMeterTimer() {
         guard meterTimer == nil else { return }
         lastMeterTick = Date()
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        scheduleMeterTimer(interval: wantedMeterInterval)
+    }
+
+    private func scheduleMeterTimer(interval: TimeInterval) {
+        meterTimer?.invalidate()
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.meterTick() }
         }
+        // Lets macOS fire it together with other wakeups.
+        timer.tolerance = interval / 10
         RunLoop.main.add(timer, forMode: .common)
         meterTimer = timer
+        meterInterval = interval
     }
 
     private func stopMeterTimer() {
@@ -329,15 +348,22 @@ final class AppModel {
     }
 
     private func meterTick() {
+        let interval = wantedMeterInterval
+        if interval != meterInterval { scheduleMeterTimer(interval: interval) }
         guard engine.isRunning else { return }
         let now = Date()
         let dt = now.timeIntervalSince(lastMeterTick)
         lastMeterTick = now
+        // The kernel keeps the highest peak and counts clipped samples until it is read, so
+        // a slower tick misses nothing.
         let keys = engine.sources.map(\.key)
         let reading = engine.kernel.readMeters(sourceCount: keys.count)
         meters.ingest(reading, sourceKeys: keys, dt: dt)
-        guardAgainstRunaway(reading)
-        watchdog(reading)
+        // At most half a second per tick: a main thread that hung must not add up to a
+        // runaway or a stall all at once.
+        let seconds = min(dt, 0.5)
+        guardAgainstRunaway(reading, seconds: seconds)
+        watchdog(reading, seconds: seconds)
         #if DEBUG
         tickCount += 1
         if tickCount % 60 == 0 {
@@ -346,7 +372,7 @@ final class AppModel {
         }
         #endif
 
-        guard analyzerViewers > 0 else { return }
+        guard analyzerViewers > 0, interval == Self.visibleMeterInterval else { return }
         engine.kernel.copyAnalyzer(post: true, into: &analyzerBuffer)
         meters.spectrumPost = postAnalyzer.process(analyzerBuffer, sampleRate: engine.sampleRate)
         if showPreSpectrum {
@@ -365,15 +391,15 @@ final class AppModel {
     /// preamp, app volume above 100 %) never trips it. Limiter gain reduction alone is no
     /// signature either: loud settings cause plenty of it, and a loop through the limiter
     /// looks just like loud music.
-    private func guardAgainstRunaway(_ m: KernelMeters) {
+    private func guardAgainstRunaway(_ m: KernelMeters, seconds: Double) {
         let hottestSource = m.sourcePeaks.max() ?? 0
         if hottestSource > 2.5 {
-            runawayTicks += 1
+            runawaySeconds += seconds
         } else {
-            runawayTicks = max(0, runawayTicks - 2)
+            runawaySeconds = max(0, runawaySeconds - 2 * seconds)
         }
-        guard runawayTicks > 60 else { return }
-        runawayTicks = 0
+        guard runawaySeconds > 2 else { return }
+        runawaySeconds = 0
         log.error("runaway guard tripped: gr=\(m.gainReductionDB) source=\(hottestSource)")
         safetyMessage = String(localized: "Tapline switched itself off because the output kept overloading. Another audio tool may be feeding Tapline's output back into it.")
         // Not remembered: a loop is usually gone by the next launch.
@@ -381,15 +407,15 @@ final class AppModel {
     }
 
     /// Restarts the engine if the IO callback stops being called (device reset, driver hiccup).
-    private func watchdog(_ m: KernelMeters) {
+    private func watchdog(_ m: KernelMeters, seconds: Double) {
         if m.ioCycles != lastCycles {
             lastCycles = m.ioCycles
-            stalledTicks = 0
+            stalledSeconds = 0
             return
         }
-        stalledTicks += 1
-        guard stalledTicks > 60, Date().timeIntervalSince(lastWatchdogRestart) > 10 else { return }
-        stalledTicks = 0
+        stalledSeconds += seconds
+        guard stalledSeconds > 2, Date().timeIntervalSince(lastWatchdogRestart) > 10 else { return }
+        stalledSeconds = 0
         lastWatchdogRestart = Date()
         log.error("audio IO stalled, restarting engine")
         restartEngine()

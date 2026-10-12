@@ -43,9 +43,16 @@ jobs:
             -derivedDataPath build CODE_SIGN_IDENTITY=- -quiet build
           echo "Built $(scripts/version.sh) with Xcode ${{ matrix.xcode }}"
 
-      # A test build of the pull request, built like a release, to download from the run's
-      # Summary page. Zipped with ditto first: artifacts lose the executable bit and the
-      # bundle's symlinks.
+      # A test build of the pull request, built and signed like a release, to download from
+      # the run's Summary page. Zipped with ditto first: artifacts lose the executable bit
+      # and the bundle's symlinks.
+      - name: Sign test build
+        if: github.event_name == 'pull_request'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: scripts/sign.sh build/Build/Products/Release/Tapline.app
+
       - name: Package test build
         if: github.event_name == 'pull_request'
         run: ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "Tapline-pr${{ github.event.number }}.zip"
