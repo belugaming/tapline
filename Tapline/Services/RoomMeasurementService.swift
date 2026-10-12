@@ -326,10 +326,7 @@ final class RoomMeasurementService {
 
         let ch = min(max(channel, 0), Int(inFormat.channelCount) - 1)
         let store = Recorder()
-        recorder.inputNode.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { pcm, _ in
-            guard let data = pcm.floatChannelData else { return }
-            store.append(data[ch], Int(pcm.frameLength))
-        }
+        Self.record(recorder.inputNode, format: inFormat, channel: ch, into: store)
 
         do {
             recorder.prepare()
@@ -365,6 +362,17 @@ final class RoomMeasurementService {
     private nonisolated static func start(_ node: AVAudioPlayerNode, with buffer: AVAudioPCMBuffer) {
         node.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         node.play()
+    }
+
+    /// Records one channel of `input` into `store`. The tap block runs on Core Audio's
+    /// realtime thread: written inside this main-actor class it would be main-actor
+    /// isolated, and the Swift runtime's isolation check traps on the first buffer
+    /// (macOS 27). Here it is nonisolated, and `store` locks its own state.
+    private nonisolated static func record(_ input: AVAudioInputNode, format: AVAudioFormat, channel: Int, into store: Recorder) {
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { pcm, _ in
+            guard let data = pcm.floatChannelData else { return }
+            store.append(data[channel], Int(pcm.frameLength))
+        }
     }
 
     /// A synthetic room (modes, a cancellation dip, a slightly louder and farther

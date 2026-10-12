@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- Room correction's **Check Level** and **Measure** no longer crash on macOS 27.
+
 ## [0.2.3] - 2026-10-11
 
 ### Fixed
