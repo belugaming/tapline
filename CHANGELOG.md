@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Changed
+- Room correction's **Correct below** now goes up to 20 kHz, on a log scale, so the EQ can also even out a crossover or tweeter problem. The default stays 500 Hz, which corrects only the room's bass.
+
 ### Fixed
 - Room correction's **Check Level** and **Measure** no longer crash on macOS 27.
 

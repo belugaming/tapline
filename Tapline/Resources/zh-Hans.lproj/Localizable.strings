@@ -415,3 +415,6 @@
 "Channels" = "声道";
 "L + R" = "左 + 右";
 "Which speaker or earpiece this band applies to" = "这个频段作用于哪一侧音箱或耳机";
+
+/* Room correction: correction limit up to 20 kHz */
+"Above 2 kHz the EQ also corrects the speakers themselves (crossover, tweeter). Measure several positions, preferably with a calibration file. If the treble ends up too bright, choose Room curve or lower the Tilt." = "超过 2 kHz 时，EQ 也会修正音箱本身（分频点、高音单元）。请多测几个位置，最好使用校准文件。如果校正后高频太亮，选择“房间曲线”或调低“倾斜”。";

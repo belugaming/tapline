@@ -292,6 +292,40 @@ private let rmeSample = """
     }
 }
 
+@Suite struct CorrectionLimitTests {
+    /// A speaker with a bass mode, a crossover dip and a bright tweeter.
+    let measured: FrequencyResponse = {
+        let grid = EQFitter.grid
+        let speaker = ResponseCurve.responseDB(bands: [EQBand(frequency: 60, gain: 6, q: 5), EQBand(frequency: 3500, gain: -4, q: 2),
+                                                       EQBand(frequency: 7000, gain: 5, q: 1)], frequencies: grid, sampleRate: 48_000)
+        return FrequencyResponse(frequencies: grid, levels: speaker.map { 80 + $0 })
+    }()
+
+    func eq(correctBelow: Double) -> [Double] {
+        var o = EQFitter.Options(maxFilters: 8)
+        o.correctOnlyBelow = correctBelow
+        o.maxBoostDB = 3
+        o.maxCutDB = 15
+        o.maxQ = 10
+        o.lowSmoothingOctaves = 1.0 / 12
+        let fit = EQFitter.fit(measurement: measured, target: RoomResponse.flatTarget(), options: o)
+        return ResponseCurve.responseDB(bands: fit.bands, frequencies: [60, 3500, 7000], sampleRate: 48_000)
+    }
+
+    @Test func leavesTheSpeakersAloneAboveTheLimit() {
+        let e = eq(correctBelow: 2000)
+        #expect(e[0] < -4, "mode not cut: \(e)")
+        #expect(abs(e[1]) < 1 && abs(e[2]) < 0.5, "touched the speakers: \(e)")
+    }
+
+    @Test func correctsCrossoverAndTweeterWithTheWholeBand() {
+        let e = eq(correctBelow: 20_000)
+        #expect(e[0] < -4, "mode not cut: \(e)")
+        #expect(e[1] > 1.5, "crossover dip not lifted: \(e)")
+        #expect(e[2] < -2, "tweeter not tamed: \(e)")
+    }
+}
+
 @Suite struct RoomAdvisorTests {
     let grid = EQFitter.grid
 

@@ -47,6 +47,21 @@ struct RoomPage: View {
         f < 1000 ? "\(Int(f.rounded())) Hz" : Format.frequency(f)
     }
 
+    /// Up to the whole audio band: above about 2 kHz the EQ corrects the speakers
+    /// themselves (crossover, tweeter) rather than the room.
+    static let correctBelowRange = 100.0...20_000.0
+
+    /// "Correct below" on a log scale, so the bass end stays as fine as before.
+    /// Whole hertz below 1 kHz, 10 Hz below 10 kHz, 100 Hz above, as displayed.
+    private var correctBelowSlider: Binding<Double> {
+        Binding(get: { log10(correctBelow.clamped(to: Self.correctBelowRange)) },
+                set: { value in
+                    let f = pow(10, value)
+                    let step = f < 1000 ? 1.0 : (f < 10_000 ? 10 : 100)
+                    correctBelow = ((f / step).rounded() * step).clamped(to: Self.correctBelowRange)
+                })
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -295,7 +310,7 @@ struct RoomPage: View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                 GridRow {
                     Text("Correct below")
-                    Slider(value: $correctBelow, in: 100...2000)
+                    Slider(value: correctBelowSlider, in: log10(Self.correctBelowRange.lowerBound)...log10(Self.correctBelowRange.upperBound))
                     Text(Format.frequency(correctBelow.rounded())).monospacedDigit().frame(width: 86, alignment: .trailing)
                 }
                 GridRow {
@@ -324,6 +339,12 @@ struct RoomPage: View {
                 }
             }
             .font(.callout)
+            if correctBelow > 2000 {
+                Text("Above 2 kHz the EQ also corrects the speakers themselves (crossover, tweeter). Measure several positions, preferably with a calibration file. If the treble ends up too bright, choose Room curve or lower the Tilt.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Flat") { bass = 0; tilt = 0 }
                 Button("Room curve") { bass = 4; tilt = -0.6 }
