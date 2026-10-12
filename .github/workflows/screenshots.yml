@@ -45,15 +45,17 @@ jobs:
             -derivedDataPath build CODE_SIGN_IDENTITY=- -quiet build
 
       # The window is 1180 points wide (the app's default size); the README shows the
-      # 960-point column right of the sidebar.
+      # 960-point column right of the sidebar, in dark mode at 2x like a Retina Mac.
+      # The runner's small 1x screen limits the window's height.
       - name: Capture
         run: |
+          system_profiler SPDisplaysDataType | grep -E "Resolution|Retina|UI Looks like" || true
           app=build/Build/Products/Release/Tapline.app/Contents/MacOS/Tapline
           for lang in en zh; do
             dir="$RUNNER_TEMP/snapshots/$lang"
             apple=en; [ "$lang" = zh ] && apple=zh-Hans
-            TAPLINE_SNAPSHOT_DIR="$dir" TAPLINE_SNAPSHOT_SCROLL=measure TAPLINE_SNAPSHOT_SIZE=1180x1500 \
-              "$app" -AppleLanguages "($apple)" &
+            TAPLINE_SNAPSHOT_DIR="$dir" TAPLINE_SNAPSHOT_SCROLL=measure TAPLINE_SNAPSHOT_SCALE=2 \
+              "$app" -AppleLanguages "($apple)" -AppleInterfaceStyle Dark &
             pid=$!
             for _ in $(seq 120); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
             if kill -0 "$pid" 2>/dev/null; then kill "$pid"; echo "::error::Snapshot run ($lang) timed out"; exit 1; fi
@@ -67,7 +69,7 @@ jobs:
           scale = image.width / 1180
           print(f"{src}: {image.width}x{image.height} px, scale {scale:g}")
           if scale < 2:
-              print("::warning::The runner's display is not Retina; the screenshot is at 1x.")
+              print("::warning::The screenshot is at 1x, not 2x.")
           column = round(960 * scale)
           image.crop((image.width - column, 0, image.width, image.height)).save(dst, optimize=True)
           PY

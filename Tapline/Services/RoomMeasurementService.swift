@@ -38,7 +38,7 @@ final class RoomMeasurementService {
 
     struct Measurement: Identifiable {
         let id = UUID()
-        let date = Date()
+        var date = Date()
         let speakers: Speakers
         /// Both speakers (for a stereo run: the power average of the two).
         let response: FrequencyResponse
@@ -465,7 +465,9 @@ final class RoomMeasurementService {
             let left = speaker([EQBand(type: .peak, frequency: 68, gain: 3, q: 4)], level: 82 + spot.level, seed: 42 + seed, shift: spot.shift)
             let right = speaker([EQBand(type: .peak, frequency: 68, gain: -4, q: 4)], level: 82.9 + spot.level, seed: 7 + seed, shift: spot.shift)
             let both = RoomResponse.average([left, right]) ?? left
-            return Measurement(speakers: .stereo, response: both, left: left, right: right,
+            // Fixed times, so snapshots come out the same on every run.
+            let date = Calendar.current.date(bySettingHour: 9, minute: 41 + 2 * i, second: 0, of: Date()) ?? Date()
+            return Measurement(date: date, speakers: .stereo, response: both, left: left, right: right,
                                arrivalDifference: 0.00011, oppositePolarity: false, peakDB: spot.peak, snrDB: spot.snr, position: i)
         }
     }
