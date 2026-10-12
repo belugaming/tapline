@@ -358,6 +358,111 @@ public class StereoMeasurementTests
     }
 }
 
+public class CorrectionLimitTests
+{
+    /// <summary>A speaker with a bass mode, a crossover dip and a bright tweeter.</summary>
+    private static readonly FrequencyResponse Measured = new(
+        [.. EqFitter.Grid],
+        ResponseCurve.ResponseDb(
+        [
+            new EqBand(FilterType.Peak, 60, 6, 5), new EqBand(FilterType.Peak, 3500, -4, 2),
+            new EqBand(FilterType.Peak, 7000, 5, 1),
+        ], EqFitter.Grid, 48_000).Select(x => 80 + x).ToArray());
+
+    private static double[] Eq(double correctBelow)
+    {
+        var o = new EqFitter.Options
+        {
+            MaxFilters = 8,
+            CorrectOnlyBelow = correctBelow,
+            MaxBoostDb = 3,
+            MaxCutDb = 15,
+            MaxQ = 10,
+            LowSmoothingOctaves = 1.0 / 12,
+        };
+        var fit = EqFitter.Fit(Measured, RoomResponse.FlatTarget(), o);
+        return ResponseCurve.ResponseDb(fit.Bands, [60, 3500, 7000], 48_000);
+    }
+
+    [Fact]
+    public void LeavesTheSpeakersAloneAboveTheLimit()
+    {
+        var e = Eq(2000);
+        Assert.True(e[0] < -4, $"mode not cut: {string.Join(", ", e)}");
+        Assert.True(Math.Abs(e[1]) < 1 && Math.Abs(e[2]) < 0.5, $"touched the speakers: {string.Join(", ", e)}");
+    }
+
+    [Fact]
+    public void CorrectsCrossoverAndTweeterWithTheWholeBand()
+    {
+        var e = Eq(20_000);
+        Assert.True(e[0] < -4, $"mode not cut: {string.Join(", ", e)}");
+        Assert.True(e[1] > 1.5, $"crossover dip not lifted: {string.Join(", ", e)}");
+        Assert.True(e[2] < -2, $"tweeter not tamed: {string.Join(", ", e)}");
+    }
+}
+
+public class PositionTests
+{
+    private static readonly IReadOnlyList<double> Grid = EqFitter.Grid;
+
+    /// <summary>One microphone position: the same speakers and room, with the modes and the desk
+    /// dip a little different from spot to spot.</summary>
+    private static FrequencyResponse Position(double mode47, double mode112, double desk, double level = 80, params EqBand[] extra)
+    {
+        EqBand[] bands =
+        [
+            new EqBand(FilterType.HighPass, 38, q: 0.8), new EqBand(FilterType.Peak, 47, mode47, 5),
+            new EqBand(FilterType.Peak, 112, mode112, 4), new EqBand(FilterType.Peak, 176, 5, 6),
+            new EqBand(FilterType.Peak, 300, -3, 3), new EqBand(FilterType.Peak, desk, -4, 4),
+            new EqBand(FilterType.HighShelf, 9000, -2, 0.7), .. extra,
+        ];
+        return new FrequencyResponse([.. Grid], ResponseCurve.ResponseDb(bands, Grid, 48_000).Select(x => level + x).ToArray());
+    }
+
+    private static FrequencyResponse[] Positions =>
+    [
+        Position(8, -9, 1400), Position(6, -7, 1600, 81),
+        Position(9, -11, 1250, 79.5), Position(5, -8, 1500, 80.5),
+    ];
+
+    /// <summary>A microphone turned away: the treble drops.</summary>
+    private static FrequencyResponse Turned => Position(7, -9, 1400, 80, new EqBand(FilterType.Peak, 5000, -8, 0.8));
+
+    private static int IndexOf(double f) => Enumerable.Range(0, Grid.Count).MinBy(i => Math.Abs(Grid[i] - f));
+
+    [Fact]
+    public void SpreadShowsWherePositionsDisagree()
+    {
+        var spread = RoomResponse.Spread(RoomResponse.Shapes(Positions));
+        Assert.NotNull(spread);
+        Assert.True(spread[IndexOf(47)] > 1, $"{spread[IndexOf(47)]}");
+        Assert.True(spread[IndexOf(1000)] < 0.5, $"{spread[IndexOf(1000)]}");
+        var same = RoomResponse.Spread(RoomResponse.Shapes([Positions[0], Positions[0]]));
+        Assert.NotNull(same);
+        Assert.All(same, v => Assert.True(v < 1e-9));
+        Assert.Null(RoomResponse.Spread(RoomResponse.Shapes([Positions[0]])));
+    }
+
+    [Fact]
+    public void FindsTheOddMeasurement()
+    {
+        Assert.Equal(new[] { 4 }, RoomResponse.Outliers(RoomResponse.Shapes([.. Positions, Turned])));
+        Assert.Equal(new[] { 1 }, RoomResponse.Outliers(RoomResponse.Shapes([Positions[0], Turned, Positions[1]])));
+    }
+
+    [Fact]
+    public void PositionsThatOnlyDifferAsUsualAreKept()
+    {
+        Assert.Empty(RoomResponse.Outliers(RoomResponse.Shapes(Positions)));
+        // Louder overall (closer to the speakers) is not a different shape.
+        var louder = Position(8, -9, 1400, 84);
+        Assert.Empty(RoomResponse.Outliers(RoomResponse.Shapes([.. Positions, louder])));
+        // Two cannot tell which one is odd.
+        Assert.Empty(RoomResponse.Outliers(RoomResponse.Shapes([Positions[0], Turned])));
+    }
+}
+
 public class RoomAdvisorTests
 {
     private static readonly IReadOnlyList<double> Grid = EqFitter.Grid;

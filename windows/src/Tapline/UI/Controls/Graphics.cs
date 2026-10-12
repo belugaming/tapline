@@ -159,6 +159,9 @@ sealed class MeasurementChart : FrameworkElement
     private double[] measurement = [];
     private double[] target = [];
     private double[] predicted = [];
+    private double[] spreadLow = [];
+    private double[] spreadHigh = [];
+    private double[][] positions = [];
 
     public MeasurementChart()
     {
@@ -171,6 +174,15 @@ sealed class MeasurementChart : FrameworkElement
         this.measurement = measurement.ToArray();
         this.target = target.ToArray();
         this.predicted = predicted.ToArray();
+        InvalidateVisual();
+    }
+
+    /// A band for the spread between measured positions, and each position's curve.
+    public void SetPositions(IReadOnlyList<double> spreadLow, IReadOnlyList<double> spreadHigh, IReadOnlyList<double[]> positions)
+    {
+        this.spreadLow = spreadLow.ToArray();
+        this.spreadHigh = spreadHigh.ToArray();
+        this.positions = positions.ToArray();
         InvalidateVisual();
     }
 
@@ -200,11 +212,28 @@ sealed class MeasurementChart : FrameworkElement
             dc.DrawText(label, new Point(rect.Left - 6 - label.Width, py - label.Height / 2));
         }
         dc.PushClip(new RectangleGeometry(rect));
+        if (spreadLow.Length == frequencies.Length && spreadHigh.Length == frequencies.Length)
+        {
+            var band = new StreamGeometry();
+            using (var c = band.Open())
+            {
+                c.BeginFigure(new Point(X(frequencies[0]), Y(spreadHigh[0])), true, true);
+                for (var i = 1; i < frequencies.Length; i++) c.LineTo(new Point(X(frequencies[i]), Y(spreadHigh[i])), false, false);
+                for (var i = frequencies.Length - 1; i >= 0; i--) c.LineTo(new Point(X(frequencies[i]), Y(spreadLow[i])), false, false);
+            }
+            band.Freeze();
+            dc.DrawGeometry(SpreadBrush, null, band);
+        }
+        var positionPen = new Pen(new SolidColorBrush(Color.FromArgb(56, 255, 255, 255)), 0.8);
+        foreach (var curve in positions) Draw(dc, curve, X, Y, positionPen);
         Draw(dc, measurement, X, Y, new Pen(Brushes.Gray, 1.2));
         Draw(dc, target, X, Y, new Pen(new SolidColorBrush(Color.FromArgb(204, 255, 255, 255)), 1.2) { DashStyle = new DashStyle([3.5, 2.5], 0) });
         Draw(dc, predicted, X, Y, new Pen(Theme.Accent, 1.8) { LineJoin = PenLineJoin.Round });
         dc.Pop();
     }
+
+    /// The spread band, also used by its legend swatch.
+    public static readonly Brush SpreadBrush = new SolidColorBrush(Color.FromArgb(77, 128, 128, 128)).Frozen();
 
     private void Draw(DrawingContext dc, double[] values, Func<double, double> x, Func<double, double> y, Pen pen)
     {
@@ -229,11 +258,14 @@ sealed class LegendSwatch : FrameworkElement
 {
     private readonly Brush brush;
     private readonly bool dashed;
+    private readonly bool band;
 
-    public LegendSwatch(Brush brush, bool dashed = false)
+    /// <param name="band">A filled band instead of a line.</param>
+    public LegendSwatch(Brush brush, bool dashed = false, bool band = false)
     {
         this.brush = brush;
         this.dashed = dashed;
+        this.band = band;
         Width = 16;
         Height = 6;
         VerticalAlignment = VerticalAlignment.Center;
@@ -241,8 +273,73 @@ sealed class LegendSwatch : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (band)
+        {
+            dc.DrawRectangle(brush, null, new Rect(0, 0, ActualWidth, ActualHeight));
+            return;
+        }
         var pen = new Pen(brush, 2);
         if (dashed) pen.DashStyle = new DashStyle([1.5, 1], 0);
         dc.DrawLine(pen, new Point(0, ActualHeight / 2), new Point(ActualWidth, ActualHeight / 2));
+    }
+}
+
+/// The listening spot from above, speakers ahead: the suggested microphone positions,
+/// filled once measured, the next one marked with a microphone.
+sealed class PositionMap : FrameworkElement
+{
+    /// In the order of RoomAudio's positions, in steps of about 20 cm: x to the right, y towards the speakers.
+    private static readonly Point[] Offsets = [new(0, 0), new(-1, 0), new(1, 0), new(0, 1), new(0, -1)];
+
+    private IReadOnlySet<int> measured = new HashSet<int>();
+    private int? next;
+
+    public PositionMap()
+    {
+        IsHitTestVisible = false;
+    }
+
+    public void Set(IReadOnlySet<int> measured, int? next)
+    {
+        this.measured = measured;
+        this.next = next;
+        InvalidateVisual();
+    }
+
+    protected override void OnRender(DrawingContext dc)
+    {
+        double w = ActualWidth, h = ActualHeight;
+        dc.DrawRoundedRectangle(Theme.Panel, new Pen(Theme.PanelStroke, 1), new Rect(0, 0, w, h), 8, 8);
+        var center = new Point(w / 2, h * 0.6);
+        var step = h * 0.22;
+        var speakerBrush = new SolidColorBrush(Color.FromArgb(89, 255, 255, 255));
+        foreach (var side in new[] { -1.0, 1.0 })
+            dc.DrawRoundedRectangle(speakerBrush, null, new Rect(w / 2 + side * w * 0.3 - 7, 6, 14, 11), 2.5, 2.5);
+        // About 30 cm around the head.
+        var reach = step * 1.5;
+        dc.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)), 1) { DashStyle = new DashStyle([3, 3], 0) }, center, reach, reach);
+        dc.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(64, 255, 255, 255)), 1), center, 11, 11);
+
+        var halo = Theme.Brush(Theme.AccentColor, 0.22);
+        var pending = new Pen(new SolidColorBrush(Color.FromArgb(89, 255, 255, 255)), 1);
+        for (var i = 0; i < Offsets.Length; i++)
+        {
+            var p = new Point(center.X + Offsets[i].X * step, center.Y - Offsets[i].Y * step);
+            if (measured.Contains(i))
+            {
+                dc.DrawEllipse(halo, null, p, 10, 10);
+                dc.DrawEllipse(Theme.Accent, null, p, 5, 5);
+            }
+            else if (i == next)
+            {
+                dc.DrawEllipse(null, new Pen(Theme.Accent, 1.5), p, 8, 8);
+                var mic = Theme.Label(Glyphs.Microphone, 9, Theme.Accent, new Typeface(Theme.IconFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal));
+                dc.DrawText(mic, new Point(p.X - mic.Width / 2, p.Y - mic.Height / 2));
+            }
+            else
+            {
+                dc.DrawEllipse(null, pending, p, 4.5, 4.5);
+            }
+        }
     }
 }

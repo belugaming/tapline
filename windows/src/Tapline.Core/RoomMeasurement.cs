@@ -150,6 +150,75 @@ public static class RoomResponse
         return new FrequencyResponse([.. grid], mean);
     }
 
+    /// <summary>Each response sixth-octave smoothed on <paramref name="grid"/> (the fitter's grid by default)
+    /// and shifted so its 200 Hz - 2 kHz mean is 0 dB: the shape of a measurement, for comparing positions.</summary>
+    public static double[][] Shapes(IReadOnlyList<FrequencyResponse> responses, IReadOnlyList<double>? grid = null)
+    {
+        IReadOnlyList<double> g = grid ?? EqFitter.GridValues;
+        var mids = Enumerable.Range(0, g.Count).Where(i => g[i] >= 200 && g[i] <= 2000).ToArray();
+        return responses.Select(response =>
+        {
+            var smooth = Smoothing.FractionalOctave(response.Resampled(g), g, _ => 1.0 / 6);
+            double level = 0;
+            foreach (int i in mids) level += smooth[i];
+            level /= Math.Max(mids.Length, 1);
+            return smooth.Select(v => v - level).ToArray();
+        }).ToArray();
+    }
+
+    /// <summary>Standard deviation of the shapes at each grid point, dB: where the response changes
+    /// from one position to the next, their average is less certain. Null for fewer than two.</summary>
+    public static double[]? Spread(IReadOnlyList<double[]> shapes)
+    {
+        if (shapes.Count < 2) return null;
+        int count = shapes[0].Length;
+        if (shapes.Any(s => s.Length != count)) return null;
+        double n = shapes.Count;
+        var spread = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            double mean = 0;
+            foreach (var s in shapes) mean += s[i];
+            mean /= n;
+            double variance = 0;
+            foreach (var s in shapes) variance += (s[i] - mean) * (s[i] - mean);
+            spread[i] = Math.Sqrt(variance / n);
+        }
+        return spread;
+    }
+
+    /// <summary>The shapes far from every other one while the rest agree: a noise during the sweep,
+    /// a bumped or turned microphone. Compares RMS differences from 30 Hz to 10 kHz, so it needs
+    /// three or more.</summary>
+    public static int[] Outliers(IReadOnlyList<double[]> shapes, IReadOnlyList<double>? grid = null)
+    {
+        IReadOnlyList<double> g = grid ?? EqFitter.GridValues;
+        int n = shapes.Count;
+        if (n < 3 || shapes.Any(s => s.Length != g.Count)) return [];
+        var band = Enumerable.Range(0, g.Count).Where(i => g[i] >= 30 && g[i] <= 10_000).ToArray();
+        var distance = new double[n, n];
+        for (int a = 0; a < n; a++)
+            for (int b = a + 1; b < n; b++)
+            {
+                double sum = 0;
+                foreach (int i in band) sum += (shapes[a][i] - shapes[b][i]) * (shapes[a][i] - shapes[b][i]);
+                distance[a, b] = distance[b, a] = Math.Sqrt(sum / Math.Max(band.Length, 1));
+            }
+        var outliers = new List<int>();
+        for (int k = 0; k < n; k++)
+        {
+            var others = Enumerable.Range(0, n).Where(j => j != k).ToArray();
+            double nearest = others.Min(j => distance[k, j]);
+            var among = new List<double>();
+            for (int i = 0; i < others.Length; i++)
+                for (int j = i + 1; j < others.Length; j++) among.Add(distance[others[i], others[j]]);
+            among.Sort();
+            double typical = among.Count == 0 ? 0 : among[among.Count / 2];
+            if (nearest >= 1.5 && nearest >= 2 * typical) outliers.Add(k);
+        }
+        return [.. outliers];
+    }
+
     /// <summary>Subtracts a microphone calibration curve (e.g. a miniDSP UMIK-1 file).</summary>
     public static FrequencyResponse ApplyCalibration(FrequencyResponse response, FrequencyResponse calibration)
     {

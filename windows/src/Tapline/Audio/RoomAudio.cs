@@ -22,6 +22,8 @@ enum RoomSpeakers
 
 enum RoomPhase { Idle, CheckingLevel, Measuring, Analyzing }
 
+enum MeasurementQuality { Good, Fair, Noisy, Clipped }
+
 /// A failure with a message for the user.
 sealed class RoomAudioException(string message, bool microphoneBlocked = false) : Exception(message)
 {
@@ -54,9 +56,19 @@ sealed class RoomAudio(AppModel model)
         public bool? OppositePolarity { get; init; }
         public required double PeakDb { get; init; }
         public required double SnrDb { get; init; }
+        /// The suggested microphone position it was taken at (0 … `PositionCount` - 1),
+        /// null once all of them were measured.
+        public int? Position { get; init; }
 
         public FrequencyResponse? LeftResponse => Left ?? (Speakers == RoomSpeakers.Left ? Response : null);
         public FrequencyResponse? RightResponse => Right ?? (Speakers == RoomSpeakers.Right ? Response : null);
+
+        /// Clipped and noisy measurements are worth repeating.
+        public MeasurementQuality Quality =>
+            PeakDb > -1 ? MeasurementQuality.Clipped
+            : SnrDb < 20 ? MeasurementQuality.Noisy
+            : SnrDb < 30 ? MeasurementQuality.Fair
+            : MeasurementQuality.Good;
     }
 
     public const double SweepSeconds = 8.0;
@@ -72,6 +84,10 @@ sealed class RoomAudio(AppModel model)
     public RoomPhase Phase { get; private set; } = RoomPhase.Idle;
     /// 0…1 while measuring.
     public double Progress { get; private set; }
+    /// Seconds into the running level check or measurement, and its length.
+    public double ElapsedSeconds { get; private set; }
+    public double RunSeconds { get; private set; }
+    private RoomSpeakers measuringSpeakers = RoomSpeakers.Stereo;
     public IReadOnlyList<Measurement> Measurements => measurements;
     /// Live microphone level during a level check or measurement, dBFS.
     public double InputPeakDb { get; private set; } = -120;
@@ -83,6 +99,51 @@ sealed class RoomAudio(AppModel model)
     public bool MicrophoneBlocked { get; set; }
 
     public bool IsBusy => Phase != RoomPhase.Idle;
+
+    public int SecondsLeft => (int)Math.Ceiling(Math.Max(0, RunSeconds - ElapsedSeconds));
+
+    /// What the measurement in progress plays right now.
+    public string? NowPlaying
+    {
+        get
+        {
+            if (Phase != RoomPhase.Measuring) return null;
+            switch (measuringSpeakers)
+            {
+                case RoomSpeakers.Left: return L.T("Left speaker");
+                case RoomSpeakers.Right: return L.T("Right speaker");
+                case RoomSpeakers.Both: return L.T("Both speakers");
+            }
+            // StereoSweepPlan's timeline: left sweep, gap, right sweep, gap, timing clicks.
+            const double gap = StereoSweepPlan.Gap;
+            const double rightStart = StereoSweepPlan.PreRoll + SweepSeconds + gap;
+            const double clicksStart = rightStart + SweepSeconds + gap;
+            if (ElapsedSeconds < rightStart - gap / 2) return L.T("Left speaker");
+            if (ElapsedSeconds < clicksStart - gap / 2) return L.T("Right speaker");
+            return L.T("Timing clicks");
+        }
+    }
+
+    // MARK: - Positions
+
+    /// Suggested microphone positions: the listening spot, then about 20 cm to the
+    /// left, to the right, in front and behind.
+    public const int PositionCount = 5;
+
+    public IReadOnlySet<int> MeasuredPositions =>
+        measurements.Where(m => m.Position.HasValue).Select(m => m.Position!.Value).ToHashSet();
+
+    /// The first suggested position not measured yet.
+    public int? NextPosition
+    {
+        get
+        {
+            var taken = MeasuredPositions;
+            for (var i = 0; i < PositionCount; i++)
+                if (!taken.Contains(i)) return i;
+            return null;
+        }
+    }
 
     public FrequencyResponse? AveragedResponse { get; private set; }
     public FrequencyResponse? AveragedLeft { get; private set; }
@@ -228,6 +289,7 @@ sealed class RoomAudio(AppModel model)
         if (IsBusy) return;
         LastMessage = null;
         MicrophoneBlocked = false;
+        measuringSpeakers = speakers;
         Phase = RoomPhase.Measuring;
         Progress = 0;
         Changed?.Invoke();
@@ -283,7 +345,7 @@ sealed class RoomAudio(AppModel model)
             LastMessage = L.T("The measurement failed. Check that the microphone hears the speakers.");
             return;
         }
-        Add(new Measurement { Speakers = speakers, Response = response, PeakDb = peakDb, SnrDb = snrDb });
+        Add(new Measurement { Speakers = speakers, Response = response, PeakDb = peakDb, SnrDb = snrDb, Position = NextPosition });
         LastMessage = ResultMessage(peakDb, snrDb);
     }
 
@@ -322,6 +384,7 @@ sealed class RoomAudio(AppModel model)
             OppositePolarity = analysis.OppositePolarity,
             PeakDb = analysis.PeakDb,
             SnrDb = snr,
+            Position = NextPosition,
         });
         LastMessage = ResultMessage(analysis.PeakDb, snr);
     }
@@ -576,6 +639,8 @@ sealed class RoomAudio(AppModel model)
             }
 
             var clock = Stopwatch.StartNew();
+            RunSeconds = seconds;
+            ElapsedSeconds = 0;
             while (clock.Elapsed.TotalSeconds < seconds)
             {
                 await Task.Delay(100);
@@ -585,7 +650,8 @@ sealed class RoomAudio(AppModel model)
                 InputPeakDb = 20 * Math.Log10(Math.Max(peak, 1e-9));
                 InputRmsDb = 20 * Math.Log10(Math.Max(rms, 1e-9));
                 runPeakDb = Math.Max(runPeakDb, InputPeakDb);
-                if (Phase == RoomPhase.Measuring) Progress = Math.Min(1, clock.Elapsed.TotalSeconds / seconds);
+                ElapsedSeconds = clock.Elapsed.TotalSeconds;
+                if (Phase == RoomPhase.Measuring) Progress = Math.Min(1, ElapsedSeconds / seconds);
                 Changed?.Invoke();
             }
 
@@ -667,6 +733,57 @@ sealed class RoomAudio(AppModel model)
             }
         }
         return Denied(Registry.LocalMachine, store) || Denied(Registry.CurrentUser, store) || Denied(Registry.CurrentUser, store + @"\NonPackaged");
+    }
+
+    /// A synthetic room (modes, a cancellation dip, a slightly louder and farther right
+    /// speaker) measured at four positions, for snapshots.
+    public void ApplyDemo()
+    {
+        if (measurements.Count > 0) return;
+        var grid = EqFitter.Grid;
+        FrequencyResponse Speaker(EqBand extra, double level, ulong seed, double shift)
+        {
+            var room = ResponseCurve.ResponseDb(
+            [
+                new EqBand(FilterType.HighPass, 38, q: 0.8),
+                new EqBand(FilterType.Peak, 47, 8 + shift, 5),
+                new EqBand(FilterType.Peak, 112, -9 - shift, 4),
+                new EqBand(FilterType.Peak, 176, 5 - shift / 2, 6),
+                new EqBand(FilterType.Peak, 300, -3, 3),
+                new EqBand(FilterType.HighShelf, 9000, -2, 0.7),
+                extra,
+            ], grid, 48_000);
+            var levels = new double[room.Length];
+            for (var i = 0; i < room.Length; i++)
+            {
+                seed = unchecked(seed * 6364136223846793005UL + 1442695040888963407UL);
+                var wiggle = ((seed >> 33) / (double)(1UL << 31) - 0.5) * (grid[i] > 1000 ? 2.0 : 0.6);
+                levels[i] = level + room[i] + wiggle;
+            }
+            return new FrequencyResponse([.. grid], levels);
+        }
+        // The modes change a little from one position to the next; the third was taken in a noisier moment.
+        (double Shift, double Level, double Snr, double Peak)[] spots = [(0, 0, 52, -14), (3, -0.4, 47, -15), (-2.5, 0.3, 27, -18), (1.5, -0.2, 50, -14)];
+        for (var i = 0; i < spots.Length; i++)
+        {
+            var spot = spots[i];
+            var seed = (ulong)i * 101;
+            var left = Speaker(new EqBand(FilterType.Peak, 68, 3, 4), 82 + spot.Level, 42 + seed, spot.Shift);
+            var right = Speaker(new EqBand(FilterType.Peak, 68, -4, 4), 82.9 + spot.Level, 7 + seed, spot.Shift);
+            measurements.Add(new Measurement
+            {
+                Speakers = RoomSpeakers.Stereo,
+                Response = RoomResponse.Average([left, right]) ?? left,
+                Left = left,
+                Right = right,
+                ArrivalDifference = 0.00011,
+                OppositePolarity = false,
+                PeakDb = spot.Peak,
+                SnrDb = spot.Snr,
+                Position = i,
+            });
+        }
+        MeasurementsChanged();
     }
 
     /// Paul Kellet's economy pink noise filter.
