@@ -66,7 +66,8 @@ enum DebugSnapshot {
             }
             let page = pages[index]
             UserDefaults.standard.set(page.rawValue, forKey: pageKey)
-            let wait = page == .assistant && squigQuery != nil ? 12.0 : 1.2
+            // The Room page fits up to three EQs in the background before its setup check and chart appear.
+            let wait = page == .assistant && squigQuery != nil ? 12.0 : (page == .room ? 4.0 : 1.2)
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                 MainActor.assumeIsolated {
                     capture(name: "\(index)-\(page.rawValue)", in: directory)
