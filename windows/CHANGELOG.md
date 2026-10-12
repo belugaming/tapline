@@ -14,15 +14,6 @@ Brings over the room-correction changes of Tapline 0.3.0 for macOS.
 - **Correct below** now goes up to 20 kHz, on a log scale, so the EQ can also even out a crossover or tweeter problem. The default stays 500 Hz, which corrects only the room's bass.
 - Releases come as an installer only. The portable `.zip` is gone: it had no uninstaller, so deleting it left Tapline's EQ in Equalizer APO's configuration.
 
-Brings over the room-correction changes of Tapline 0.3.0 for macOS:
-
-- Room correction guides the measurement: a map shows where to put the microphone next (your listening spot, then about 20 cm to each side, in front and behind) and how many positions are done, with a note once there are enough to correct.
-- While measuring, Room correction shows which speaker is playing, the seconds left and the microphone level.
-- Each room measurement is marked **Good**, **Fair** or **Measure again**: clipped, noisy, or clearly unlike the other positions.
-- The room chart shows how much the positions disagree (a band of one standard deviation), and each position's curve with **Positions**.
-- A warning when the output or the input of a room measurement is a virtual device (VB-Audio, Voicemeeter, SoundID Reference…): its software would end up in the measurement.
-- **Correct below** now goes up to 20 kHz, on a log scale, so the EQ can also even out a crossover or tweeter problem. The default stays 500 Hz, which corrects only the room's bass.
-
 ## 0.1.0-beta.2
 
 Brings over the fixes from Tapline 0.2.2 for macOS.
