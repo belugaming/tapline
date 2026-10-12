@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-12
+
 ### Changed
 - Releases are signed with Tapline's own certificate instead of a new ad-hoc signature for every build, so macOS keeps Tapline's audio and microphone permissions across updates. Updating to the first signed release asks for them once more. It is still not notarized: the first launch still needs **Open Anyway**.
 - Tapline uses less energy while only its menu bar icon is showing, or its window is minimized or covered. It then checks the audio 4 times a second instead of 30, and the spectrum analyzer pauses.
@@ -109,7 +111,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/belugaming/tapline/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/belugaming/tapline/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/belugaming/tapline/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/belugaming/tapline/compare/v0.2.2...v0.2.3
