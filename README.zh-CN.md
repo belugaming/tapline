@@ -44,6 +44,10 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 - [系统要求](#系统要求)
 - [安装](#安装)
 - [Windows 版（测试版）](#windows-版测试版)
+  - [Windows 版功能一览](#windows-版功能一览)
+  - [在 Windows 上安装](#在-windows-上安装)
+  - [在 Windows 上使用](#在-windows-上使用)
+  - [更新和卸载](#更新和卸载)
 - [快速上手](#快速上手)
 - 教程
   - [1. 用均衡器调声音](#1-用均衡器调声音)
@@ -71,12 +75,12 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 
 **Windows（测试版）**
 
-- 64 位 Windows 10 或 11，x64 电脑（不支持 ARM 版 Windows）
+- 64 位 Windows 10 或 11，x64 电脑（不支持 ARM 版 Windows，因为 Equalizer APO 只有 x64 版本）
 - 免费的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)，并在要用的输出设备上启用
 
 ## 安装
 
-以下是 macOS 的安装步骤。Windows 请看 [Windows 版（测试版）](#windows-版测试版)。
+以下是 macOS 的安装步骤。Windows 请看[在 Windows 上安装](#在-windows-上安装)。
 
 1. 从[最新版本](https://github.com/belugaming/tapline/releases/latest)下载 `Tapline-x.y.z-arm64.dmg`。
 2. 打开它，把 **Tapline.app** 拖到旁边的 **应用程序** 图标上。
@@ -86,33 +90,59 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 
 ## Windows 版（测试版）
 
-Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版有同样的页面（EQ、耳机校正、房间校正、混音器、效果器、设备），每个输出设备也各自保存一套 EQ。
+Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版的页面和 Mac 版一样（均衡器、助手和耳机校正、房间校正、混音器、效果器、设备），每个输出设备也各自保存一套 EQ。
 
 > [!NOTE]
 > Windows 版目前是**测试版**。它刚推出，还没有在很多电脑上测试过，难免有不完善的地方。欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈哪些能用、哪些不行。
 
-Windows 版有自己的版本号（0.1.0-beta.x），以预发布版的形式发布，标题以 “Tapline for Windows” 开头。每个版本的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。
+Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。Windows 版有自己的版本号（0.1.0-beta.x），以预发布版的形式发布，标题以 “Tapline for Windows” 开头；每个版本的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。
 
-Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎，把 EQ 写进 Equalizer APO 的配置。
+### Windows 版功能一览
+
+| 功能 | macOS | Windows（测试版） |
+|---|---|---|
+| 参数 EQ，最多 24 个频段：在曲线上拖动、预设、A/B 对比、撤销、自动预增益 | ✓ | ✓ |
+| 只作用于左声道或右声道的频段 | ✓ | ✓ |
+| 每个输出设备各自一套 EQ | ✓ | ✓，关闭 Tapline 后依然有效 |
+| 频谱分析 | EQ 前和 EQ 后 | 只有 EQ 后 |
+| 耳机校正：AutoEQ、squig.link、自己的测量文件 | ✓ | ✓ |
+| 房间校正：引导测量、摆位检查、左右分别校正、导出到 RME ADI-2 | ✓ | ✓ |
+| 快速音色、声音助手、导入导出（Equalizer APO、AutoEQ、RME ADI-2） | ✓ | ✓ |
+| 每个 App 单独调音量、静音 | 0–200% | 0–100%（Windows 自带的各应用音量） |
+| 让某个 App 直通、不经过 Tapline | ✓ | ✗（使用独占模式或 ASIO 的软件本来就不会被处理） |
+| 限幅器 | ✓ | ✗（请把预增益保持在**自动**） |
+| 输出增益、声道平衡、立体声宽度、单声道、左右互换、交叉馈送 | ✓ | ✓（单声道输出设备上只有输出增益） |
+| 切换输出、输入设备 | ✓ | ✓ |
+| 修改设备采样率 | ✓ | ✗（只显示） |
+| 快捷面板 | 菜单栏 | 通知区域（托盘） |
+| 全局快捷键 | ⌃⌥⌘P / B / K | Ctrl+Alt+Shift+P / B / K |
+| 登录时打开 | ✓ | ✓ |
+
+### 在 Windows 上安装
 
 1. 安装 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)。安装结束时会弹出 Configurator：勾选你要用的输出设备（音箱、耳机……），然后重启 Windows。
 2. 在[发布页](https://github.com/belugaming/tapline/releases?q=windows)中找到标题以 “Tapline for Windows” 开头的最新版本，下载 `Tapline-x.y.z-win-x64-setup.exe` 并运行。程序还没有代码签名，SmartScreen 可能会拦截：点 **更多信息 → 仍要运行**。
-3. 第一次使用时，Tapline 会先征求你的同意再替换 Equalizer APO 的配置；原配置会备份为 `config-before-tapline.txt`，可以在 **设备 → 音频引擎** 中恢复。
+3. 打开 Tapline。如果 Equalizer APO 里已经有配置，Tapline 会先征求你的同意再替换：点**使用 Tapline**，或者点**把原 EQ 导入为预设，然后使用 Tapline**，把原来的 EQ 留成一个预设。原配置还会备份为 `config-before-tapline.txt`，可以在 **设备 → 音频引擎** 中恢复。
+4. 放点音乐，选一个预设，或者接着看下面的[教程](#教程)。
+
+### 在 Windows 上使用
+
+教程以 Mac 版为例。Windows 版的页面用法相同，每节教程下面都注明了 Windows 上的不同之处。简单来说：
+
+- **按键**：把 ⌘ 换成 Ctrl，⌥ 换成 Alt。窗口里：Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+B 旁通 EQ，Ctrl+K A/B 对比。全局快捷键（可以在**设置**里关掉）：Ctrl+Alt+Shift+P 开关处理，Ctrl+Alt+Shift+B 旁通 EQ，Ctrl+Alt+Shift+K 切换 A/B。
+- **关闭 Tapline 后 EQ 依然有效**，因为是 Equalizer APO 在处理声音，重启电脑后也一样。要听原声，请关闭处理：电源按钮、托盘面板、Ctrl+Alt+Shift+P，或者 **设置 → 处理音频**。
+- **通知区域（托盘）**：点 Tapline 的图标打开快捷面板（处理开关、输出设备、音量、EQ 和预设、正在播放的 App）；右键点图标可以退出。关闭窗口后 Tapline 会留在托盘里继续运行；在**设置**里关掉这一项，关闭窗口就会退出。
+- **只有装了 Equalizer APO 的设备才会被处理。** 设备页会给其他设备标上**未装 Equalizer APO**：在 Equalizer APO 的 Configurator 里勾选它们（横幅上的**打开 Configurator**），然后重启。如果某个设备关闭了 Windows 的**音频增强**，Equalizer APO 也会被跳过，Tapline 会显示横幅，可以直接打开声音设置。从没调过 EQ 的输出设备不做任何处理。
+- **房间测量**期间，Tapline 会把被测的输出设备暂时从 Equalizer APO 的配置里拿掉，所以这几十秒里这个设备上的所有声音都不经过处理。如果麦克风只录到静音，请在 Windows 的隐私设置里允许访问麦克风（**打开麦克风设置**）。
+- 界面语言跟随 Windows 的显示语言（英文或简体中文）。
+
+### 更新和卸载
 
 更新时，直接运行新版本的安装程序，EQ 和预设都会保留。卸载时，在 **设置 → 应用** 中移除 Tapline，卸载程序会把 Equalizer APO 原来的配置还回去。Tapline 的设置保存在 `%APPDATA%\Tapline`，想一并清除就删掉这个文件夹。
 
-和 macOS 版的区别：
-
-- 关闭 Tapline 后 EQ 依然有效，因为是 Equalizer APO 在处理声音。要听原声，请关闭处理（电源按钮、托盘面板或 Ctrl+Alt+Shift+P）。
-- 没有限幅器：请把预增益保持在 **自动**，避免提升频段时破音。
-- 混音器调的是 Windows 自带的各应用音量（最高 100%）。不能单独让某个 App 直通；使用独占模式或 ASIO 的软件本来就不会被处理。
-- 频谱只显示 EQ 之后的输出。
-- Tapline 待在通知区域（托盘）而不是菜单栏。全局快捷键是 Ctrl+Alt+Shift+P / B / K。
-- 不支持 ARM 版 Windows，因为 Equalizer APO 只有 x64 版本。
-
 ## 快速上手
 
-快速上手和教程以 macOS 版为例。Windows 版的页面相同，区别见 [Windows 版（测试版）](#windows-版测试版)。
+快速上手和教程以 macOS 版为例。Windows 请按[在 Windows 上安装](#在-windows-上安装)操作，不用看这里的快速上手；教程同样适用，Windows 上不同的地方都有注明。
 
 1. **退出其他音频工具**，比如 SoundSource、eqMac。两个工具同时处理同一路声音会互相干扰，Tapline 检测到时会显示警告。
 2. 点窗口左下角的**电源按钮**开启 Tapline，或者按 ⌃⌥⌘P。
@@ -153,6 +183,8 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 - **⋯**：恢复平直、把 A 复制到 B、把曲线复制为 Equalizer APO 格式。
 
 所有改动都可以撤销和重做（⌘Z / ⇧⌘Z）。
+
+> **Windows 上：** 用 Ctrl 代替 ⌘，Alt 代替 ⌥（Alt 点按删除频段；按住 Alt 或 Shift 微调）。滚轮调 Q 值，不支持双指捏合。曲线图只显示 EQ 之后的频谱，所以没有“输入频谱”开关。撤销和重做是 Ctrl+Z 和 Ctrl+Y。
 
 ### 2. 校正你的耳机
 
@@ -206,6 +238,8 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 
 建议：测量信号不经过 Tapline 自己的 EQ 和平衡，所以再测一次看到的总是房间本来的样子。想检查已经载入 ADI-2 的校正，打开它的 EQ 再测一次。超低音的分频和延时请用超低音自己的旋钮设置；如果你的音箱自带校准系统（比如真力 SAM 系列的 GLM），优先用它。
 
+> **Windows 上：** 房间校正的用法完全相同。检查电平或测量期间，被测输出设备上的所有声音都不经过 Tapline 的 EQ 和效果，而不只是测试信号。
+
 ### 4. 不懂 EQ 也能调
 
 **辅助调音**页往下拉：
@@ -228,6 +262,8 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 
 第一次调某个 App 的音量时，Tapline 要为它重建音频通路，会短暂停一下。浏览器标签页、Electron 应用这类辅助进程会自动归到对应的 App 名下。
 
+> **Windows 上：** 滑块调的是 Windows 自带的各应用音量，和音量合成器里的一样：范围 0–100%，关闭 Tapline 后依然保留。没有**直通**和**重置**。使用独占模式或 ASIO 的软件（大多数音乐制作软件）本来就不经过 EQ。
+
 ### 6. 效果器
 
 ![效果](docs/images/zh/effects.png)
@@ -239,6 +275,8 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 - **声道平衡**、**立体声宽度**（0% 就是单声道）、**单声道**、**左右声道互换**。
 - **耳机交叉馈送**：把左右声道互相混入一点，听感更接近音箱。听左右分得很开的录音时，用耳机不容易疲劳。
 
+> **Windows 上：** 没有限幅器，因为 Equalizer APO 没有这个功能。请把预增益保持在**自动**，避免提升频段时破音；电平表顶满时调低**输出增益**。
+
 ### 7. 多个设备、多套配置
 
 ![设备](docs/images/zh/devices.png)
@@ -247,6 +285,8 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 
 - **设备**页列出所有输出和输入设备，点**使用**切换，也可以改采样率。
 - 工具栏里的输出设备菜单在任何页面都能切换设备。
+
+> **Windows 上：** 点**使用**会把它设成 Windows 的默认设备。采样率只显示，不能在 Tapline 里修改。**音频引擎**卡片显示 Equalizer APO 的状态，可以打开它的 Configurator 和配置文件。
 - 如果一台设备同时接了耳机和音箱（比如声卡），可以存两个勾选了**包含效果设置**的预设，比如"耳机"开交叉馈送、"音箱"不开，在预设菜单或菜单栏里一键切换。
 
 ### 8. 菜单栏和快捷键
@@ -265,6 +305,8 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 
 在 Tapline 里：⌘Z / ⇧⌘Z 撤销和重做，⌘B 旁通 EQ，⌘K A/B 对比，⌘Q 隐藏到菜单栏，⌥⌘Q 彻底退出。
 
+> **Windows 上：** 面板从通知区域（托盘）里的 Tapline 图标打开，右键点图标可以退出。全局快捷键是 Ctrl+Alt+Shift+P / B / K；在 Tapline 里 Ctrl+Z / Ctrl+Y 撤销和重做，Ctrl+B 旁通 EQ，Ctrl+K A/B 对比。关闭窗口后 Tapline 会留在托盘里。
+
 <br clear="right">
 
 ### 9. 怎么看电平表
@@ -274,6 +316,8 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 - **绿色实心**是平均音量，**上面颜色淡一点的那截**是瞬间峰值，**白色短横线**是最近的最高峰值，下面的数字就是它的 dB 值。0 dB 是数字信号的上限。
 - **最上面的小圆点**变红表示削波（破音）了。
 - **衰减（GR）**表示限幅器正在把峰值压低多少。空着最好；如果经常在动，就把预增益调低一点，或者打开**自动**。
+
+> **Windows 上：** 没有限幅器，所以也没有 GR 表。削波指示灯变红时，调低预增益或打开**自动**。
 
 ## 常见问题
 
@@ -301,8 +345,11 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 **更新以后系统又要权限。**
 发布版是临时签名的，每个版本在系统看来都是新 App，再允许一次就行。旧的记录可以在 **系统设置 → 隐私与安全性 → 录屏与系统录音** 里删掉。
 
+**Windows：开了 EQ 听不出区别。**
+看窗口顶部的横幅。Equalizer APO 没装、没装在当前输出设备上，或者因为这个设备关闭了 Windows 的**音频增强**而被跳过时，Tapline 都会在那里提示。另外确认处理已经打开，以及播放的软件没有用独占模式或 ASIO：这两种都会绕过 Equalizer APO。
+
 **怎么卸载？**
-从菜单栏面板退出 Tapline，删掉 Tapline.app。如果想清除设置和缓存，在终端运行：
+Windows 请看[更新和卸载](#更新和卸载)。在 macOS 上，从菜单栏面板退出 Tapline，删掉 Tapline.app。如果想清除设置和缓存，在终端运行：
 
 ```bash
 defaults delete io.github.belugaming.Tapline
@@ -323,6 +370,8 @@ rm -rf ~/Library/Caches/io.github.belugaming.Tapline
 - 实时音频部分用纯 C 编写（`Packages/TaplineCore/Sources/TaplineDSP`），音频线程上没有内存分配、锁或 Swift 运行时。参数通过无锁三缓冲传进去。滤波器是 RBJ 双二阶滤波器，用双精度计算。
 - EQ 拟合算法（`EQFitter.swift`）参照 AutoEQ 的做法：先对齐电平，平滑所需的校正量（8 kHz 以上用两个倍频程的平滑），在误差最大的地方逐个加搁架和峰值滤波器，再用模式搜索一起微调所有参数。
 - 同一时间只能运行一个 Tapline；设备停止回调时看门狗会自动重启引擎；检测到反馈回路时会自动关闭处理。Tapline 退出或崩溃时，它创建的截取流和聚合设备会一起消失。
+
+在 Windows 上，Tapline 负责写 Equalizer APO 的 `config.txt`：每个输出设备一个 `Device:` 段，里面是它的预增益、滤波器（和 Mac 版一样的 RBJ 双二阶滤波器）、左右声道段落和效果。Equalizer APO 重新读取这个文件，在 Windows 的音频引擎里处理声音。频谱和电平表通过 WASAPI 环回捕获读取输出，房间测量用 WASAPI 共享模式播放和录音。
 
 ## 隐私与联网
 
@@ -389,7 +438,7 @@ git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
 - ADI-2 导出的是 ADI-2 DAC（FS）的文件；ADI-2 Pro 和 2/4 Pro 用的是别的文件类型。
 - 第一次调某个 App 的音量时，重建音频通路会短暂停一下。
 - 发布版还没有经过公证（见[安装](#安装)）。
-- Windows 版是测试版，还没有代码签名。它和 macOS 版的区别见 [Windows 版（测试版）](#windows-版测试版)。
+- Windows 版是测试版，还没有代码签名。它和 macOS 版的区别见 [Windows 版功能一览](#windows-版功能一览)。
 
 ## 致谢
 

@@ -44,6 +44,10 @@ What makes it different:
 - [Requirements](#requirements)
 - [Install](#install)
 - [Windows (beta)](#windows-beta)
+  - [What works on Windows](#what-works-on-windows)
+  - [Install on Windows](#install-on-windows)
+  - [Using Tapline on Windows](#using-tapline-on-windows)
+  - [Update and uninstall](#update-and-uninstall)
 - [Quick start](#quick-start)
 - Tutorials
   - [1. Shape the sound with the EQ](#1-shape-the-sound-with-the-eq)
@@ -71,12 +75,12 @@ What makes it different:
 
 **Windows (beta)**
 
-- 64-bit Windows 10 or 11 on an x64 PC (Windows on ARM isn't supported)
+- 64-bit Windows 10 or 11 on an x64 PC (Windows on ARM isn't supported, because Equalizer APO only exists for x64)
 - [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free) on the output devices you use
 
 ## Install
 
-These steps are for macOS. For Windows, see [Windows (beta)](#windows-beta).
+These steps are for macOS. For Windows, see [Install on Windows](#install-on-windows).
 
 1. Download `Tapline-x.y.z-arm64.dmg` from the [latest release](https://github.com/belugaming/tapline/releases/latest).
 2. Open it and drag **Tapline.app** onto the **Applications** shortcut next to it.
@@ -86,33 +90,59 @@ To update, quit Tapline and replace the app with the new one. macOS asks for the
 
 ## Windows (beta)
 
-Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages (EQ, headphone and room correction, mixer, effects, devices) and keeps a separate EQ for every output device.
+Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages as on the Mac (Equalizer, Assistant with headphone correction, Room, Mixer, Effects, Devices) and keeps a separate EQ for every output device.
 
 > [!NOTE]
 > The Windows version is a **beta**. It is new and has not been tested on many PCs yet, so expect rough edges. Please report what works and what doesn't in [Issues](https://github.com/belugaming/tapline/issues).
 
-Windows releases have their own version numbers (0.1.0-beta.x) and are published as pre-releases titled "Tapline for Windows". What changed in each one is in [windows/CHANGELOG.md](windows/CHANGELOG.md).
+Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine: Tapline is the editor, and Equalizer APO applies the EQ inside Windows' audio engine. Windows releases have their own version numbers (0.1.0-beta.x) and are published as pre-releases titled "Tapline for Windows"; what changed in each one is in [windows/CHANGELOG.md](windows/CHANGELOG.md).
 
-Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine and writes its EQ into Equalizer APO's configuration.
+### What works on Windows
+
+| Feature | macOS | Windows (beta) |
+|---|---|---|
+| Parametric EQ, up to 24 bands: drag on the graph, presets, A/B, undo, Auto preamp | ✓ | ✓ |
+| Bands for the left or right channel only | ✓ | ✓ |
+| A separate EQ for every output device | ✓ | ✓, and it keeps playing while Tapline is closed |
+| Spectrum analyzer | Before and after the EQ | After the EQ only |
+| Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
+| Room correction: guided measurement, setup check, separate left/right correction, RME ADI-2 export | ✓ | ✓ |
+| Quick Tone, Sound Assistant, import and export (Equalizer APO, AutoEQ, RME ADI-2) | ✓ | ✓ |
+| Per-app volume and mute | 0–200 % | 0–100 % (Windows' own app volumes) |
+| Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
+| Limiter | ✓ | ✗ (keep the preamp on **Auto**) |
+| Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
+| Switch the output or input device | ✓ | ✓ |
+| Change a device's sample rate | ✓ | ✗ (shown only) |
+| Quick panel | Menu bar | Notification area (tray) |
+| Global shortcuts | ⌃⌥⌘P / B / K | Ctrl+Alt+Shift+P / B / K |
+| Open at login | ✓ | ✓ |
+
+### Install on Windows
 
 1. Install [Equalizer APO](https://sourceforge.net/projects/equalizerapo/). At the end its Configurator opens: tick the output devices you use (speakers, headphones…), then restart Windows.
 2. Download `Tapline-x.y.z-win-x64-setup.exe` from the newest [release](https://github.com/belugaming/tapline/releases?q=windows) whose title starts with "Tapline for Windows", and run it. It is not code-signed yet, so SmartScreen may warn: click **More info → Run anyway**.
-3. The first time, Tapline asks before it replaces Equalizer APO's configuration; the old one is kept as `config-before-tapline.txt` and can be restored under **Devices → Audio Engine**.
+3. Open Tapline. If Equalizer APO already has a configuration, Tapline asks before it replaces it: click **Use Tapline**, or **Import Its EQ as a Preset and Use Tapline** to keep your old EQ as a preset. The old configuration is also kept as `config-before-tapline.txt` and can be restored under **Devices → Audio Engine**.
+4. Play something and pick a preset, or continue with the [tutorials](#tutorials).
+
+### Using Tapline on Windows
+
+The tutorials show the Mac version. The Windows pages work the same way, and a note under each tutorial says where Windows differs. In short:
+
+- **Keys**: read ⌘ as Ctrl and ⌥ as Alt. In the window: Ctrl+Z undo, Ctrl+Y redo, Ctrl+B bypass the EQ, Ctrl+K compare A/B. Global shortcuts (turn them off in **Settings**): Ctrl+Alt+Shift+P turns processing on or off, Ctrl+Alt+Shift+B bypasses the EQ, Ctrl+Alt+Shift+K switches between A and B.
+- **The EQ keeps playing when Tapline is closed**, because Equalizer APO applies it, even after a restart. To hear the original sound, switch processing off: the power button, the tray panel, Ctrl+Alt+Shift+P or **Settings → Process audio**.
+- **Notification area**: click Tapline's icon for a quick panel (processing, output device, volume, EQ and preset, the apps playing); right-click it to quit. Closing the window keeps Tapline running there; turn this off in **Settings** to quit when the window closes.
+- **Only devices with Equalizer APO are processed.** The Devices page marks the others with **No Equalizer APO**: tick them in Equalizer APO's Configurator (**Open Configurator** on the banner) and restart. If Windows' **Audio enhancements** are off for a device, Equalizer APO is skipped too, and Tapline shows a banner that opens the Sound settings. An output whose EQ you have never changed plays unprocessed.
+- **Room measurements** take the measured output out of Equalizer APO's configuration for the length of the measurement, so everything playing on it is briefly unprocessed. If the microphone records only silence, allow microphone access in Windows' privacy settings (**Open Microphone Settings**).
+- The interface is in English or Simplified Chinese, following the Windows display language.
+
+### Update and uninstall
 
 To update, run the installer of the new version; your EQ and presets are kept. To uninstall, remove Tapline in **Settings → Apps**: the uninstaller gives Equalizer APO its previous configuration back. Tapline's settings stay in `%APPDATA%\Tapline`; delete that folder to remove them too.
 
-Differences from macOS:
-
-- The EQ keeps working while Tapline is closed, because Equalizer APO applies it. Switch processing off (power button, tray panel or Ctrl+Alt+Shift+P) to hear the original sound.
-- There is no limiter: keep the preamp on **Auto** so boosts can't clip.
-- The mixer sets Windows' own per-app volumes (up to 100 %). Per-app bypass isn't possible; apps that use exclusive mode or ASIO are never processed.
-- The spectrum shows the output after the EQ only.
-- Tapline lives in the notification area instead of the menu bar. Global shortcuts are Ctrl+Alt+Shift+P / B / K.
-- Windows on ARM isn't supported, because Equalizer APO only exists for x64.
-
 ## Quick start
 
-The quick start and the tutorials describe the macOS version. On Windows the pages are the same, with the differences listed under [Windows (beta)](#windows-beta).
+The quick start and the tutorials describe the macOS version. On Windows, follow [Install on Windows](#install-on-windows) instead of this quick start; the tutorials apply, with a note where Windows differs.
 
 1. **Quit other audio tools** such as SoundSource or eqMac. Two tools processing the same audio interfere with each other; Tapline shows a warning while one is running.
 2. **Turn Tapline on** with the power button at the bottom left of the window (or press ⌃⌥⌘P).
@@ -153,6 +183,8 @@ At the top of the page:
 - **⋯**: reset to flat, copy A to B, or copy the curve as Equalizer APO text.
 
 Undo and redo (⌘Z / ⇧⌘Z) cover every change.
+
+> **On Windows:** use Ctrl for ⌘ and Alt for ⌥ (Alt-click deletes a band; Alt or Shift for fine adjustments). Scroll changes Q; there is no pinch. The graph shows the spectrum after the EQ only, so there is no input spectrum toggle. Undo and redo are Ctrl+Z and Ctrl+Y.
 
 ### 2. Correct your headphones
 
@@ -206,6 +238,8 @@ In a room, the bass of any speaker is shaped by the walls: some notes boom, othe
 
 Tips: measurements bypass Tapline's own EQ and balance, so measuring again always shows the room as it is. To check a correction loaded into the ADI-2, measure again with its EQ on. Subwoofer crossover settings and time alignment are left to the subwoofer's own controls; if your speakers have a calibration system of their own (such as Genelec GLM for SAM models), use that first.
 
+> **On Windows:** room correction works the same. While a level check or measurement runs, the measured output plays without Tapline's EQ and effects for every app, not only the test signal.
+
 ### 4. Quick adjustments without EQ knowledge
 
 Further down the **Assistant** page:
@@ -228,6 +262,8 @@ The **Mixer** page lists the apps that use audio, with the ones playing right no
 
 The first time you change an app's volume, Tapline rebuilds its audio path, which causes a short gap. Helper processes (browser tabs, Electron apps) are grouped under their app.
 
+> **On Windows:** the sliders are Windows' own per-app volumes, the same as in the Volume Mixer: 0–100 %, and they stay when Tapline is closed. There is no **Bypass Tapline** or **Reset**. Apps that use exclusive mode or ASIO, like most music production software, play without EQ anyway.
+
 ### 6. Effects
 
 ![Effects](docs/images/en/effects.png)
@@ -239,6 +275,8 @@ The **Effects** page works on everything that plays through the current device:
 - **Balance**, **Stereo Width** (0% is mono), **Mono** and **Swap left and right**.
 - **Headphone Crossfeed**: blends a little of each channel into the other, like listening to speakers. It makes hard-panned recordings less tiring on headphones.
 
+> **On Windows:** there is no limiter, because Equalizer APO has none. Keep the preamp on **Auto** so boosts can't clip, and lower **Output Gain** if the meters reach the top.
+
 ### 7. Several outputs and setups
 
 ![Devices](docs/images/en/devices.png)
@@ -247,6 +285,8 @@ Tapline follows the output selected in macOS and keeps **a separate EQ and effec
 
 - The **Devices** page lists outputs and inputs. Click **Use** to switch, or change a device's sample rate.
 - The output menu in the toolbar switches devices from any page.
+
+> **On Windows:** **Use** makes the device the Windows default. The sample rate is shown but can't be changed in Tapline. The **Audio Engine** card shows Equalizer APO's status and opens its Configurator and configuration file.
 - If one device feeds both headphones and speakers (an audio interface, for example), save two presets with **Include effects** ("Headphones" with crossfeed, "Speakers" without) and switch between them from the preset menu or the menu bar.
 
 ### 8. Menu bar and keyboard shortcuts
@@ -265,6 +305,8 @@ Global shortcuts work in every app (turn them off in **Settings**):
 
 Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compares A/B, ⌘Q hides Tapline to the menu bar, ⌥⌘Q quits.
 
+> **On Windows:** the panel opens from Tapline's icon in the notification area; right-click the icon to quit. The global shortcuts are Ctrl+Alt+Shift+P / B / K; inside the app Ctrl+Z / Ctrl+Y undo and redo, Ctrl+B bypasses the EQ and Ctrl+K compares A/B. Closing the window keeps Tapline in the notification area.
+
 <br clear="right">
 
 ### 9. Reading the meters
@@ -274,6 +316,8 @@ The column next to the graph shows the output level of the left and right channe
 - **Solid green** is the average level, the **lighter part above it** the short peaks, and the **white tick** the highest peak of the last moment, also shown as a number in dB. 0 dB is the digital maximum.
 - The **dot at the top** turns red when the signal clips.
 - **GR** (gain reduction) shows how much the limiter is turning peaks down. Empty is ideal. If it is often busy, lower the preamp or turn on **Auto**.
+
+> **On Windows:** there is no limiter, so there is no GR meter. If the clip light turns red, lower the preamp or turn on **Auto**.
 
 ## FAQ and troubleshooting
 
@@ -301,8 +345,11 @@ Quit it. Its audio daemon may stay in the background; Tapline only warns while i
 **macOS asks for the permission again after an update.**
 Release builds are ad-hoc signed, so every build is a new app to macOS. Allow it again. Old entries can be removed in **System Settings → Privacy & Security → Screen & System Audio Recording**.
 
+**Windows: the EQ makes no difference.**
+Look at the banner at the top of the window. Tapline says there when Equalizer APO is missing, isn't installed on the current output, or is skipped because Windows' **Audio enhancements** are off for the device. Also check that processing is on, and that the app isn't using exclusive mode or ASIO: those bypass Equalizer APO.
+
 **How do I uninstall Tapline?**
-Quit it from the menu bar panel, delete Tapline.app, and optionally remove its settings and caches:
+On Windows, see [Update and uninstall](#update-and-uninstall). On macOS, quit it from the menu bar panel, delete Tapline.app, and optionally remove its settings and caches:
 
 ```bash
 defaults delete io.github.belugaming.Tapline
@@ -323,6 +370,8 @@ apps ──► process taps of the output device's stream (apps are muted at the
 - The realtime path is plain C (`Packages/TaplineCore/Sources/TaplineDSP`): no allocation, locks or Swift runtime on the audio thread. Parameters reach it through a lock-free triple buffer. Filters are RBJ biquads computed in double precision.
 - The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search.
 - Only one copy of Tapline runs at a time, a watchdog restarts the engine if the device stops calling it, and a guard switches processing off if it detects a feedback loop. If Tapline quits or crashes, its private taps and aggregate device disappear with it.
+
+On Windows, Tapline writes Equalizer APO's `config.txt`: one `Device:` section per output with its preamp, filters (the same RBJ biquads as on the Mac), left/right sections and effects. Equalizer APO reloads the file and processes the audio inside Windows' audio engine. The spectrum and meters read the output with a WASAPI loopback capture, and room measurements play and record in WASAPI shared mode.
 
 ## Privacy and network use
 
@@ -389,7 +438,7 @@ The [Windows release workflow](.github/workflows/release-windows.yml) tests and 
 - The ADI-2 export writes files for the ADI-2 DAC (FS); the ADI-2 Pro and 2/4 Pro use other file types.
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).
-- The Windows version is a beta and is not code-signed yet. Its differences from macOS are listed under [Windows (beta)](#windows-beta).
+- The Windows version is a beta and is not code-signed yet. Its differences from macOS are listed under [What works on Windows](#what-works-on-windows).
 
 ## Credits
 
