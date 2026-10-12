@@ -34,6 +34,7 @@ struct RoomPage: View {
     @State private var fits: Fits?
     @State private var applied = false
     @State private var chartChannel: EQChannels = .left
+    @State private var showPositions = false
     @State private var correctionMessage: String?
 
     private var input: AudioDevice? {
@@ -45,6 +46,21 @@ struct RoomPage: View {
     /// Whole hertz below 1 kHz.
     static func hz(_ f: Double) -> String {
         f < 1000 ? "\(Int(f.rounded())) Hz" : Format.frequency(f)
+    }
+
+    /// Up to the whole audio band: above about 2 kHz the EQ corrects the speakers
+    /// themselves (crossover, tweeter) rather than the room.
+    static let correctBelowRange = 100.0...20_000.0
+
+    /// "Correct below" on a log scale, so the bass end stays as fine as before.
+    /// Whole hertz below 1 kHz, 10 Hz below 10 kHz, 100 Hz above, as displayed.
+    private var correctBelowSlider: Binding<Double> {
+        Binding(get: { log10(correctBelow.clamped(to: Self.correctBelowRange)) },
+                set: { value in
+                    let f = pow(10, value)
+                    let step = f < 1000 ? 1.0 : (f < 10_000 ? 10 : 100)
+                    correctBelow = ((f / step).rounded() * step).clamped(to: Self.correctBelowRange)
+                })
     }
 
     var body: some View {
@@ -120,6 +136,9 @@ struct RoomPage: View {
                 }
             }
             .font(.callout)
+            if let input, input.isVirtual {
+                DeviceWarning(text: String(localized: "\(input.name) is a virtual input, not a microphone. Choose the microphone's own device as the input."))
+            }
 
             HStack(spacing: 12) {
                 Button {
@@ -171,6 +190,18 @@ struct RoomPage: View {
                     Button("Clear") { room.clearMeasurements(); fits = nil }
                 }
             }
+            if room.isMeasuring {
+                HStack(spacing: 12) {
+                    if let playing = room.nowPlaying {
+                        Label(String(localized: playing), systemImage: "speaker.wave.2.fill")
+                    }
+                    Text("\(room.secondsLeft) s left").monospacedDigit().foregroundStyle(.secondary)
+                    InputLevelBar(peakDB: room.inputPeakDB, rmsDB: room.inputRMSDB, active: true)
+                        .frame(maxWidth: 240)
+                    Spacer()
+                }
+                .font(.callout)
+            }
             Group {
                 if speakers == .stereo {
                     Text("Left & right: an 8-second sweep on each speaker, then three short clicks for timing (about 22 seconds). Needed for balance, distance and polarity checks, and for correcting each speaker separately.")
@@ -181,9 +212,13 @@ struct RoomPage: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let output = model.currentOutput, output.isVirtual {
+                DeviceWarning(text: String(localized: "\(output.name) is a virtual output. If it belongs to software that changes the sound (such as SoundID Reference or an EQ app), that change ends up in the measurement: switch it off, or make the speakers' own device the output."))
+            }
             if let message = room.lastMessage {
                 Text(message).font(.callout).foregroundStyle(.secondary)
             }
+            positionGuide
             if !room.measurements.isEmpty {
                 VStack(spacing: 4) {
                     ForEach(Array(room.measurements.enumerated()), id: \.element.id) { index, m in
@@ -191,6 +226,7 @@ struct RoomPage: View {
                             Text("#\(index + 1)").monospacedDigit().foregroundStyle(.secondary)
                             Text(String(localized: m.speakers.title))
                             Text(m.date, style: .time).foregroundStyle(.secondary)
+                            QualityBadge(quality: m.quality, differs: fits?.outliers.contains(m.id) == true)
                             Text(String(format: String(localized: "SNR %.0f dB · peak %.0f dB"), m.snrDB, m.peakDB))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(m.snrDB < 20 || m.peakDB > -1 ? Theme.warning : .secondary)
@@ -212,6 +248,40 @@ struct RoomPage: View {
                 }
             }
         }
+    }
+
+    /// Where to put the microphone next, and how many positions are done.
+    private var positionGuide: some View {
+        let measured = room.measuredPositions
+        let total = RoomMeasurementService.positionCount
+        return HStack(spacing: 16) {
+            PositionMap(measured: measured, next: room.nextPosition)
+                .frame(width: 168, height: 118)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(measured.count) of \(total) positions measured")
+                    .font(.callout.weight(.semibold).monospacedDigit())
+                ProgressView(value: Double(measured.count), total: Double(total))
+                    .tint(Theme.accent)
+                    .frame(maxWidth: 260)
+                Text(positionAdvice(measured: measured.count, next: room.nextPosition))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func positionAdvice(measured: Int, next: Int?) -> String {
+        guard let next else { return String(localized: "All positions measured. The correction below uses their average.") }
+        let step = switch next {
+        case 0: String(localized: "Put the microphone where your head is when you listen, at ear height, then click Measure.")
+        case 1: String(localized: "Next: about 20 cm to the left of your listening spot.")
+        case 2: String(localized: "Next: about 20 cm to the right of your listening spot.")
+        case 3: String(localized: "Next: about 20 cm in front of your listening spot, towards the speakers.")
+        default: String(localized: "Next: about 20 cm behind your listening spot.")
+        }
+        return measured >= 3 ? step + " " + String(localized: "Enough to correct already; more positions make it steadier.") : step
     }
 
     // MARK: - Step 3
@@ -273,12 +343,21 @@ struct RoomPage: View {
                     .frame(width: 160)
                 }
                 let shown = fits.result(for: chartChannel)
-                MeasurementChart(result: shown)
+                let overlay = fits.overlay(for: chartChannel)
+                MeasurementChart(result: shown, spreadLow: overlay.low, spreadHigh: overlay.high,
+                                 positions: showPositions ? overlay.positions : [])
                     .frame(height: 200)
                 HStack(spacing: 14) {
                     Legend(color: .gray, text: "Measured")
                     Legend(color: .white, dashed: true, text: "Target")
                     Legend(color: Theme.accent, text: "With EQ")
+                    if !overlay.positions.isEmpty {
+                        Legend(color: .gray, band: true, text: "Spread")
+                            .help(Text("One standard deviation between the measured positions. Where it is wide, the response changes from spot to spot and the average is less certain."))
+                        Toggle("Positions", isOn: $showPositions)
+                            .toggleStyle(.checkbox)
+                            .help(Text("Show the curve of each measured position"))
+                    }
                     Spacer()
                     Text(String(format: String(localized: "Deviation %.1f → %.1f dB"), shown.errorBeforeDB, shown.errorAfterDB))
                         .font(.caption.monospacedDigit())
@@ -295,7 +374,7 @@ struct RoomPage: View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                 GridRow {
                     Text("Correct below")
-                    Slider(value: $correctBelow, in: 100...2000)
+                    Slider(value: correctBelowSlider, in: log10(Self.correctBelowRange.lowerBound)...log10(Self.correctBelowRange.upperBound))
                     Text(Format.frequency(correctBelow.rounded())).monospacedDigit().frame(width: 86, alignment: .trailing)
                 }
                 GridRow {
@@ -324,6 +403,12 @@ struct RoomPage: View {
                 }
             }
             .font(.callout)
+            if correctBelow > 2000 {
+                Text("Above 2 kHz the EQ also corrects the speakers themselves (crossover, tweeter). Measure several positions, preferably with a calibration file. If the treble ends up too bright, choose Room curve or lower the Tilt.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Flat") { bass = 0; tilt = 0 }
                 Button("Room curve") { bass = 4; tilt = -0.6 }
@@ -395,12 +480,39 @@ struct RoomPage: View {
         var left: EQFitter.Result?
         var right: EQFitter.Result?
         var advice: [RoomAdvice]
+        /// Each measured position's shape (`RoomResponse.shapes`), for the chart.
+        var shapes: [[Double]] = []
+        var leftShapes: [[Double]] = []
+        var rightShapes: [[Double]] = []
+        /// Measurements clearly unlike the others.
+        var outliers: Set<UUID> = []
 
         var isSeparate: Bool { left != nil && right != nil }
 
         func result(for channel: EQChannels) -> EQFitter.Result {
             guard isSeparate else { return combined }
             return (channel == .right ? right : left) ?? combined
+        }
+
+        struct Overlay {
+            var positions: [[Double]] = []
+            var low: [Double] = []
+            var high: [Double] = []
+        }
+
+        /// The measured positions at the chart's level, and one standard deviation around their mean.
+        func overlay(for channel: EQChannels) -> Overlay {
+            let shown = result(for: channel)
+            let shapes = isSeparate ? (channel == .right ? rightShapes : leftShapes) : self.shapes
+            let f = shown.frequencies
+            guard let spread = RoomResponse.spread(shapes), spread.count == f.count else { return Overlay() }
+            let mids = f.indices.filter { f[$0] >= 200 && f[$0] <= 2000 }
+            let level = mids.reduce(0.0) { $0 + shown.measurement[$1] } / Double(max(mids.count, 1))
+            let positions = shapes.map { shape in shape.map { $0 + level } }
+            let mean = f.indices.map { i in positions.reduce(0.0) { $0 + $1[i] } / Double(positions.count) }
+            return Overlay(positions: positions,
+                           low: zip(mean, spread).map { $0 - $1 },
+                           high: zip(mean, spread).map { $0 + $1 })
         }
 
         /// The correction as Tapline bands: per channel when separate.
@@ -448,6 +560,8 @@ struct RoomPage: View {
         let perChannel = separate && left != nil && right != nil
         let arrival = room.arrivalDifference, polarity = room.oppositePolarity
         let positions = room.measurements.count, snr = room.worstSNRDB, calibrated = room.calibration != nil
+        let ids = room.measurements.map(\.id), responses = room.measurements.map(\.response)
+        let lefts = room.measurements.compactMap(\.leftResponse), rights = room.measurements.compactMap(\.rightResponse)
         let fitted = await Task.detached(priority: .userInitiated) { () -> Fits in
             let target = RoomResponse.flatTarget()
             // Each response gets its own low-frequency limit: no boosting below the
@@ -464,8 +578,15 @@ struct RoomPage: View {
                 target: FrequencyResponse(frequencies: grid, levels: combined.target),
                 left: left, right: right, arrivalDifference: arrival, oppositePolarity: polarity,
                 positions: positions, worstSNRDB: snr, calibrated: calibrated))
-            guard perChannel, let left, let right else { return Fits(combined: combined, advice: advice) }
-            return Fits(combined: combined, left: fit(left), right: fit(right), advice: advice)
+            var result = Fits(combined: combined, advice: advice)
+            result.shapes = RoomResponse.shapes(responses)
+            result.outliers = Set(RoomResponse.outliers(result.shapes).map { ids[$0] })
+            guard perChannel, let left, let right else { return result }
+            result.left = fit(left)
+            result.right = fit(right)
+            result.leftShapes = RoomResponse.shapes(lefts)
+            result.rightShapes = RoomResponse.shapes(rights)
+            return result
         }.value
         if !Task.isCancelled { fits = fitted }
     }
@@ -659,14 +780,129 @@ private struct InputLevelBar: View {
     }
 }
 
+/// The listening spot from above, speakers ahead: the suggested microphone positions,
+/// filled once measured, the next one marked with a microphone.
+private struct PositionMap: View {
+    let measured: Set<Int>
+    let next: Int?
+
+    var body: some View {
+        Canvas { ctx, size in
+            // In the order of RoomMeasurementService's positions, in steps of about 20 cm:
+            // x to the right, y towards the speakers.
+            let offsets: [CGPoint] = [CGPoint(x: 0, y: 0), CGPoint(x: -1, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 0, y: 1), CGPoint(x: 0, y: -1)]
+            let center = CGPoint(x: size.width / 2, y: size.height * 0.6)
+            let step = size.height * 0.22
+            for side: CGFloat in [-1, 1] {
+                let speaker = CGRect(x: size.width / 2 + side * size.width * 0.3 - 7, y: 6, width: 14, height: 11)
+                ctx.fill(Path(roundedRect: speaker, cornerRadius: 2.5), with: .color(.white.opacity(0.35)))
+            }
+            // About 30 cm around the head.
+            let reach = step * 1.5
+            ctx.stroke(Path(ellipseIn: CGRect(x: center.x - reach, y: center.y - reach, width: 2 * reach, height: 2 * reach)),
+                       with: .color(.white.opacity(0.15)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            ctx.stroke(Path(ellipseIn: CGRect(x: center.x - 11, y: center.y - 11, width: 22, height: 22)), with: .color(.white.opacity(0.25)), lineWidth: 1)
+
+            for (i, offset) in offsets.enumerated() {
+                let p = CGPoint(x: center.x + offset.x * step, y: center.y - offset.y * step)
+                func circle(_ r: CGFloat) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
+                if measured.contains(i) {
+                    ctx.fill(circle(10), with: .color(Theme.accent.opacity(0.22)))
+                    ctx.fill(circle(5), with: .color(Theme.accent))
+                } else if i == next {
+                    ctx.stroke(circle(8), with: .color(Theme.accent), lineWidth: 1.5)
+                    ctx.draw(Text(Image(systemName: "mic.fill")).font(.system(size: 8)).foregroundStyle(Theme.accent), at: p)
+                } else {
+                    ctx.stroke(circle(4.5), with: .color(.white.opacity(0.35)), lineWidth: 1)
+                }
+            }
+        }
+        .instrumentPanel(radius: 8)
+        .accessibilityElement()
+        .accessibilityLabel(Text("Microphone positions"))
+    }
+}
+
+/// Good, fair or measure again, with the reason on hover.
+private struct QualityBadge: View {
+    let quality: RoomMeasurementService.Measurement.Quality
+    /// Clearly unlike the other positions.
+    let differs: Bool
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(color)
+            .help(detail)
+    }
+
+    private var title: String {
+        switch quality {
+        case .clipped, .noisy: String(localized: "Measure again")
+        case _ where differs: String(localized: "Differs")
+        case .fair: String(localized: "Fair")
+        case .good: String(localized: "Good")
+        }
+    }
+
+    private var icon: String {
+        switch quality {
+        case .clipped: "xmark.octagon.fill"
+        case .noisy: "exclamationmark.triangle.fill"
+        case _ where differs: "exclamationmark.triangle.fill"
+        case .fair: "checkmark.circle"
+        case .good: "checkmark.circle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch quality {
+        case .clipped: Theme.danger
+        case .noisy: Theme.warning
+        case _ where differs: Theme.warning
+        case .fair: .secondary
+        case .good: Theme.accent
+        }
+    }
+
+    private var detail: String {
+        switch quality {
+        case .clipped: String(localized: "The microphone clipped during the sweep. Lower the volume and measure again.")
+        case .noisy: String(localized: "The room is noisy or the level is low. The result may be unreliable.")
+        case _ where differs: String(localized: "Clearly unlike the other positions: a noise during the sweep, or a bumped or turned microphone? If in doubt, delete it and measure that spot again.")
+        case .fair: String(localized: "Usable. A little more volume or a quieter room gives a cleaner measurement.")
+        case .good: String(localized: "A clean measurement.")
+        }
+    }
+}
+
+private struct DeviceWarning: View {
+    let text: String
+
+    var body: some View {
+        Label {
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
+        }
+        .font(.callout)
+    }
+}
+
 private struct Legend: View {
     let color: Color
     var dashed = false
+    /// A filled band instead of a line.
+    var band = false
     let text: LocalizedStringKey
 
     var body: some View {
         HStack(spacing: 5) {
             Canvas { ctx, size in
+                if band {
+                    ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(color.opacity(0.3)))
+                    return
+                }
                 var p = Path()
                 p.move(to: CGPoint(x: 0, y: size.height / 2))
                 p.addLine(to: CGPoint(x: size.width, y: size.height / 2))

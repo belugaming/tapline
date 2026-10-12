@@ -49,13 +49,29 @@ final class RoomMeasurementService {
         var oppositePolarity: Bool?
         let peakDB: Double
         let snrDB: Double
+        /// The suggested microphone position it was taken at (0 ..< `positionCount`),
+        /// nil once all of them were measured.
+        var position: Int?
 
         var leftResponse: FrequencyResponse? { left ?? (speakers == .left ? response : nil) }
         var rightResponse: FrequencyResponse? { right ?? (speakers == .right ? response : nil) }
+
+        enum Quality { case good, fair, noisy, clipped }
+
+        /// Clipped and noisy measurements are worth repeating.
+        var quality: Quality {
+            if peakDB > -1 { return .clipped }
+            if snrDB < 20 { return .noisy }
+            return snrDB < 30 ? .fair : .good
+        }
     }
 
     private(set) var phase: Phase = .idle
     private(set) var measurements: [Measurement] = []
+    /// Seconds into the running level check or measurement, and its length.
+    private(set) var elapsedSeconds: Double = 0
+    private(set) var runSeconds: Double = 0
+    private var measuringSpeakers: Speakers = .stereo
     /// Live microphone level during a level check or measurement, dBFS.
     private(set) var inputPeakDB: Double = -120
     private(set) var inputRMSDB: Double = -120
@@ -68,6 +84,45 @@ final class RoomMeasurementService {
     nonisolated private static let tail = 1.5
 
     var isBusy: Bool { phase != .idle }
+
+    var isMeasuring: Bool {
+        if case .measuring = phase { return true }
+        return false
+    }
+
+    var secondsLeft: Int { Int(max(0, runSeconds - elapsedSeconds).rounded(.up)) }
+
+    /// What the measurement in progress plays right now.
+    var nowPlaying: LocalizedStringResource? {
+        guard isMeasuring else { return nil }
+        switch measuringSpeakers {
+        case .left: return "Left speaker"
+        case .right: return "Right speaker"
+        case .both: return "Both speakers"
+        case .stereo:
+            // StereoSweepPlan's timeline: left sweep, gap, right sweep, gap, timing clicks.
+            let gap = StereoSweepPlan.gap
+            let rightStart = StereoSweepPlan.preRoll + Self.sweepSeconds + gap
+            let clicksStart = rightStart + Self.sweepSeconds + gap
+            if elapsedSeconds < rightStart - gap / 2 { return "Left speaker" }
+            if elapsedSeconds < clicksStart - gap / 2 { return "Right speaker" }
+            return "Timing clicks"
+        }
+    }
+
+    // MARK: - Positions
+
+    /// Suggested microphone positions: the listening spot, then about 20 cm to the
+    /// left, to the right, in front and behind.
+    nonisolated static let positionCount = 5
+
+    var measuredPositions: Set<Int> { Set(measurements.compactMap(\.position)) }
+
+    /// The first suggested position not measured yet.
+    var nextPosition: Int? {
+        let taken = measuredPositions
+        return (0..<Self.positionCount).first { !taken.contains($0) }
+    }
 
     // MARK: - Microphone
 
@@ -155,6 +210,7 @@ final class RoomMeasurementService {
             return
         }
         lastMessage = nil
+        measuringSpeakers = speakers
         phase = .measuring(0)
         defer { phase = .idle }
         if speakers == .stereo {
@@ -195,7 +251,7 @@ final class RoomMeasurementService {
                 lastMessage = String(localized: "The measurement failed. Check that the microphone hears the speakers.")
                 return
             }
-            measurements.append(Measurement(speakers: speakers, response: response, peakDB: result.1, snrDB: result.2))
+            measurements.append(Measurement(speakers: speakers, response: response, peakDB: result.1, snrDB: result.2, position: nextPosition))
             lastMessage = Self.resultMessage(peakDB: result.1, snrDB: result.2)
         } catch {
             lastMessage = error.localizedDescription
@@ -228,7 +284,7 @@ final class RoomMeasurementService {
             let snr = min(a.snrLeftDB, a.snrRightDB)
             measurements.append(Measurement(speakers: .stereo, response: both, left: a.left, right: a.right,
                                             arrivalDifference: a.arrivalDifference, oppositePolarity: a.oppositePolarity,
-                                            peakDB: a.peakDB, snrDB: snr))
+                                            peakDB: a.peakDB, snrDB: snr, position: nextPosition))
             lastMessage = Self.resultMessage(peakDB: a.peakDB, snrDB: snr)
         } catch {
             lastMessage = error.localizedDescription
@@ -326,10 +382,7 @@ final class RoomMeasurementService {
 
         let ch = min(max(channel, 0), Int(inFormat.channelCount) - 1)
         let store = Recorder()
-        recorder.inputNode.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { pcm, _ in
-            guard let data = pcm.floatChannelData else { return }
-            store.append(data[ch], Int(pcm.frameLength))
-        }
+        Self.record(recorder.inputNode, format: inFormat, channel: ch, into: store)
 
         do {
             recorder.prepare()
@@ -352,12 +405,15 @@ final class RoomMeasurementService {
         Self.start(node, with: buffer)
 
         let start = Date()
+        runSeconds = seconds
+        elapsedSeconds = 0
         while Date().timeIntervalSince(start) < seconds {
             try await Task.sleep(for: .milliseconds(100))
             let (peak, rms) = store.takeLevels()
             inputPeakDB = 20 * log10(max(Double(peak), 1e-9))
             inputRMSDB = 20 * log10(max(rms, 1e-9))
-            if case .measuring = phase { phase = .measuring(min(1, Date().timeIntervalSince(start) / seconds)) }
+            elapsedSeconds = Date().timeIntervalSince(start)
+            if case .measuring = phase { phase = .measuring(min(1, elapsedSeconds / seconds)) }
         }
         return (store.all, inFormat.sampleRate, outRate)
     }
@@ -365,6 +421,17 @@ final class RoomMeasurementService {
     private nonisolated static func start(_ node: AVAudioPlayerNode, with buffer: AVAudioPCMBuffer) {
         node.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         node.play()
+    }
+
+    /// Records one channel of `input` into `store`. The tap block runs on Core Audio's
+    /// realtime thread: written inside this main-actor class it would be main-actor
+    /// isolated, and the Swift runtime's isolation check traps on the first buffer
+    /// (macOS 27). Here it is nonisolated, and `store` locks its own state.
+    private nonisolated static func record(_ input: AVAudioInputNode, format: AVAudioFormat, channel: Int, into store: Recorder) {
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { pcm, _ in
+            guard let data = pcm.floatChannelData else { return }
+            store.append(data[channel], Int(pcm.frameLength))
+        }
     }
 
     /// A synthetic room (modes, a cancellation dip, a slightly louder and farther
@@ -393,7 +460,7 @@ final class RoomMeasurementService {
         let right = speaker([EQBand(type: .peak, frequency: 68, gain: -4, q: 4)], level: 82.9, seed: 7)
         let both = RoomResponse.average([left, right]) ?? left
         measurements = [Measurement(speakers: .stereo, response: both, left: left, right: right,
-                                    arrivalDifference: 0.00011, oppositePolarity: false, peakDB: -14, snrDB: 52)]
+                                    arrivalDifference: 0.00011, oppositePolarity: false, peakDB: -14, snrDB: 52, position: 0)]
     }
 
     /// Paul Kellet's economy pink noise filter.
