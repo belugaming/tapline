@@ -418,3 +418,32 @@
 
 /* Room correction: correction limit up to 20 kHz */
 "Above 2 kHz the EQ also corrects the speakers themselves (crossover, tweeter). Measure several positions, preferably with a calibration file. If the treble ends up too bright, choose Room curve or lower the Tilt." = "超过 2 kHz 时，EQ 也会修正音箱本身（分频点、高音单元）。请多测几个位置，最好使用校准文件。如果校正后高频太亮，选择“房间曲线”或调低“倾斜”。";
+
+/* Room correction: measuring guide */
+"%lld of %lld positions measured" = "已测 %1$lld / %2$lld 个位置";
+"All positions measured. The correction below uses their average." = "所有位置都测完了。下面的校正使用它们的平均值。";
+"Put the microphone where your head is when you listen, at ear height, then click Measure." = "把麦克风放在你平时听音时头部所在的位置、耳朵的高度，然后点“测量”。";
+"Next: about 20 cm to the left of your listening spot." = "下一个：听音位置左侧约 20 厘米处。";
+"Next: about 20 cm to the right of your listening spot." = "下一个：听音位置右侧约 20 厘米处。";
+"Next: about 20 cm in front of your listening spot, towards the speakers." = "下一个：听音位置前方约 20 厘米处（朝音箱方向）。";
+"Next: about 20 cm behind your listening spot." = "下一个：听音位置后方约 20 厘米处。";
+"Enough to correct already; more positions make it steadier." = "已经足够校正了；多测几个位置会更稳定。";
+"Microphone positions" = "麦克风位置";
+"%lld s left" = "还剩 %lld 秒";
+"Left speaker" = "左音箱";
+"Right speaker" = "右音箱";
+"Both speakers" = "两只音箱";
+"Timing clicks" = "测时短音";
+"Good" = "良好";
+"Fair" = "一般";
+"Measure again" = "建议重测";
+"Differs" = "偏差大";
+"A clean measurement." = "测量很干净。";
+"Usable. A little more volume or a quieter room gives a cleaner measurement." = "可以用。音量稍大一点或房间再安静一点，测量会更干净。";
+"Clearly unlike the other positions: a noise during the sweep, or a bumped or turned microphone? If in doubt, delete it and measure that spot again." = "和其他位置明显不同：扫频时有杂音，还是麦克风被碰到或转了方向？拿不准就删掉它，在那个位置重测一次。";
+"Spread" = "离散度";
+"One standard deviation between the measured positions. Where it is wide, the response changes from spot to spot and the average is less certain." = "各测量位置之间的一个标准差。越宽，说明频响随位置变化越大，平均值也越不可靠。";
+"Positions" = "各位置";
+"Show the curve of each measured position" = "显示每个测量位置的曲线";
+"%@ is a virtual output. If it belongs to software that changes the sound (such as SoundID Reference or an EQ app), that change ends up in the measurement: switch it off, or make the speakers' own device the output." = "%@ 是虚拟输出设备。如果它属于会改变声音的软件（比如 SoundID Reference 或 EQ 类 App），这些处理会混进测量结果：请先关掉它，或把音箱本身的设备设为输出。";
+"%@ is a virtual input, not a microphone. Choose the microphone's own device as the input." = "%@ 是虚拟输入设备，不是麦克风。请把麦克风本身的设备选为输入。";

@@ -326,6 +326,53 @@ private let rmeSample = """
     }
 }
 
+@Suite struct PositionTests {
+    let grid = EQFitter.grid
+
+    /// One microphone position: the same speakers and room, with the modes and the desk
+    /// dip a little different from spot to spot.
+    func position(mode47: Double, mode112: Double, desk: Double, level: Double = 80, extra: [EQBand] = []) -> FrequencyResponse {
+        let bands: [EQBand] = [EQBand(type: .highPass, frequency: 38, q: 0.8), EQBand(frequency: 47, gain: mode47, q: 5),
+                     EQBand(frequency: 112, gain: mode112, q: 4), EQBand(frequency: 176, gain: 5, q: 6),
+                     EQBand(frequency: 300, gain: -3, q: 3), EQBand(frequency: desk, gain: -4, q: 4),
+                     EQBand(type: .highShelf, frequency: 9000, gain: -2, q: 0.7)] + extra
+        return FrequencyResponse(frequencies: grid, levels: ResponseCurve.responseDB(bands: bands, frequencies: grid, sampleRate: 48_000).map { level + $0 })
+    }
+
+    var positions: [FrequencyResponse] {
+        [position(mode47: 8, mode112: -9, desk: 1400), position(mode47: 6, mode112: -7, desk: 1600, level: 81),
+         position(mode47: 9, mode112: -11, desk: 1250, level: 79.5), position(mode47: 5, mode112: -8, desk: 1500, level: 80.5)]
+    }
+
+    /// A microphone turned away: the treble drops.
+    var turned: FrequencyResponse { position(mode47: 7, mode112: -9, desk: 1400, extra: [EQBand(frequency: 5000, gain: -8, q: 0.8)]) }
+
+    func index(of f: Double) -> Int { grid.indices.min { abs(grid[$0] - f) < abs(grid[$1] - f) }! }
+
+    @Test func spreadShowsWherePositionsDisagree() throws {
+        let spread = try #require(RoomResponse.spread(RoomResponse.shapes(positions)))
+        #expect(spread[index(of: 47)] > 1, "\(spread[index(of: 47)])")
+        #expect(spread[index(of: 1000)] < 0.5, "\(spread[index(of: 1000)])")
+        let same = try #require(RoomResponse.spread(RoomResponse.shapes([positions[0], positions[0]])))
+        #expect(same.allSatisfy { $0 < 1e-9 })
+        #expect(RoomResponse.spread(RoomResponse.shapes([positions[0]])) == nil)
+    }
+
+    @Test func findsTheOddMeasurement() {
+        #expect(RoomResponse.outliers(RoomResponse.shapes(positions + [turned])) == [4])
+        #expect(RoomResponse.outliers(RoomResponse.shapes([positions[0], turned, positions[1]])) == [1])
+    }
+
+    @Test func positionsThatOnlyDifferAsUsualAreKept() {
+        #expect(RoomResponse.outliers(RoomResponse.shapes(positions)).isEmpty)
+        // Louder overall (closer to the speakers) is not a different shape.
+        let louder = position(mode47: 8, mode112: -9, desk: 1400, level: 84)
+        #expect(RoomResponse.outliers(RoomResponse.shapes(positions + [louder])).isEmpty)
+        // Two cannot tell which one is odd.
+        #expect(RoomResponse.outliers(RoomResponse.shapes([positions[0], turned])).isEmpty)
+    }
+}
+
 @Suite struct RoomAdvisorTests {
     let grid = EQFitter.grid
 

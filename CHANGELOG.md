@@ -9,6 +9,13 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Added
+- Room correction guides the measurement: a map shows where to put the microphone next (your listening spot, then about 20 cm to each side, in front and behind) and how many positions are done, with a note once there are enough to correct.
+- While measuring, Room correction shows which speaker is playing, the seconds left and the microphone level.
+- Each room measurement is marked **Good**, **Fair** or **Measure again**: clipped, noisy, or clearly unlike the other positions.
+- The room chart shows how much the positions disagree (a band of one standard deviation), and each position's curve with **Positions**.
+- A warning when the output or the input of a room measurement is a virtual device: software behind it, such as SoundID Reference, would end up in the measurement.
+
 ### Changed
 - Room correction's **Correct below** now goes up to 20 kHz, on a log scale, so the EQ can also even out a crossover or tweeter problem. The default stays 500 Hz, which corrects only the room's bass.
 

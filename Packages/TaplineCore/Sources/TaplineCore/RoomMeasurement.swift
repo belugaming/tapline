@@ -199,6 +199,56 @@ public enum RoomResponse {
         return FrequencyResponse(frequencies: grid, levels: mean)
     }
 
+    /// Each response sixth-octave smoothed on `grid` and shifted so its 200 Hz - 2 kHz mean
+    /// is 0 dB: the shape of a measurement, for comparing positions.
+    public static func shapes(_ responses: [FrequencyResponse], grid: [Double] = EQFitter.grid) -> [[Double]] {
+        let mids = grid.indices.filter { grid[$0] >= 200 && grid[$0] <= 2000 }
+        return responses.map { response in
+            let smooth = Smoothing.fractionalOctave(response.resampled(to: grid), grid: grid) { _ in 1.0 / 6 }
+            let level = mids.reduce(0) { $0 + smooth[$1] } / Double(max(mids.count, 1))
+            return smooth.map { $0 - level }
+        }
+    }
+
+    /// Standard deviation of the shapes at each grid point, dB: where the response changes
+    /// from one position to the next, their average is less certain. Nil for fewer than two.
+    public static func spread(_ shapes: [[Double]]) -> [Double]? {
+        guard shapes.count >= 2, let count = shapes.first?.count, shapes.allSatisfy({ $0.count == count }) else { return nil }
+        let n = Double(shapes.count)
+        return (0..<count).map { i in
+            let mean = shapes.reduce(0.0) { $0 + $1[i] } / n
+            return sqrt(shapes.reduce(0.0) { $0 + ($1[i] - mean) * ($1[i] - mean) } / n)
+        }
+    }
+
+    /// The shapes far from every other one while the rest agree: a noise during the sweep,
+    /// a bumped or turned microphone. Compares RMS differences from 30 Hz to 10 kHz, so
+    /// it needs three or more.
+    public static func outliers(_ shapes: [[Double]], grid: [Double] = EQFitter.grid) -> [Int] {
+        let n = shapes.count
+        guard n >= 3, shapes.allSatisfy({ $0.count == grid.count }) else { return [] }
+        let band = grid.indices.filter { grid[$0] >= 30 && grid[$0] <= 10_000 }
+        var distance = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+        for a in 0..<n {
+            for b in (a + 1)..<n {
+                let sum = band.reduce(0.0) { $0 + (shapes[a][$1] - shapes[b][$1]) * (shapes[a][$1] - shapes[b][$1]) }
+                distance[a][b] = sqrt(sum / Double(max(band.count, 1)))
+                distance[b][a] = distance[a][b]
+            }
+        }
+        return (0..<n).filter { k in
+            let others = (0..<n).filter { $0 != k }
+            let nearest = others.map { distance[k][$0] }.min() ?? 0
+            var among: [Double] = []
+            for (i, a) in others.enumerated() {
+                for b in others[(i + 1)...] { among.append(distance[a][b]) }
+            }
+            among.sort()
+            let typical = among.isEmpty ? 0 : among[among.count / 2]
+            return nearest >= 1.5 && nearest >= 2 * typical
+        }
+    }
+
     /// Subtracts a microphone calibration curve (e.g. a miniDSP UMIK-1 file).
     public static func applyCalibration(_ response: FrequencyResponse, calibration: FrequencyResponse) -> FrequencyResponse {
         FrequencyResponse(frequencies: response.frequencies,

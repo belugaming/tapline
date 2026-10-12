@@ -575,9 +575,13 @@ private struct Legend: View {
     }
 }
 
-/// Measurement, target and predicted response on one log-frequency chart.
+/// Measurement, target and predicted response on one log-frequency chart, optionally
+/// with a band for the spread between measured positions and each position's curve.
 struct MeasurementChart: View {
     let result: EQFitter.Result
+    var spreadLow: [Double] = []
+    var spreadHigh: [Double] = []
+    var positions: [[Double]] = []
 
     var body: some View {
         Canvas { ctx, size in
@@ -609,6 +613,18 @@ struct MeasurementChart: View {
                     if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
                 }
                 return p
+            }
+            // Spread and positions can reach past the scale of the main curves: clip them.
+            var inside = ctx
+            inside.clip(to: Path(rect))
+            if spreadLow.count == f.count, spreadHigh.count == f.count {
+                var band = line(spreadHigh)
+                for i in f.indices.reversed() { band.addLine(to: CGPoint(x: x(f[i]), y: y(spreadLow[i]))) }
+                band.closeSubpath()
+                inside.fill(band, with: .color(.gray.opacity(0.3)))
+            }
+            for curve in positions where curve.count == f.count {
+                inside.stroke(line(curve), with: .color(.white.opacity(0.22)), lineWidth: 0.8)
             }
             ctx.stroke(line(result.measurement), with: .color(.gray), lineWidth: 1.2)
             ctx.stroke(line(result.target), with: .color(.white.opacity(0.8)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
