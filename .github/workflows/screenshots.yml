@@ -1,32 +1,25 @@
 name: Screenshots
 
 # Renders the README's Room screenshots with the app's snapshot mode (DebugSnapshot:
-# demo data, no real audio) and commits them to the branch. Run it from the Actions
-# tab on a branch; pull requests that change this workflow run it too.
+# demo data, no real audio) and commits them to the branch it runs on. Run it from
+# the Actions tab after changing the Room page.
 on:
   workflow_dispatch:
-  pull_request:
-    paths: [".github/workflows/screenshots.yml"]
 
 permissions:
   contents: write
 
 concurrency:
-  group: screenshots-${{ github.head_ref || github.ref_name }}
+  group: screenshots-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   room:
-    # A fork's pull request cannot push to its branch.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: macos-26
     env:
       XCODE: "26.6"
-      BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.BRANCH }}
 
       - name: Select Xcode
         run: sudo xcode-select -s "/Applications/Xcode_${XCODE}.app"
@@ -88,4 +81,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "README: regenerate the Room screenshots"
-          git push origin "HEAD:$BRANCH"
+          git push origin "HEAD:$GITHUB_REF_NAME"
