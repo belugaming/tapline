@@ -41,6 +41,9 @@ enum DebugSnapshot {
         ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SCALE"].flatMap { Double($0) }.map { CGFloat($0) }
     }
 
+    /// TAPLINE_SNAPSHOT_DARK=1 renders in dark mode whatever the system uses.
+    static var forcesDark: Bool { isActive && ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_DARK"] != nil }
+
     /// TAPLINE_SNAPSHOT_SIZE=900x600 resizes the window before capturing.
     static var windowSize: CGSize? {
         guard let s = ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SIZE"] else { return nil }
@@ -50,6 +53,7 @@ enum DebugSnapshot {
 
     static func run() {
         guard let directory else { return }
+        if forcesDark { NSApp.appearance = NSAppearance(named: .darkAqua) }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let pages = Page.allCases
         var index = 0

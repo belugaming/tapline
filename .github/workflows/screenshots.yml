@@ -44,32 +44,30 @@ jobs:
           xcodebuild -project Tapline.xcodeproj -scheme Tapline -configuration Release \
             -derivedDataPath build CODE_SIGN_IDENTITY=- -quiet build
 
-      # The window is 1180 points wide (the app's default size); the README shows the
-      # 960-point column right of the sidebar, in dark mode at 2x like a Retina Mac.
-      # The runner's small 1x screen limits the window's height.
+      # The window is 1180 points wide (the app's default size; the runner's small screen
+      # needs it set explicitly and limits the height). The README shows the 960-point
+      # column right of the sidebar, in dark mode at 2x like a Retina Mac.
       - name: Capture
         run: |
-          system_profiler SPDisplaysDataType | grep -E "Resolution|Retina|UI Looks like" || true
           app=build/Build/Products/Release/Tapline.app/Contents/MacOS/Tapline
           for lang in en zh; do
             dir="$RUNNER_TEMP/snapshots/$lang"
             apple=en; [ "$lang" = zh ] && apple=zh-Hans
-            TAPLINE_SNAPSHOT_DIR="$dir" TAPLINE_SNAPSHOT_SCROLL=measure TAPLINE_SNAPSHOT_SCALE=2 \
-              "$app" -AppleLanguages "($apple)" -AppleInterfaceStyle Dark &
+            TAPLINE_SNAPSHOT_DIR="$dir" TAPLINE_SNAPSHOT_SCROLL=measure TAPLINE_SNAPSHOT_SIZE=1180x1500 \
+              TAPLINE_SNAPSHOT_SCALE=2 TAPLINE_SNAPSHOT_DARK=1 "$app" -AppleLanguages "($apple)" &
             pid=$!
             for _ in $(seq 120); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
             if kill -0 "$pid" 2>/dev/null; then kill "$pid"; echo "::error::Snapshot run ($lang) timed out"; exit 1; fi
             ls -l "$dir"
             src="$(ls "$dir"/*-room.png)"
-            "$RUNNER_TEMP/venv/bin/python" - "$src" "docs/images/$lang/room.png" <<'PY'
+            "$RUNNER_TEMP/venv/bin/python" - "$src" "docs/images/$lang/room.png" 2 <<'PY'
           import sys
           from PIL import Image
-          src, dst = sys.argv[1:3]
+          src, dst, scale = sys.argv[1], sys.argv[2], float(sys.argv[3])
           image = Image.open(src)
-          scale = image.width / 1180
-          print(f"{src}: {image.width}x{image.height} px, scale {scale:g}")
-          if scale < 2:
-              print("::warning::The screenshot is at 1x, not 2x.")
+          print(f"{src}: {image.width}x{image.height} px")
+          if image.width != round(1180 * scale):
+              print(f"::warning::The window is {image.width / scale:g} points wide, not 1180.")
           column = round(960 * scale)
           image.crop((image.width - column, 0, image.width, image.height)).save(dst, optimize=True)
           PY
