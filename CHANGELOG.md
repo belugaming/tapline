@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-12
+
 ### Fixed
 - Room correction's **Check Level** and **Measure** no longer crash Tapline as they start (seen on macOS 27.2): the microphone is recorded in the format it actually runs at.
 - When the audio devices for a room measurement cannot start, Room correction shows why instead of crashing Tapline.
@@ -103,7 +105,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/belugaming/tapline/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/belugaming/tapline/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/belugaming/tapline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/belugaming/tapline/compare/v0.2.1...v0.2.2
