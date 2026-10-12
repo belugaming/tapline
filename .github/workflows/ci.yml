@@ -44,3 +44,18 @@ jobs:
           xcodebuild -project Tapline.xcodeproj -scheme Tapline -configuration Release \
             -derivedDataPath build CODE_SIGN_IDENTITY=- -quiet build
           echo "Built $(scripts/version.sh) with Xcode ${{ matrix.xcode }}"
+
+      # A test build of the pull request, built like a release (Xcode 26.6), to download
+      # from the run's Summary page. Zipped with ditto first: artifacts lose the
+      # executable bit and the bundle's symlinks.
+      - name: Package test build
+        if: github.event_name == 'pull_request' && matrix.xcode == '26.6'
+        run: ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "Tapline-pr${{ github.event.number }}.zip"
+
+      - name: Upload test build
+        if: github.event_name == 'pull_request' && matrix.xcode == '26.6'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tapline-pr${{ github.event.number }}
+          path: Tapline-pr${{ github.event.number }}.zip
+          retention-days: 14

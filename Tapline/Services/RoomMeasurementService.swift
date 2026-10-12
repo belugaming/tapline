@@ -355,17 +355,25 @@ final class RoomMeasurementService {
         let player = AVAudioEngine()
         let recorder = AVAudioEngine()
         let node = AVAudioPlayerNode()
+        // Every call that sets up or starts the engines goes through ObjCException.catching:
+        // AVFoundation raises Objective-C exceptions for what it finds wrong only at run time.
         do {
-            try player.outputNode.auAudioUnit.setDeviceID(output.id)
-            try recorder.inputNode.auAudioUnit.setDeviceID(input.id)
+            try ObjCException.catching {
+                try player.outputNode.auAudioUnit.setDeviceID(output.id)
+                try recorder.inputNode.auAudioUnit.setDeviceID(input.id)
+            }
         } catch {
             throw MeasurementError.audio(String(localized: "Could not open the audio devices: \(error.localizedDescription)"))
         }
 
-        let inFormat = recorder.inputNode.outputFormat(forBus: 0)
-        guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else {
+        // Tap in the format the selected input runs at: the input node's input format. Its
+        // output format is not always the device's (on macOS 27.2 a tap in it raised
+        // "Failed to create tap due to format mismatch", 1 ch at 48 kHz).
+        let hardware = recorder.inputNode.inputFormat(forBus: 0)
+        guard hardware.channelCount > 0, hardware.sampleRate > 0 else {
             throw MeasurementError.audio(String(localized: "The selected input has no channels."))
         }
+        let inFormat = Self.tapFormat(for: hardware)
         let outRate = player.outputNode.outputFormat(forBus: 0).sampleRate > 0 ? player.outputNode.outputFormat(forBus: 0).sampleRate : output.sampleRate
         let (left, right) = signals(outRate, inFormat.sampleRate)
         let count = min(left.count, right.count)
@@ -376,33 +384,26 @@ final class RoomMeasurementService {
         buffer.frameLength = AVAudioFrameCount(count)
         left.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: count) }
         right.withUnsafeBufferPointer { buffer.floatChannelData![1].update(from: $0.baseAddress!, count: count) }
-        player.attach(node)
-        player.connect(node, to: player.mainMixerNode, format: format)
-        player.mainMixerNode.outputVolume = 1
 
         let ch = min(max(channel, 0), Int(inFormat.channelCount) - 1)
         let store = Recorder()
-        Self.record(recorder.inputNode, format: inFormat, channel: ch, into: store)
-
         do {
-            recorder.prepare()
-            try recorder.start()
-            player.prepare()
-            try player.start()
+            try ObjCException.catching {
+                player.attach(node)
+                player.connect(node, to: player.mainMixerNode, format: format)
+                player.mainMixerNode.outputVolume = 1
+                Self.record(recorder.inputNode, format: inFormat, channel: ch, into: store)
+                recorder.prepare()
+                try recorder.start()
+                player.prepare()
+                try player.start()
+                Self.start(node, with: buffer)
+            }
         } catch {
-            recorder.inputNode.removeTap(onBus: 0)
-            recorder.stop()
-            player.stop()
+            Self.stop(player, node, recorder)
             throw MeasurementError.audio(String(localized: "Could not start the audio devices: \(error.localizedDescription)"))
         }
-        defer {
-            node.stop()
-            player.stop()
-            recorder.inputNode.removeTap(onBus: 0)
-            recorder.stop()
-        }
-
-        Self.start(node, with: buffer)
+        defer { Self.stop(player, node, recorder) }
 
         let start = Date()
         runSeconds = seconds
@@ -416,6 +417,25 @@ final class RoomMeasurementService {
             if case .measuring = phase { phase = .measuring(min(1, elapsedSeconds / seconds)) }
         }
         return (store.all, inFormat.sampleRate, outRate)
+    }
+
+    /// `hardware` as deinterleaved Float32, which the tap block reads channel by channel.
+    private static func tapFormat(for hardware: AVAudioFormat) -> AVAudioFormat {
+        if hardware.commonFormat == .pcmFormatFloat32, !hardware.isInterleaved { return hardware }
+        // Above two channels a format needs a channel layout.
+        if let layout = hardware.channelLayout {
+            return AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channelLayout: layout)
+        }
+        return AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channels: hardware.channelCount) ?? hardware
+    }
+
+    /// Stops what `run` started, each call on its own: an exception from one (a node that
+    /// was never attached) must not leave the other engine running.
+    private static func stop(_ player: AVAudioEngine, _ node: AVAudioPlayerNode, _ recorder: AVAudioEngine) {
+        try? ObjCException.catching { node.stop() }
+        try? ObjCException.catching { player.stop() }
+        try? ObjCException.catching { recorder.inputNode.removeTap(onBus: 0) }
+        try? ObjCException.catching { recorder.stop() }
     }
 
     private nonisolated static func start(_ node: AVAudioPlayerNode, with buffer: AVAudioPCMBuffer) {
