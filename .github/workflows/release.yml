@@ -61,6 +61,12 @@ jobs:
           lipo -archs "$app/Contents/MacOS/Tapline"
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" -c "Print :CFBundleVersion" "$app/Contents/Info.plist"
 
+      - name: Sign
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: scripts/sign.sh build/Build/Products/Release/Tapline.app
+
       - name: Package
         run: |
           set -o pipefail
@@ -88,9 +94,9 @@ jobs:
             scripts/changelog-section.sh "$VERSION"
             echo
             echo "### Install"
-            echo "Requires macOS 26 or later on Apple Silicon. Open the .dmg and drag **Tapline.app** onto the Applications shortcut. The app is ad-hoc signed and not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
+            echo "Requires macOS 26 or later on Apple Silicon. Open the .dmg and drag **Tapline.app** onto the Applications shortcut. The app is not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
             echo
-            echo "需要 macOS 26 及以上、Apple Silicon。打开 .dmg，把 Tapline.app 拖到旁边的“应用程序”图标上。应用只有临时签名、未经公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
+            echo "需要 macOS 26 及以上、Apple Silicon。打开 .dmg，把 Tapline.app 拖到旁边的“应用程序”图标上。应用未经 Apple 公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
             echo
             echo "Build $BUILD · Xcode $XCODE · SHA-256 \`$(cut -d' ' -f1 dist/SHA256SUMS.txt)\`"
           } > dist/notes.md

@@ -84,9 +84,9 @@ These steps are for macOS. For Windows, see [Install on Windows](#install-on-win
 
 1. Download `Tapline-x.y.z-arm64.dmg` from the [latest release](https://github.com/belugaming/tapline/releases/latest).
 2. Open it and drag **Tapline.app** onto the **Applications** shortcut next to it.
-3. Open Tapline. Release builds are ad-hoc signed and not notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Tapline. (Since macOS 15, right-clicking and choosing Open no longer works for this.)
+3. Open Tapline. Release builds are not notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Tapline. (Since macOS 15, right-clicking and choosing Open no longer works for this.)
 
-To update, quit Tapline and replace the app with the new one. macOS asks for the audio permission again after each update, because ad-hoc signed builds have a new identity every time.
+To update, quit Tapline and replace the app with the new one. Releases are signed with Tapline's own certificate, so macOS keeps the audio permission across updates. Coming from an older, ad-hoc signed release, it asks once more.
 
 ## Windows (beta)
 
@@ -343,7 +343,7 @@ Yes. A good condenser microphone is accurate enough in the bass, which is what r
 Quit it. Its audio daemon may stay in the background; Tapline only warns while it is actually processing audio.
 
 **macOS asks for the permission again after an update.**
-Release builds are ad-hoc signed, so every build is a new app to macOS. Allow it again. Old entries can be removed in **System Settings → Privacy & Security → Screen & System Audio Recording**.
+Releases before the switch to Tapline's own certificate were ad-hoc signed, so each one was a new app to macOS, and so is the first signed one. Allow it again. Old entries can be removed in **System Settings → Privacy & Security → Screen & System Audio Recording**.
 
 **Windows: the EQ makes no difference.**
 Look at the banner at the top of the window. Tapline says there when Equalizer APO is missing, isn't installed on the current output, or is skipped because Windows' **Audio enhancements** are off for the device. Also check that processing is on, and that the app isn't using exclusive mode or ASIO: those bypass Equalizer APO.
