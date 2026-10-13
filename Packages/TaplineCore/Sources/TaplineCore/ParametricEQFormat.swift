@@ -127,6 +127,34 @@ public enum ParametricEQFormat {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    /// A multichannel room correction, one Equalizer APO section per speaker: its channel
+    /// (numbered from 1 in the output's channel order), preamp (trim plus the headroom all
+    /// speakers share), delay and filters.
+    ///
+    ///     # C (channel 3)
+    ///     Channel: 3
+    ///     Preamp: -4.5 dB
+    ///     Delay: 1.25 ms
+    ///     Filter 1: ON PK Fc 63 Hz Gain -6.0 dB Q 4.00
+    public static func exportSpeakers(_ corrections: [SpeakerCorrection], layoutName: String, headroomDB: Double) -> String {
+        var lines = ["# Room correction for \(layoutName) speakers, one section per speaker."]
+        for c in corrections.sorted(by: { $0.channel < $1.channel }) {
+            lines.append("")
+            lines.append("# \(c.position.abbreviation) (channel \(c.channel + 1))")
+            lines.append("Channel: \(c.channel + 1)")
+            let trim = c.trimDB.isFinite ? c.trimDB.clamped(to: SpeakerCorrection.trimRange) : 0
+            lines.append(String(format: "Preamp: %.1f dB", trim + headroomDB))
+            let delay = c.delayMS.isFinite ? c.delayMS.clamped(to: SpeakerCorrection.delayRange) : 0
+            if delay >= 0.005 { lines.append(String(format: "Delay: %.2f ms", delay)) }
+            for (i, b) in c.bands.filter(\.isEnabled).prefix(SpeakerCorrection.maxBands).enumerated() {
+                lines.append(filterLine(b, number: i + 1))
+            }
+        }
+        lines.append("")
+        lines.append("Channel: all")
+        return lines.joined(separator: "\n") + "\n"
+    }
+
     private static func filterLine(_ b: EQBand, number: Int) -> String {
         let code: String
         switch b.type {
