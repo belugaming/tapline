@@ -1,5 +1,6 @@
 #include "tapline_dsp.h"
 
+#include <Accelerate/Accelerate.h>
 #include <float.h>
 #include <math.h>
 #include <stdatomic.h>
@@ -9,6 +10,30 @@
 #define TL_DIRTY 4
 #define TL_LIMITER_MAX_LOOKAHEAD 1024
 #define TL_XFEED_RING 128  // power of two
+
+// Virtual speakers: uniformly partitioned overlap-save convolution. Each block of
+// TL_CONV_BLOCK input samples is transformed once (2 * TL_CONV_BLOCK point real FFT) and
+// kept in a frequency-domain delay line; every output block is the sum over partitions
+// of IR spectrum x delayed input spectrum, transformed back.
+#define TL_CONV_FFT (2 * TL_CONV_BLOCK)
+#define TL_CONV_LOG2 9
+#define TL_CONV_MAX_PARTS (TL_CONV_MAX_TAPS / TL_CONV_BLOCK)  // power of two
+_Static_assert((1 << TL_CONV_LOG2) == TL_CONV_FFT, "TL_CONV_LOG2 must match TL_CONV_BLOCK");
+_Static_assert((TL_CONV_MAX_PARTS & (TL_CONV_MAX_PARTS - 1)) == 0, "the delay line is a power-of-two ring");
+
+struct tl_ir_set {
+    double sample_rate;
+    uint32_t parts;
+    // Spectrum of every partition in vDSP's packed real-FFT layout (bin 0 holds DC in re
+    // and Nyquist in im): [(ir * parts + part) * TL_CONV_BLOCK + bin]. Pre-scaled so the
+    // inverse transform needs no further gain.
+    float *re;
+    float *im;
+};
+
+// Marks "remove the current set" in the pending slot (NULL there means "no change").
+static tl_ir_set tl_no_set;
+#define TL_NO_SET (&tl_no_set)
 
 struct tl_kernel {
     // Parameter triple buffer. The writer owns `back`, the reader owns `front`,
@@ -48,6 +73,32 @@ struct tl_kernel {
     float xf_coef;
     float xf_lp_l, xf_lp_r;
     float xf_amount_current;
+
+    // Virtual speakers. The main thread publishes sets through `conv_pending` and frees
+    // what the IO thread returns through `conv_retired`; everything else is IO-thread state.
+    FFTSetup conv_fft;
+    _Atomic(tl_ir_set *) conv_pending;
+    _Atomic(tl_ir_set *) conv_retired;
+    tl_ir_set *conv_cur;
+    tl_ir_set *conv_next;          // set being crossfaded to
+    int32_t conv_removing;         // fading to dry, then dropping conv_cur
+    int32_t conv_running;          // the input blocks and delay line hold signal
+    float conv_mix;                // 0 = dry ... 1 = convolved
+    float conv_mix_step;
+    float conv_swap;               // crossfade progress conv_cur -> conv_next
+    float conv_swap_step;
+    uint32_t conv_warmup;          // samples before the convolved signal may fade in
+    uint32_t conv_pos;             // samples in the current input block
+    uint32_t conv_head;            // delay-line slot of the newest block
+    uint32_t conv_filled;          // delay-line slots holding signal
+    float conv_in[2][TL_CONV_FFT]; // per channel: previous block, then the current one
+    float conv_out[2][TL_CONV_BLOCK];
+    float conv_out_next[2][TL_CONV_BLOCK];
+    float conv_acc_re[2][TL_CONV_BLOCK];
+    float conv_acc_im[2][TL_CONV_BLOCK];
+    float conv_time[TL_CONV_FFT];
+    float conv_fdl_re[2][TL_CONV_MAX_PARTS][TL_CONV_BLOCK];
+    float conv_fdl_im[2][TL_CONV_MAX_PARTS][TL_CONV_BLOCK];
 
     // Limiter (always in the path so latency stays constant)
     float lim_ring_l[TL_LIMITER_MAX_LOOKAHEAD];
@@ -107,6 +158,8 @@ void tl_params_init(tl_params *p) {
 tl_kernel *tl_kernel_create(void) {
     tl_kernel *k = calloc(1, sizeof(tl_kernel));
     if (!k) return NULL;
+    k->conv_fft = vDSP_create_fftsetup(TL_CONV_LOG2, kFFTRadix2);
+    if (!k->conv_fft) { free(k); return NULL; }
     for (int i = 0; i < 3; i++) tl_params_init(&k->slots[i]);
     k->front = 0;
     atomic_store(&k->middle, 1);
@@ -123,7 +176,22 @@ tl_kernel *tl_kernel_create(void) {
 }
 
 void tl_kernel_destroy(tl_kernel *k) {
+    tl_kernel_collect(k);
+    tl_ir_set *pending = atomic_exchange(&k->conv_pending, NULL);
+    if (pending && pending != TL_NO_SET) tl_ir_set_destroy(pending);
+    if (k->conv_cur) tl_ir_set_destroy(k->conv_cur);
+    if (k->conv_next) tl_ir_set_destroy(k->conv_next);
+    vDSP_destroy_fftsetup(k->conv_fft);
     free(k);
+}
+
+static void conv_reset(tl_kernel *k) {
+    k->conv_running = 0;
+    k->conv_pos = 0;
+    k->conv_filled = 0;
+    memset(k->conv_in, 0, sizeof(k->conv_in));
+    memset(k->conv_out, 0, sizeof(k->conv_out));
+    memset(k->conv_out_next, 0, sizeof(k->conv_out_next));
 }
 
 void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layout) {
@@ -172,6 +240,92 @@ void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layo
     k->lim_gain = 1.0f;
     k->lim_attack = (float)exp(-3.0 / (double)lookahead);
     k->lim_release = (float)exp(-1.0 / (0.120 * sample_rate));
+
+    // Virtual speakers: finish any change in progress and start dry, so starting IO fades
+    // the effect in. A set made for another sample rate is dropped; the main thread sends a
+    // new one. 30 ms to switch the effect on or off, 50 ms between two sets.
+    tl_kernel_collect(k);
+    if (k->conv_next) {
+        tl_ir_set_destroy(k->conv_cur);
+        k->conv_cur = k->conv_next;
+        k->conv_next = NULL;
+    }
+    if (k->conv_removing && k->conv_cur) {
+        tl_ir_set_destroy(k->conv_cur);
+        k->conv_cur = NULL;
+    }
+    k->conv_removing = 0;
+    if (k->conv_cur && k->conv_cur->sample_rate != sample_rate) {
+        tl_ir_set_destroy(k->conv_cur);
+        k->conv_cur = NULL;
+    }
+    k->conv_mix = 0.0f;
+    k->conv_swap = 0.0f;
+    k->conv_mix_step = (float)(1.0 / (0.030 * sample_rate));
+    k->conv_swap_step = (float)(1.0 / (0.050 * sample_rate));
+    conv_reset(k);
+}
+
+// MARK: - Virtual speaker sets (non-realtime)
+
+tl_ir_set *tl_ir_set_create(const float *const *irs, uint32_t length, double sample_rate, float gain) {
+    if (length == 0 || !(sample_rate >= 8000.0) || !isfinite(sample_rate) || !isfinite(gain)) return NULL;
+    if (length > TL_CONV_MAX_TAPS) length = TL_CONV_MAX_TAPS;
+    const uint32_t parts = (length + TL_CONV_BLOCK - 1) / TL_CONV_BLOCK;
+    const size_t count = (size_t)4 * parts * TL_CONV_BLOCK;
+    tl_ir_set *set = calloc(1, sizeof(tl_ir_set));
+    FFTSetup fft = vDSP_create_fftsetup(TL_CONV_LOG2, kFFTRadix2);
+    if (set) {
+        set->re = calloc(count, sizeof(float));
+        set->im = calloc(count, sizeof(float));
+    }
+    if (!set || !set->re || !set->im || !fft) {
+        if (set) { free(set->re); free(set->im); free(set); }
+        if (fft) vDSP_destroy_fftsetup(fft);
+        return NULL;
+    }
+    set->sample_rate = sample_rate;
+    set->parts = parts;
+    // zrip's forward transform scales by 2 (here and for the input), its inverse by the
+    // transform size: fold the undo into the IR.
+    const float scale = gain / (4.0f * (float)TL_CONV_FFT);
+    float buf[TL_CONV_FFT];
+    for (int ir = 0; ir < 4; ir++) {
+        for (uint32_t part = 0; part < parts; part++) {
+            memset(buf, 0, sizeof(buf));
+            const uint32_t start = part * TL_CONV_BLOCK;
+            const uint32_t n = length - start < TL_CONV_BLOCK ? length - start : TL_CONV_BLOCK;
+            for (uint32_t i = 0; i < n; i++) {
+                const float v = irs[ir][start + i];
+                buf[i] = isfinite(v) ? v * scale : 0.0f;
+            }
+            const size_t offset = ((size_t)ir * parts + part) * TL_CONV_BLOCK;
+            DSPSplitComplex split = { set->re + offset, set->im + offset };
+            vDSP_ctoz((const DSPComplex *)buf, 2, &split, 1, TL_CONV_BLOCK);
+            vDSP_fft_zrip(fft, &split, 1, TL_CONV_LOG2, FFT_FORWARD);
+        }
+    }
+    vDSP_destroy_fftsetup(fft);
+    return set;
+}
+
+void tl_ir_set_destroy(tl_ir_set *set) {
+    if (!set || set == TL_NO_SET) return;
+    free(set->re);
+    free(set->im);
+    free(set);
+}
+
+void tl_kernel_set_ir_set(tl_kernel *k, tl_ir_set *set) {
+    tl_kernel_collect(k);
+    // A set the IO thread has not picked up yet was never seen by it: free it here.
+    tl_ir_set *previous = atomic_exchange_explicit(&k->conv_pending, set ? set : TL_NO_SET, memory_order_acq_rel);
+    if (previous && previous != TL_NO_SET) tl_ir_set_destroy(previous);
+}
+
+void tl_kernel_collect(tl_kernel *k) {
+    tl_ir_set *retired = atomic_exchange_explicit(&k->conv_retired, NULL, memory_order_acq_rel);
+    if (retired) tl_ir_set_destroy(retired);
 }
 
 // Non-finite parameters would latch the gain ramps and filter states: replace them with
@@ -288,6 +442,177 @@ static inline void apply_gain_ramp(float *x, float *y, uint32_t frames, float *c
         y[i] *= g;
     }
     *current = target;
+}
+
+// MARK: - Virtual speakers (IO thread)
+
+// Hands a set back to the main thread. Only one is ever outstanding: changes are picked up
+// only while the slot is empty, and each change retires at most one set.
+static inline void conv_retire(tl_kernel *k, tl_ir_set *set) {
+    if (set) atomic_store_explicit(&k->conv_retired, set, memory_order_release);
+}
+
+// Transforms the input block that just filled up into the newest delay-line slot.
+static void conv_push_block(tl_kernel *k) {
+    k->conv_head = (k->conv_head + 1) & (TL_CONV_MAX_PARTS - 1);
+    for (int ch = 0; ch < 2; ch++) {
+        DSPSplitComplex split = { k->conv_fdl_re[ch][k->conv_head], k->conv_fdl_im[ch][k->conv_head] };
+        vDSP_ctoz((const DSPComplex *)k->conv_in[ch], 2, &split, 1, TL_CONV_BLOCK);
+        vDSP_fft_zrip(k->conv_fft, &split, 1, TL_CONV_LOG2, FFT_FORWARD);
+        memcpy(k->conv_in[ch], k->conv_in[ch] + TL_CONV_BLOCK, TL_CONV_BLOCK * sizeof(float));
+    }
+    if (k->conv_filled < TL_CONV_MAX_PARTS) k->conv_filled++;
+}
+
+// acc += x * h for packed real-FFT spectra.
+static inline void conv_mac(float *restrict acc_re, float *restrict acc_im,
+                            const float *restrict x_re, const float *restrict x_im,
+                            const float *restrict h_re, const float *restrict h_im) {
+    acc_re[0] += x_re[0] * h_re[0];  // DC
+    acc_im[0] += x_im[0] * h_im[0];  // Nyquist
+    for (uint32_t b = 1; b < TL_CONV_BLOCK; b++) {
+        acc_re[b] += x_re[b] * h_re[b] - x_im[b] * h_im[b];
+        acc_im[b] += x_re[b] * h_im[b] + x_im[b] * h_re[b];
+    }
+}
+
+// One output block of `set` from the delay line. Returns 0 (and leaves silence) when it
+// is not finite, e.g. after an EQ filter blew up: the caller then restarts the delay line.
+static int conv_render(tl_kernel *k, const tl_ir_set *set, float out[2][TL_CONV_BLOCK]) {
+    const uint32_t parts = set->parts < k->conv_filled ? set->parts : k->conv_filled;
+    memset(k->conv_acc_re, 0, sizeof(k->conv_acc_re));
+    memset(k->conv_acc_im, 0, sizeof(k->conv_acc_im));
+    for (uint32_t part = 0; part < parts; part++) {
+        const uint32_t slot = (k->conv_head - part) & (TL_CONV_MAX_PARTS - 1);
+        for (int speaker = 0; speaker < 2; speaker++) {
+            const float *x_re = k->conv_fdl_re[speaker][slot];
+            const float *x_im = k->conv_fdl_im[speaker][slot];
+            for (int ear = 0; ear < 2; ear++) {
+                const size_t offset = ((size_t)(speaker * 2 + ear) * set->parts + part) * TL_CONV_BLOCK;
+                conv_mac(k->conv_acc_re[ear], k->conv_acc_im[ear], x_re, x_im, set->re + offset, set->im + offset);
+            }
+        }
+    }
+    int ok = 1;
+    for (int ear = 0; ear < 2; ear++) {
+        DSPSplitComplex split = { k->conv_acc_re[ear], k->conv_acc_im[ear] };
+        vDSP_fft_zrip(k->conv_fft, &split, 1, TL_CONV_LOG2, FFT_INVERSE);
+        vDSP_ztoc(&split, 1, (DSPComplex *)k->conv_time, 2, TL_CONV_BLOCK);
+        // Overlap-save: the first half wrapped around, the second half is the output.
+        float sum = 0.0f;
+        for (uint32_t i = 0; i < TL_CONV_BLOCK; i++) {
+            out[ear][i] = k->conv_time[TL_CONV_BLOCK + i];
+            sum += out[ear][i];
+        }
+        if (!isfinite(sum)) ok = 0;
+    }
+    if (!ok) memset(out, 0, 2 * TL_CONV_BLOCK * sizeof(float));
+    return ok;
+}
+
+// Clears the delay line and input after a non-finite block.
+static void conv_restart(tl_kernel *k) {
+    k->conv_filled = 0;
+    memset(k->conv_in, 0, sizeof(k->conv_in));
+}
+
+// Takes over a set from the main thread, one change at a time.
+static void conv_pick_up(tl_kernel *k) {
+    if (k->conv_next || k->conv_removing) return;
+    if (!atomic_load_explicit(&k->conv_pending, memory_order_relaxed)) return;
+    if (atomic_load_explicit(&k->conv_retired, memory_order_acquire)) return;
+    tl_ir_set *set = atomic_exchange_explicit(&k->conv_pending, NULL, memory_order_acq_rel);
+    if (!set) return;
+    if (set == TL_NO_SET) {
+        set = NULL;
+    } else if (set->sample_rate != k->sample_rate) {
+        conv_retire(k, set);   // made for the rate before a reconfigure
+        return;
+    }
+    if (!k->conv_cur) {
+        k->conv_cur = set;
+    } else if (k->conv_mix <= 0.0f) {
+        // Nothing of the old set is audible: switch right away.
+        conv_retire(k, k->conv_cur);
+        k->conv_cur = set;
+        if (set && k->conv_running && !conv_render(k, set, k->conv_out)) conv_restart(k);
+    } else if (!set) {
+        k->conv_removing = 1;
+    } else {
+        k->conv_next = set;
+        k->conv_swap = 0.0f;
+        // Its output for the block that is playing, from the same delay line.
+        if (!conv_render(k, set, k->conv_out_next)) conv_restart(k);
+    }
+}
+
+// Crossfades between the dry signal and the convolved one: the convolved signal lags by
+// TL_CONV_BLOCK samples, so it fades in only once its first block is out.
+static void run_virtual_speakers(tl_kernel *k, const tl_params *p, float *l, float *r, uint32_t frames) {
+    conv_pick_up(k);
+    const int wanted = p->virtual_speakers_enabled && k->conv_cur && !k->conv_removing;
+    if (!k->conv_cur || (!wanted && k->conv_mix <= 0.0f)) {
+        // Dry: finish a change that waited for the fade-out and stop convolving.
+        if (k->conv_next) {
+            conv_retire(k, k->conv_cur);
+            k->conv_cur = k->conv_next;
+            k->conv_next = NULL;
+        }
+        if (k->conv_removing) {
+            conv_retire(k, k->conv_cur);
+            k->conv_cur = NULL;
+            k->conv_removing = 0;
+        }
+        k->conv_mix = 0.0f;
+        k->conv_swap = 0.0f;
+        if (k->conv_running) conv_reset(k);
+        return;
+    }
+    if (!k->conv_running) {
+        k->conv_running = 1;
+        k->conv_warmup = TL_CONV_BLOCK;
+    }
+    const float target = wanted ? 1.0f : 0.0f;
+    const float mix_step = k->conv_mix_step, swap_step = k->conv_swap_step;
+    float mix = k->conv_mix, swap = k->conv_swap;
+    uint32_t pos = k->conv_pos;
+    for (uint32_t i = 0; i < frames; i++) {
+        const float dry_l = l[i], dry_r = r[i];
+        float wet_l = k->conv_out[0][pos], wet_r = k->conv_out[1][pos];
+        if (k->conv_next) {
+            wet_l += swap * (k->conv_out_next[0][pos] - wet_l);
+            wet_r += swap * (k->conv_out_next[1][pos] - wet_r);
+            swap += swap_step;
+            if (swap >= 1.0f) {
+                conv_retire(k, k->conv_cur);
+                k->conv_cur = k->conv_next;
+                k->conv_next = NULL;
+                memcpy(k->conv_out, k->conv_out_next, sizeof(k->conv_out));
+                swap = 0.0f;
+            }
+        }
+        k->conv_in[0][TL_CONV_BLOCK + pos] = dry_l;
+        k->conv_in[1][TL_CONV_BLOCK + pos] = dry_r;
+        if (++pos == TL_CONV_BLOCK) {
+            pos = 0;
+            conv_push_block(k);
+            int ok = conv_render(k, k->conv_cur, k->conv_out);
+            if (k->conv_next) ok &= conv_render(k, k->conv_next, k->conv_out_next);
+            if (!ok) conv_restart(k);
+        }
+        if (k->conv_warmup > 0) {
+            k->conv_warmup--;
+        } else if (mix < target) {
+            mix = fminf(target, mix + mix_step);
+        } else if (mix > target) {
+            mix = fmaxf(target, mix - mix_step);
+        }
+        l[i] = dry_l + mix * (wet_l - dry_l);
+        r[i] = dry_r + mix * (wet_r - dry_r);
+    }
+    k->conv_mix = mix;
+    k->conv_swap = swap;
+    k->conv_pos = pos;
 }
 
 // Clamps to +-limit; NaN and infinities become silence.
@@ -464,6 +789,9 @@ OSStatus tl_ioproc(AudioObjectID device,
             memset(k->xf_ring_r, 0, sizeof(k->xf_ring_r));
         }
     }
+
+    // 5b. Virtual speakers (crossfeed's replacement; the settings never enable both)
+    run_virtual_speakers(k, p, l, r, frames);
 
     // 6. Balance
     {

@@ -124,6 +124,7 @@ public record struct EffectsSettings
     public const double CrossfeedMin = 0, CrossfeedMax = 1;
     public const double LimiterCeilingMin = -12, LimiterCeilingMax = 0;
     public const double OutputGainMin = -24, OutputGainMax = 12;
+    public const string DefaultVirtualSpeakers = "sadie-ku100-room";
 
     public double Balance { get; set; } = 0;          // -1 ... 1
     public double Width { get; set; } = 1;            // 0 ... 2
@@ -131,6 +132,10 @@ public record struct EffectsSettings
     public bool SwapChannels { get; set; } = false;
     public bool CrossfeedEnabled { get; set; } = false;
     public double Crossfeed { get; set; } = 0.5;      // 0 ... 1
+    /// <summary>Headphones: speakers at ±30° through binaural impulse responses. Excludes crossfeed.</summary>
+    public bool VirtualSpeakersEnabled { get; set; } = false;
+    /// <summary>The impulse responses: a built-in set's id or an imported set's.</summary>
+    public string VirtualSpeakers { get; set; } = DefaultVirtualSpeakers;
     public bool LimiterEnabled { get; set; } = true;
     [JsonPropertyName("limiterCeilingDB")]
     public double LimiterCeilingDb { get; set; } = -0.3;

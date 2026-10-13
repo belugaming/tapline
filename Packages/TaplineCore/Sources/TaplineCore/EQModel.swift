@@ -120,11 +120,16 @@ public struct EffectsSettings: Codable, Hashable, Sendable {
     public var swapChannels: Bool = false
     public var crossfeedEnabled: Bool = false
     public var crossfeed: Double = 0.5      // 0 ... 1
+    /// Headphones: speakers at +-30 degrees through binaural impulse responses. Excludes crossfeed.
+    public var virtualSpeakersEnabled: Bool = false
+    /// The impulse responses: a built-in set's id or an imported set's.
+    public var virtualSpeakers: String = EffectsSettings.defaultVirtualSpeakers
     public var limiterEnabled: Bool = true
     public var limiterCeilingDB: Double = -0.3
     public var outputGainDB: Double = 0
 
     public static let outputGainRange: ClosedRange<Double> = -24...12
+    public static let defaultVirtualSpeakers = "sadie-ku100-room"
 
     public init() {}
 
@@ -137,6 +142,8 @@ public struct EffectsSettings: Codable, Hashable, Sendable {
         swapChannels = try c.decodeIfPresent(Bool.self, forKey: .swapChannels) ?? d.swapChannels
         crossfeedEnabled = try c.decodeIfPresent(Bool.self, forKey: .crossfeedEnabled) ?? d.crossfeedEnabled
         crossfeed = try c.decodeIfPresent(Double.self, forKey: .crossfeed) ?? d.crossfeed
+        virtualSpeakersEnabled = try c.decodeIfPresent(Bool.self, forKey: .virtualSpeakersEnabled) ?? d.virtualSpeakersEnabled
+        virtualSpeakers = try c.decodeIfPresent(String.self, forKey: .virtualSpeakers) ?? d.virtualSpeakers
         limiterEnabled = try c.decodeIfPresent(Bool.self, forKey: .limiterEnabled) ?? d.limiterEnabled
         limiterCeilingDB = try c.decodeIfPresent(Double.self, forKey: .limiterCeilingDB) ?? d.limiterCeilingDB
         outputGainDB = try c.decodeIfPresent(Double.self, forKey: .outputGainDB) ?? d.outputGainDB

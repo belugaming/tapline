@@ -457,3 +457,32 @@
 "The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings." = "EQ 已旁通，原声以 EQ 的响度播放，让你比较的是音色而不是音量。可以在设置中关闭。";
 "Strength" = "强度";
 "How much of the correction to apply. At full strength the EQ corrects all the way to the target; lower values go part of the way, like a dry/wet control." = "校正的程度。强度拉满时 EQ 完全校正到目标曲线；调低则只校正一部分，类似干/湿比控制。";
+
+/* Virtual Speakers */
+"Virtual Speakers" = "虚拟音箱";
+"Puts the sound in front of you, like a pair of speakers at ±30°, with binaural impulse responses. For headphones; replaces crossfeed." = "用双耳脉冲响应把声音放到你面前，像一对摆在 ±30° 的音箱。用于耳机；会取代交叉馈送。";
+"Built in" = "内置";
+"Imported" = "已导入";
+"Import…" = "导入…";
+"A HeSuVi or Impulcifer WAV file, a 4-channel file, or two stereo files (one per speaker)" = "HeSuVi 或 Impulcifer 的 WAV 文件、4 声道文件，或两个立体声文件（每只音箱一个）";
+"Remove “%@”" = "移除“%@”";
+"Where to find HRIR files" = "去哪里找 HRIR 文件";
+"Studio room (KU100)" = "录音室房间（KU100）";
+"Anechoic (KU100)" = "消声室（KU100）";
+"Imported speakers" = "导入的音箱";
+"Neumann KU100 dummy head from the SADIE II database, with the reflections of a treated studio room. Bass and lower mids stay dry." = "来自 SADIE II 数据库的 Neumann KU100 人工头，带一间做过声学处理的录音室的反射声。低频和中低频保持干声。";
+"Neumann KU100 dummy head from the SADIE II database, anechoic: the speakers without a room. The cleanest sound, but it may seem closer to your head." = "来自 SADIE II 数据库的 Neumann KU100 人工头，消声室：只有音箱、没有房间。声音最干净，但可能听起来离头更近。";
+"HeSuVi, 14 channels" = "HeSuVi，14 声道";
+"HeSuVi, 7 channels" = "HeSuVi，7 声道";
+"Impulcifer hrir.wav" = "Impulcifer hrir.wav";
+"4 channels" = "4 声道";
+"Two stereo files" = "两个立体声文件";
+"One speaker, mirrored" = "单只音箱，左右镜像";
+"Choose a HeSuVi or Impulcifer file, or two stereo files (one per speaker)." = "选择一个 HeSuVi 或 Impulcifer 文件，或两个立体声文件（每只音箱一个）。";
+"Could not load %@: %@" = "无法加载 %1$@：%2$@";
+"That file has %lld channels. Tapline reads HeSuVi files (7 or 14 channels), Impulcifer's hrir.wav (16), 4-channel files, or stereo files of one speaker each." = "这个文件有 %lld 个声道。Tapline 能读取 HeSuVi 文件（7 或 14 声道）、Impulcifer 的 hrir.wav（16 声道）、4 声道文件，或每只音箱一个的立体声文件。";
+"The front speakers in that file are silent." = "这个文件里的前置音箱是静音的。";
+"Both files are the same speaker. Choose one file for the left speaker and one for the right." = "两个文件是同一侧的音箱。请为左音箱和右音箱各选一个文件。";
+"The two files have different sample rates." = "两个文件的采样率不同。";
+"Choose one file, or two stereo files (one per speaker)." = "请选择一个文件，或两个立体声文件（每只音箱一个）。";
+"That is not a WAV file Tapline can read (PCM or 32/64-bit float)." = "这不是 Tapline 能读取的 WAV 文件（需要 PCM 或 32/64 位浮点）。";

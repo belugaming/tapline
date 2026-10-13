@@ -113,6 +113,7 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 | 让某个 App 直通、不经过 Tapline | ✓ | ✗（使用独占模式或 ASIO 的软件本来就不会被处理） |
 | 限幅器 | ✓ | ✗（请把预增益保持在**自动**） |
 | 输出增益、声道平衡、立体声宽度、单声道、左右互换、交叉馈送 | ✓ | ✓（单声道输出设备上只有输出增益） |
+| 虚拟音箱（HRIR/BRIR 卷积，导入 HeSuVi） | ✓ | ✓（用 Equalizer APO 的卷积器） |
 | 切换输出、输入设备 | ✓ | ✓ |
 | 修改设备采样率 | ✓ | ✗（只显示） |
 | 快捷面板 | 菜单栏 | 通知区域（托盘） |
@@ -276,8 +277,30 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 - **输出增益**：EQ 之后的整体电平。
 - **声道平衡**、**立体声宽度**（0% 就是单声道）、**单声道**、**左右声道互换**。
 - **耳机交叉馈送**：把左右声道互相混入一点，听感更接近音箱。听左右分得很开的录音时，用耳机不容易疲劳。
+- **虚拟音箱**：把音乐放到你面前，像是从一对音箱里放出来，而不是在脑袋里。详见下文。它和交叉馈送二选一：打开一个，另一个会自动关掉。
 
-> **Windows 上：** 没有限幅器，因为 Equalizer APO 没有这个功能。请把预增益保持在**自动**，避免提升频段时破音；电平表顶满时调低**输出增益**。
+> **Windows 上：** 没有限幅器，因为 Equalizer APO 没有这个功能。请把预增益保持在**自动**，避免提升频段时破音；电平表顶满时调低**输出增益**。**虚拟音箱**用 Equalizer APO 自带的卷积器，和 HeSuVi 一样：Tapline 按设备的采样率把脉冲响应写进 Equalizer APO 的 `config\Tapline\VirtualSpeakers` 文件夹。
+
+#### 虚拟音箱
+
+用耳机听，左声道只进左耳。用音箱听，两只耳朵都能听到两只音箱：远的那只稍晚一点、也更闷一点，并且经过头部、耳廓和房间的塑形。虚拟音箱用双耳脉冲响应（HRIR；带房间的叫 BRIR）重现这一点：在人工头（或你自己）的耳道里放麦克风，测出摆在 ±30° 的一对音箱。思路和 Sonarworks SoundID Virtual Monitoring 一样，但免费。
+
+- **录音室房间（KU100）**（默认）：来自 [SADIE II](https://www.york.ac.uk/sadie-project/database.html) 数据库的 Neumann KU100 人工头，带一间做过声学处理的录音室的早期反射声。反射声能让声音离开脑袋；低频和中低频里不加反射，保持干净。
+- **消声室（KU100）**：同一个人工头，没有房间。声音最干净，但往往离头更近。
+- **导入…** 你自己的：HeSuVi 文件（7 或 14 声道）、Impulcifer 的 `hesuvi.wav` 或 `hrir.wav`、4 声道文件（左前→左耳、左前→右耳、右前→左耳、右前→右耳），或两个立体声文件、每只音箱一个（Tapline 会自己判断哪个是左）。Tapline 只用左前和右前两只音箱，并重采样到设备的采样率。导入的组合列在**已导入**下面，点**移除**可以删掉。
+
+使用建议：
+
+- 配合耳机校正一起用（见[2. 校正你的耳机](#2-校正你的耳机)）。内置的组合做过扩散场均衡，适合校正到中性（Harman 或扩散场）目标的耳机。
+- 打开时会自动匹配响度，可以直接开关对比。限幅器照样保护输出。
+- 打开时会增加 256 个采样的延迟（48 kHz 下 5.3 毫秒）。用音箱听时请关掉。
+- 通用人工头对不同的人效果不一样：如果人声像是从后面或上面来的，换一组试试。
+
+去哪里找更多组合：
+
+- [HeSuVi](https://sourceforge.net/projects/hesuvi/)：下载包里的 `hrir` 文件夹有很多组人工头和房间，都是它的 14 声道格式。同一组有几种采样率时，选和设备一致的，免得重采样。
+- [ASH Listening Set](https://github.com/ShanonPearce/ASH-Listening-Set)：很多房间的 BRIR，有 HeSuVi 格式，也有每个方向一个的立体声文件（把 30° 和 330° 两个文件一起导入）。只允许非商业使用。
+- **你自己的头**：[Impulcifer](https://github.com/jaakkopasanen/Impulcifer) 用一副入耳式双耳麦克风、你的音箱和耳机，在你的房间里测量你的耳朵，生成 `hesuvi.wav`。导入它就是最接近个人校准的方式，类似 SoundID Virtual Monitoring PRO 用它的麦克风做的事。
 
 ### 7. 多个设备、多套配置
 
@@ -363,13 +386,14 @@ rm -rf ~/Library/Caches/io.github.belugaming.Tapline
 ```
 各个 App ──► 截取输出设备自己的输出流（Tapline 读取期间，原声在源头被静音）
         ──► 私有聚合设备 =［截取流 + 作为时钟源的输出设备］
-        ──► C 语言音频回调：混合各 App → 预增益 → EQ → 音色 → 效果 → 限幅器
+        ──► C 语言音频回调：混合各 App → 预增益 → EQ → 音色 → 效果（含虚拟音箱） → 限幅器
         ──► 输出设备
 ```
 
 - 一路截取流负责当前输出设备上的所有声音，Tapline 自己、设为直通的 App、单独调过音量的 App 除外；后两者各自有单独的截取流。截取设备自己的输出流，时钟就和设备一致。
 - 有独立晶振的设备（USB、内置）开启漂移补偿；蓝牙和虚拟设备关闭，否则系统会插入或丢弃采样点。
 - 实时音频部分用纯 C 编写（`Packages/TaplineCore/Sources/TaplineDSP`），音频线程上没有内存分配、锁或 Swift 运行时。参数通过无锁三缓冲传进去。滤波器是 RBJ 双二阶滤波器，用双精度计算。
+- 虚拟音箱是均匀分段的 FFT 卷积（重叠保留法，每段 256 个采样，用 Accelerate 的实数 FFT），每条路径最长 65,536 个抽头。主线程把新的组合变换好，通过原子指针交给音频线程；音频线程交叉淡变过去，再把旧的交还给主线程释放。
 - EQ 旁通时，预增益、EQ 和音色由一个增益代替：整个 EQ 对粉红噪声的响度变化（按 ITU-R BS.1770 做 K 加权），最高 0 dB。开关 EQ 时，两条通路在一个音频缓冲内交叉淡化。
 - EQ 拟合算法（`EQFitter.swift`）参照 AutoEQ 的做法：先对齐电平，平滑所需的校正量（8 kHz 以上用两个倍频程的平滑），在误差最大的地方逐个加搁架和峰值滤波器，再用模式搜索一起微调所有参数。强度低于 100 % 时，它拟合的是把测量曲线朝目标移动相应比例后的曲线，所以结果和完整校正一样准确。
 - 同一时间只能运行一个 Tapline；设备停止回调时看门狗会自动重启引擎；检测到反馈回路时会自动关闭处理。Tapline 退出或崩溃时，它创建的截取流和聚合设备会一起消失。
@@ -442,12 +466,15 @@ git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
 - 第一次调某个 App 的音量时，重建音频通路会短暂停一下。
 - 发布版还没有经过公证（见[安装](#安装)）。
 - Windows 版是测试版，还没有代码签名。它和 macOS 版的区别见 [Windows 版功能一览](#windows-版功能一览)。
+- 虚拟音箱没有头部追踪：转头时音箱会跟着转。
 
 ## 致谢
 
 - 耳机校正曲线：Jaakko Pasanen 及贡献者（oratory1990、crinacle、Rtings 等）维护的 [AutoEQ](https://github.com/jaakkopasanen/AutoEq)
 - 频响测量数据：在 [squig.link](https://squig.link) 上发布数据的各位测评者。数据归他们所有，欢迎去他们的网站支持一下。
 - 滤波器设计：Robert Bristow-Johnson 的 *Audio EQ Cookbook*
+- 虚拟音箱的内置组合：[SADIE II 数据库](https://www.york.ac.uk/sadie-project/database.html)，© 2018 University of York，Apache License 2.0（C. Armstrong、L. Thresh、D. Murphy、G. Kearney，[doi:10.3390/app8112029](https://doi.org/10.3390/app8112029)）。Tapline 附带 KU100 在 30° 和 330° 的响应，按 [`Tapline/Resources/VirtualSpeakers/LICENSE-SADIE-II.txt`](Tapline/Resources/VirtualSpeakers/LICENSE-SADIE-II.txt) 里写的方式重排和组合，由 [`scripts/make-virtual-speakers.py`](scripts/make-virtual-speakers.py) 生成。
+- HeSuVi 的声道布局：[HeSuVi](https://sourceforge.net/projects/hesuvi/) 和 [Impulcifer](https://github.com/jaakkopasanen/Impulcifer)
 
 ## 许可证
 
