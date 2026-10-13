@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.0
+
+Brings over Listen As, the linear-phase EQ and surround speaker calibration of Tapline 0.5.0 for macOS. The low-latency linear-phase mode and the Audio Unit plugin are macOS only.
+
 - **Surround and Dolby Atmos speakers** (5.1, 7.1, 5.1.4, 7.1.4 …): on a surround output, Room correction calibrates every speaker. Check the wiring (pink noise on each speaker in turn, or click one on the speaker map), measure all speakers in one run at a few positions, and see each speaker's level, distance and polarity against the front left, with advice on what to fix at the receiver. Apply a room correction per speaker, with trims that level-match the speakers and delays that time-align them at your seat, or copy it as Equalizer APO text.
 - Tapline reads each output's speaker setup from Windows and processes a surround output speaker by speaker. The EQ plays on every speaker (or on the front left and right only, in Effects › Speakers), but never boosts above 120 Hz on the subwoofer (LFE) channel; width, balance and channel swap act on the front pair, and the headphone effects (crossfeed, Virtual Speakers, Listen As) stay off. Audio interfaces that report no speaker positions, and stereo outputs, work exactly as before.
 - **Listen As** on the Assistant page: hear your music as other headphones and earbuds (fitted from squig.link measurements) or everyday speakers (phone, laptop, TV, small Bluetooth speaker, car; approximations) would play it, through your own headphones. Its filters follow your EQ in Equalizer APO's configuration, on the current output only, and are never saved in presets. Switch it on the card, in the tray panel or with Ctrl+Alt+Shift+L. Equalizer APO has no limiter, so where the device would boost above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.
