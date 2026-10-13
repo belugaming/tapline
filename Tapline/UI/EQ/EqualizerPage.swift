@@ -80,6 +80,15 @@ struct EqualizerPage: View {
                     .help(Text("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings."))
             }
 
+            if model.settings.filterPhase == .linear {
+                Label("Linear phase · \(model.linearPhaseLatencyMS) ms", systemImage: "timer")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .help(Text("The EQ plays in linear phase: the same curve without phase shift, but the sound comes \(model.linearPhaseLatencyMS) ms late and video may lose lip sync. Switch it in the More menu or in Settings."))
+            }
+
             Spacer(minLength: 16)
 
             // Fixed size: when the preset name changes while editing (a preset's name, then
@@ -112,6 +121,8 @@ struct EqualizerPage: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(model.exportParametricEQ(), forType: .string)
                     }
+                    Divider()
+                    FilterPhasePicker(title: "Filter Phase")
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -472,6 +483,19 @@ extension EQChannels {
         case .both: "L + R"
         case .left: "Left"
         case .right: "Right"
+        }
+    }
+}
+
+/// Minimum or linear phase for the current device, with the latency linear phase adds.
+struct FilterPhasePicker: View {
+    @Environment(AppModel.self) private var model
+    let title: LocalizedStringKey
+
+    var body: some View {
+        Picker(title, selection: Binding(get: { model.settings.filterPhase }, set: { model.setFilterPhase($0) })) {
+            Text("Minimum Phase (no latency)").tag(FilterPhase.minimum)
+            Text("Linear Phase (\(model.linearPhaseLatencyMS) ms latency)").tag(FilterPhase.linear)
         }
     }
 }

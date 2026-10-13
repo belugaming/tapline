@@ -527,3 +527,16 @@
 "Listen As Another Device" = "模拟其他设备";
 "Stop Listening As Another Device" = "停止模拟其他设备";
 "Listen as another device (Assistant → Listen As)" = "模拟其他设备（辅助调音 → 模拟试听）";
+
+/* Filter phase (linear-phase EQ) */
+"Filter Phase" = "滤波器相位";
+"Minimum phase" = "最小相位";
+"Linear phase" = "线性相位";
+"Minimum Phase (no latency)" = "最小相位（无延迟）";
+"Linear Phase (%lld ms latency)" = "线性相位（延迟 %lld ms）";
+"Linear phase · %lld ms" = "线性相位 · %lld ms";
+"The EQ plays in linear phase: the same curve without phase shift, but the sound comes %lld ms late and video may lose lip sync. Switch it in the More menu or in Settings." = "EQ 正以线性相位播放：曲线不变、没有相移，但声音会晚 %lld ms，视频可能音画不同步。可在“更多”菜单或设置中切换。";
+"How the EQ treats phase. Set for each output device; also in the Equalizer's More menu." = "EQ 如何处理相位。每个输出设备单独设置；均衡器页的“更多”菜单里也可以切换。";
+"For %@" = "当前设备：%@";
+"Minimum phase plays without latency. Like an analog EQ, each band shifts the phase a little around its frequency." = "最小相位没有延迟。和模拟 EQ 一样，每个频段会让它附近频率的相位略有偏移。";
+"Linear phase plays the same curve without any phase shift, but %lld ms late: video may lose lip sync. The room correction's timing is unchanged, as linear phase only removes the EQ's own phase shift, and room measurements are not delayed." = "线性相位播放同一条曲线，完全没有相移，但声音会晚 %lld ms：视频可能音画不同步。房间校正的时间特性不变：线性相位只去掉 EQ 自身的相移，房间测量也不会被延迟。";
