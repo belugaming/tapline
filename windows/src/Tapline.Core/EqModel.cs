@@ -146,6 +146,131 @@ public record struct EffectsSettings
     public EffectsSettings() { }
 }
 
+/// <summary>One speaker's room correction on a multichannel output, from the Room page.</summary>
+public sealed class SpeakerCorrection : IEquatable<SpeakerCorrection>
+{
+    public const int MaxBands = 16;
+    public static readonly (double Min, double Max) TrimRange = (-24, 0);
+    public static readonly (double Min, double Max) DelayRange = (0, SpeakerAlignment.MaxDelayMs);
+
+    private List<EqBand> _bands = [];
+
+    /// <summary>The output channel (0-based, counted over the whole device).</summary>
+    public int Channel { get; set; }
+    public SpeakerPosition Position { get; set; } = SpeakerPosition.Unknown;
+    /// <summary>Its room correction. The <c>Channels</c> of each band is ignored.</summary>
+    public List<EqBand> Bands { get => _bands; set => _bands = value ?? []; }
+    /// <summary>Level trim, never a boost.</summary>
+    [JsonPropertyName("trimDB")]
+    public double TrimDb { get; set; }
+    /// <summary>Holds the speaker back until the farthest one arrives.</summary>
+    [JsonPropertyName("delayMS")]
+    public double DelayMs { get; set; }
+
+    public SpeakerCorrection() { }
+
+    public SpeakerCorrection(int channel, SpeakerPosition position, IEnumerable<EqBand>? bands = null, double trimDb = 0, double delayMs = 0)
+    {
+        Channel = channel;
+        Position = position;
+        Bands = bands is null ? [] : [.. bands];
+        TrimDb = trimDb;
+        DelayMs = delayMs;
+    }
+
+    public SpeakerCorrection Clone() => new(Channel, Position, Bands, TrimDb, DelayMs);
+
+    public bool Equals(SpeakerCorrection? other) =>
+        other is not null && Channel == other.Channel && Position == other.Position && TrimDb.Equals(other.TrimDb)
+        && DelayMs.Equals(other.DelayMs) && Bands.SequenceEqual(other.Bands);
+
+    public override bool Equals(object? obj) => obj is SpeakerCorrection other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Channel);
+        hash.Add(Position);
+        hash.Add(TrimDb);
+        hash.Add(DelayMs);
+        foreach (var band in Bands) hash.Add(band);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>How a multichannel output (5.1, 7.1.4…) is processed. The EQ, tone controls and output
+/// gain play on every speaker (or on the front pair only); each speaker then gets its own
+/// room correction, trim and delay. A stereo output ignores all of this.</summary>
+public sealed class SpeakerSetup : IEquatable<SpeakerSetup>
+{
+    /// <summary>LFE channels carry nothing above about 120 Hz; the EQ's boosts there would only lift noise.</summary>
+    public const double LfeBoostCeiling = 120;
+
+    private List<SpeakerCorrection> _corrections = [];
+
+    /// <summary>The EQ plays on every speaker; off: on the front left and right only. Never boosts
+    /// above 120 Hz on LFE channels.</summary>
+    public bool EqOnAllSpeakers { get; set; } = true;
+    /// <summary>Whether the speaker corrections play. Switching off keeps them.</summary>
+    public bool CorrectionEnabled { get; set; } = true;
+    public List<SpeakerCorrection> Corrections { get => _corrections; set => _corrections = value ?? []; }
+    /// <summary>The layout the corrections were measured on: they only play while the output still has it.</summary>
+    public SpeakerLayout? Layout { get; set; }
+
+    public SpeakerSetup() { }
+
+    public SpeakerSetup(bool eqOnAllSpeakers = true, bool correctionEnabled = true, IEnumerable<SpeakerCorrection>? corrections = null,
+                        SpeakerLayout? layout = null)
+    {
+        EqOnAllSpeakers = eqOnAllSpeakers;
+        CorrectionEnabled = correctionEnabled;
+        Corrections = corrections is null ? [] : [.. corrections];
+        Layout = layout;
+    }
+
+    /// <summary>The corrections that play on an output with <paramref name="layout"/>: none when switched off
+    /// or measured on other speakers.</summary>
+    public IReadOnlyList<SpeakerCorrection> ActiveCorrections(SpeakerLayout? layout)
+    {
+        if (!CorrectionEnabled || layout is null || !layout.Equals(Layout)) return [];
+        return Corrections;
+    }
+
+    /// <summary>Headroom for the corrections' boosts, dB (zero or negative). The same for every speaker,
+    /// so the trims keep the speakers level-matched.</summary>
+    public static double HeadroomDb(IEnumerable<SpeakerCorrection> corrections, double sampleRate = 48_000)
+    {
+        double boost = 0;
+        foreach (var c in corrections) boost = Math.Max(boost, ResponseCurve.MaxBoostDb([.. c.Bands.Select(Mono)], sampleRate));
+        return -Math.Max(0, boost);
+    }
+
+    /// <summary>A band as a speaker plays it: on its one channel.</summary>
+    public static EqBand Mono(EqBand band) => band.Clamped() with { Channels = EqChannels.Both };
+
+    /// <summary>Whether the EQ leaves <paramref name="band"/> out on LFE channels: bells and high shelves that boost above 120 Hz.</summary>
+    public static bool SkipsOnLfe(EqBand band) =>
+        band.Gain > 0 && band.Frequency > LfeBoostCeiling && band.Type is FilterType.Peak or FilterType.HighShelf;
+
+    public SpeakerSetup Clone() => new(EqOnAllSpeakers, CorrectionEnabled, Corrections.Select(c => c.Clone()), Layout);
+
+    public bool Equals(SpeakerSetup? other) =>
+        other is not null && EqOnAllSpeakers == other.EqOnAllSpeakers && CorrectionEnabled == other.CorrectionEnabled
+        && Equals(Layout, other.Layout) && Corrections.SequenceEqual(other.Corrections);
+
+    public override bool Equals(object? obj) => obj is SpeakerSetup other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(EqOnAllSpeakers);
+        hash.Add(CorrectionEnabled);
+        hash.Add(Layout);
+        foreach (var c in Corrections) hash.Add(c);
+        return hash.ToHashCode();
+    }
+}
+
 /// <summary>The full processing state for one output device.</summary>
 public sealed class DspSettings : IEquatable<DspSettings>
 {
@@ -153,6 +278,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
     public const double PreampMin = -24, PreampMax = 12;
 
     private List<EqBand> _bands = [];
+    private SpeakerSetup _speakers = new();
 
     public bool EqEnabled { get; set; } = true;
     [JsonPropertyName("preampDB")]
@@ -161,11 +287,13 @@ public sealed class DspSettings : IEquatable<DspSettings>
     public List<EqBand> Bands { get => _bands; set => _bands = value ?? []; }
     public ToneSettings Tone { get; set; } = new();
     public EffectsSettings Effects { get; set; } = new();
+    /// <summary>Multichannel outputs only.</summary>
+    public SpeakerSetup Speakers { get => _speakers; set => _speakers = value ?? new(); }
 
     public DspSettings() { }
 
     public DspSettings(bool eqEnabled = true, double preampDb = 0, bool autoPreamp = true, IEnumerable<EqBand>? bands = null,
-                       ToneSettings? tone = null, EffectsSettings? effects = null)
+                       ToneSettings? tone = null, EffectsSettings? effects = null, SpeakerSetup? speakers = null)
     {
         EqEnabled = eqEnabled;
         PreampDb = preampDb;
@@ -173,6 +301,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         Bands = bands is null ? [] : [.. bands];
         Tone = tone ?? new ToneSettings();
         Effects = effects ?? new EffectsSettings();
+        Speakers = speakers?.Clone() ?? new SpeakerSetup();
     }
 
     /// <summary>Bands that actually shape the signal: parametric bands followed by tone macros.</summary>
@@ -240,6 +369,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         Bands = [.. Bands],
         Tone = Tone,
         Effects = Effects,
+        Speakers = Speakers.Clone(),
     };
 
     public bool Equals(DspSettings? other) =>
@@ -249,6 +379,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         && AutoPreamp == other.AutoPreamp
         && Tone == other.Tone
         && Effects == other.Effects
+        && Speakers.Equals(other.Speakers)
         && Bands.SequenceEqual(other.Bands);
 
     public override bool Equals(object? obj) => obj is DspSettings other && Equals(other);
@@ -261,6 +392,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         hash.Add(AutoPreamp);
         hash.Add(Tone);
         hash.Add(Effects);
+        hash.Add(Speakers);
         foreach (var band in Bands) hash.Add(band);
         return hash.ToHashCode();
     }

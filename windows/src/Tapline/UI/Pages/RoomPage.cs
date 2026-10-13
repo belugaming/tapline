@@ -14,14 +14,15 @@ using Tapline.UI.Controls;
 namespace Tapline.UI.Pages;
 
 /// Room correction: measure the speakers with a microphone, check the setup,
-/// and fit an EQ for Tapline or for the EQ built into an RME ADI-2 DAC.
+/// and fit an EQ for Tapline or for the EQ built into an RME ADI-2 DAC. On a multichannel
+/// output (5.1 … 7.1.4) the steps after the microphone are `SpeakerRoomCards`'.
 sealed class RoomPage : PageBase
 {
     /// Where the correction runs.
     private enum Hardware { Tapline, Adi2 }
 
     /// Segoe MDL2 "CheckList".
-    private const string ChecklistGlyph = "";
+    internal const string ChecklistGlyph = "";
 
     private readonly RoomAudio room;
 
@@ -44,6 +45,8 @@ sealed class RoomPage : PageBase
     private string? correctionMessage;
     private FitKey? lastKey;
     private CancellationTokenSource? fitCancel;
+    /// The multichannel steps while the output is a surround layout.
+    private SpeakerRoomCards? speakerCards;
 
     public RoomPage(AppModel model) : base(model)
     {
@@ -60,19 +63,87 @@ sealed class RoomPage : PageBase
         separate = prefs.Get("roomSeparate", true);
 
         room = new RoomAudio(model);
-        if (Snapshot.UsesDemoData) room.ApplyDemo();
+        if (Snapshot.UsesDemoData)
+        {
+            room.ApplyDemo();
+            room.ApplySpeakerDemo(RoomAudio.DemoLayout);
+        }
         room.Changed += Update;
 
+        // Stereo: measure, check, correct. A surround layout: its speakers, one by one.
+        var stereo = Visible(Scope, Ui.VStack(16, MeasureCard(), CheckCard(), CorrectionCard()), () => SurroundLayout == null);
+        var surround = Visible(Scope, Scope.Dynamic(() => SurroundLayout, inner =>
+        {
+            speakerCards?.Stop();
+            speakerCards = SurroundLayout is { } layout ? new SpeakerRoomCards(this, Model, room, layout, inner) : null;
+            return speakerCards?.View;
+        }), () => SurroundLayout != null);
         Content = Ui.Page(Ui.VStack(16,
             Intro(),
             MicrophoneCard(),
-            MeasureCard(),
-            CheckCard(),
-            CorrectionCard()), 980);
+            stereo,
+            surround), 980);
         CheckFit();
+        speakerCards?.CheckFit();
     }
 
-    private AudioDevice? Input => Model.Devices.Inputs.FirstOrDefault(d => d.Id == inputUid) ?? Model.Devices.DefaultInput;
+    internal AudioDevice? Input => Model.Devices.Inputs.FirstOrDefault(d => d.Id == inputUid) ?? Model.Devices.DefaultInput;
+
+    internal int InputChannel => inputChannel;
+
+    /// The current output's speaker layout when Tapline processes it speaker by speaker, else null.
+    private SpeakerLayout? SurroundLayout => Model.IsSurroundOutput ? Model.CurrentLayout : null;
+
+    // Shared with the multichannel steps, under the same names.
+    internal double CorrectBelow
+    {
+        get => correctBelow;
+        set
+        {
+            correctBelow = value;
+            Save("roomCorrectBelow", value);
+            Update();
+        }
+    }
+
+    internal double MaxBoost
+    {
+        get => maxBoost;
+        set
+        {
+            maxBoost = value;
+            Save("roomMaxBoost", value);
+            Update();
+        }
+    }
+
+    internal double Bass
+    {
+        get => bass;
+        set
+        {
+            bass = value;
+            Save("roomBass", value);
+            Update();
+        }
+    }
+
+    internal double Tilt
+    {
+        get => tilt;
+        set
+        {
+            tilt = value;
+            Save("roomTilt", value);
+            Update();
+        }
+    }
+
+    internal int FilterCount
+    {
+        get => filterCount;
+        set => SetFilterCount(value);
+    }
 
     private string OutputName => Model.CurrentOutput?.Name ?? "";
 
@@ -82,33 +153,43 @@ sealed class RoomPage : PageBase
     private void Update()
     {
         CheckFit();
+        speakerCards?.CheckFit();
         Scope.Refresh();
     }
 
+    /// Redraws after a change of the multichannel steps' own state.
+    internal void Refresh() => Update();
+
     protected override void OnModelChanged()
     {
-        if (CheckFit()) Scope.Refresh();
+        var stereo = CheckFit();
+        var speakers = speakerCards?.CheckFit() == true;
+        if (stereo || speakers) Scope.Refresh();
     }
 
-    private void Save<T>(string key, T value) => Model.Prefs.Set(key, value);
+    protected override void OnDeactivated() => speakerCards?.Stop();
 
-    private static TextBlock Tabular(TextBlock t)
+    internal void Save<T>(string key, T value) => Model.Prefs.Set(key, value);
+
+    internal static TextBlock Tabular(TextBlock t)
     {
         Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
         return t;
     }
 
-    private static T Visible<T>(UiScope scope, T element, Func<bool> visible) where T : UIElement =>
+    internal static T Visible<T>(UiScope scope, T element, Func<bool> visible) where T : UIElement =>
         scope.Bind(element, e => e.Visibility = visible() ? Visibility.Visible : Visibility.Collapsed);
 
     /// A warning with its icon, hidden while `text` returns null.
-    private FrameworkElement DeviceWarning(Func<string?> text) =>
-        Visible(Scope, Ui.HStack(8, Ui.Glyph(Glyphs.Warning, 13, Theme.Warning).Top().Margin(0, 2, 0, 0),
-            Scope.Text(() => text() ?? "", 13, null, null, wrap: true).Filling()), () => text() != null);
+    internal static FrameworkElement DeviceWarning(UiScope scope, Func<string?> text) =>
+        Visible(scope, Ui.HStack(8, Ui.Glyph(Glyphs.Warning, 13, Theme.Warning).Top().Margin(0, 2, 0, 0),
+            scope.Text(() => text() ?? "", 13, null, null, wrap: true).Filling()), () => text() != null);
+
+    private FrameworkElement DeviceWarning(Func<string?> text) => DeviceWarning(Scope, text);
 
     // MARK: - Intro
 
-    private static FrameworkElement Intro()
+    private FrameworkElement Intro()
     {
         static FrameworkElement Row(string glyph, string text) =>
             Ui.HStack(8, Ui.Glyph(glyph, 13, Theme.Secondary).Width(18).Top().Margin(0, 2, 0, 0), Ui.Secondary(L.T(text), 12.5).Filling());
@@ -119,7 +200,9 @@ sealed class RoomPage : PageBase
                 Row(Glyphs.Mute, "Pause music and keep the room quiet while measuring."),
                 Row(Glyphs.Microphone, "Use a measurement or studio condenser microphone at ear height, pointing between the speakers. A calibration file improves accuracy."),
                 Row(Glyphs.Equalizer, "Switch off any EQ, Bass/Treble or Loudness in the DAC (such as the RME ADI-2) while measuring, so Tapline sees the speakers as they are."),
-                Row(Glyphs.Warning, "Measurements play at the current output volume. Start low.")));
+                Row(Glyphs.Warning, "Measurements play at the current output volume. Start low."),
+                Visible(Scope, Row(Glyphs.Speakers, "With an AV receiver, switch off its own room correction (Audyssey, Dirac Live, YPAO) while measuring, and use either it or Tapline, not both."),
+                    () => SurroundLayout != null)));
     }
 
     // MARK: - Step 1
@@ -184,6 +267,14 @@ sealed class RoomPage : PageBase
     private void CheckLevel()
     {
         if (Model.CurrentOutput is not { } output || Input is not { } input) return;
+        if (SurroundLayout is { } layout)
+        {
+            // On a multichannel output, the front pair.
+            List<int> front = [.. new[] { SpeakerPosition.FrontLeft, SpeakerPosition.FrontRight }.Select(layout.ChannelOf).OfType<int>()];
+            if (front.Count == 0 && layout.ReferenceChannel is { } reference) front.Add(reference);
+            _ = room.CheckLevel(output, input, inputChannel, front);
+            return;
+        }
         _ = room.CheckLevel(output, input, inputChannel, speakers);
     }
 
@@ -260,14 +351,7 @@ sealed class RoomPage : PageBase
             ? L.F("%@ is a virtual output. If it belongs to software that changes the sound (such as SoundID Reference or an EQ app), that change ends up in the measurement: switch it off, or make the speakers' own device the output.", output.Name)
             : null);
 
-        var map = new PositionMap { Width = 168, Height = 118 };
-        Scope.Bind(map, m => m.Set(room.MeasuredPositions, room.NextPosition));
-        var positionBar = new ProgressBar { Minimum = 0, Maximum = RoomAudio.PositionCount, Width = 260, Height = 6, HorizontalAlignment = HorizontalAlignment.Left };
-        Scope.Bind(positionBar, b => b.Value = room.MeasuredPositions.Count);
-        var guide = Ui.HStack(16, map, Ui.VStack(6,
-            Tabular(Scope.Text(() => L.F("%lld of %lld positions measured", room.MeasuredPositions.Count, RoomAudio.PositionCount), 13, FontWeights.SemiBold)),
-            positionBar,
-            Scope.Text(() => PositionAdvice(room.MeasuredPositions.Count, room.NextPosition), 13, null, Theme.Secondary, wrap: true)).Filling());
+        var guide = PositionGuide(Scope, () => room.MeasuredPositions, () => room.NextPosition);
 
         // Rebuilt when the measurements change, and when a fit marks one as unlike the others.
         var rows = Visible(Scope, Scope.Dynamic(() => string.Join(",", room.Measurements.Select(m => m.Id)) + "|" + string.Join(",", fits?.Outliers ?? []), _ =>
@@ -302,6 +386,19 @@ sealed class RoomPage : PageBase
             rows);
     }
 
+    /// Where to put the microphone next, and how many positions are done.
+    internal static FrameworkElement PositionGuide(UiScope scope, Func<IReadOnlySet<int>> measured, Func<int?> next)
+    {
+        var map = new PositionMap { Width = 168, Height = 118 };
+        scope.Bind(map, m => m.Set(measured(), next()));
+        var positionBar = new ProgressBar { Minimum = 0, Maximum = RoomAudio.PositionCount, Width = 260, Height = 6, HorizontalAlignment = HorizontalAlignment.Left };
+        scope.Bind(positionBar, b => b.Value = measured().Count);
+        return Ui.HStack(16, map, Ui.VStack(6,
+            Tabular(scope.Text(() => L.F("%lld of %lld positions measured", measured().Count, RoomAudio.PositionCount), 13, FontWeights.SemiBold)),
+            positionBar,
+            scope.Text(() => PositionAdvice(measured().Count, next()), 13, null, Theme.Secondary, wrap: true)).Filling());
+    }
+
     private static string PositionAdvice(int measured, int? next)
     {
         if (next is not { } n) return L.T("All positions measured. The correction below uses their average.");
@@ -317,7 +414,7 @@ sealed class RoomPage : PageBase
     }
 
     /// Good, fair or measure again, with the reason as a tooltip.
-    private static FrameworkElement QualityBadge(MeasurementQuality quality, bool differs)
+    internal static FrameworkElement QualityBadge(MeasurementQuality quality, bool differs)
     {
         var (glyph, brush, title, detail) = quality switch
         {
@@ -601,17 +698,17 @@ sealed class RoomPage : PageBase
 
     /// Up to the whole audio band: above about 2 kHz the EQ corrects the speakers
     /// themselves (crossover, tweeter) rather than the room.
-    private const double CorrectBelowMin = 100, CorrectBelowMax = 20_000;
+    internal const double CorrectBelowMin = 100, CorrectBelowMax = 20_000;
 
     /// Whole hertz below 1 kHz, 10 Hz below 10 kHz, 100 Hz above, as displayed.
-    private static double RoundedFrequency(double f)
+    internal static double RoundedFrequency(double f)
     {
         double step = f < 1000 ? 1 : f < 10_000 ? 10 : 100;
         return Math.Clamp(Math.Round(f / step, MidpointRounding.AwayFromZero) * step, CorrectBelowMin, CorrectBelowMax);
     }
 
     /// A slider value on its 0.1 grid, without a negative zero ("-0.0 dB/oct").
-    private static double Step(double v)
+    internal static double Step(double v)
     {
         var r = Format.Round(v, 1);
         return r == 0 ? 0 : r;
@@ -633,11 +730,11 @@ sealed class RoomPage : PageBase
         Update();
     }
 
-    private static FrameworkElement Legend(Brush brush, string text, bool dashed = false, bool band = false) =>
+    internal static FrameworkElement Legend(Brush brush, string text, bool dashed = false, bool band = false) =>
         Ui.HStack(5, new LegendSwatch(brush, dashed, band), Ui.Text(L.T(text), 11.5, null, Theme.Secondary));
 
     /// The fitted filters, as they would be entered into a hardware EQ.
-    private static FrameworkElement? FilterList(IReadOnlyList<EqBand> bands)
+    internal static FrameworkElement? FilterList(IReadOnlyList<EqBand> bands)
     {
         if (bands.Count == 0) return null;
         var grid = new AdaptiveGrid { MinItemWidth = 126, Spacing = 8 };

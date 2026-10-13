@@ -39,6 +39,10 @@ final class TapEngine {
     private(set) var sampleRate: Double = 48_000
     private(set) var latencyFrames = 0
     private(set) var diagnostics: [String] = []
+    /// The output's speaker layout while every speaker is processed (nil: stereo processing).
+    private(set) var speakerLayout: SpeakerLayout?
+    /// The device channel the processed stream starts at (0-based).
+    private(set) var speakerFirstChannel = 0
     /// IO cycles the HAL reported as overloaded (audible dropouts).
     let overloads = OverloadCounter()
 
@@ -168,13 +172,31 @@ final class TapEngine {
         sampleRate = CA.read(aggregate, kAudioDevicePropertyNominalSampleRate, default: output.sampleRate)
         if sampleRate <= 0 { sampleRate = 48_000 }
 
+        // Multichannel speakers (5.1 … 9.1.6): every channel of the stream that holds the stereo
+        // pair, which device-stream taps copy whole. Anything else stays a stereo pair.
+        var roles: [KernelChannelRole] = []
+        speakerLayout = nil
+        speakerFirstChannel = 0
+        if streamTaps, rightInSameStream, let surround = output.surroundLayout, outputs.indices.contains(left.buffer) {
+            let first = outputs.prefix(left.buffer).reduce(0, +)
+            let count = outputs[left.buffer]
+            if count >= 3, count <= DSPKernel.maxChannels {
+                roles = (0..<count).map { c in
+                    surround.positions.indices.contains(first + c) ? KernelChannelRole(surround.positions[first + c]) : .passthrough
+                }
+                speakerLayout = surround
+                speakerFirstChannel = first
+            }
+        }
+
         let layout = KernelLayout(
             sourceBufferIndices: sourceIndices,
             sourceLeftChannel: streamTaps ? left.channel : 0,
             sourceRightChannel: streamTaps ? (rightInSameStream ? right!.channel : left.channel) : 1,
             leftBuffer: left.buffer, leftChannel: left.channel,
             rightBuffer: right?.buffer ?? -1, rightChannel: right?.channel ?? 0,
-            passthrough: streamTaps && rightInSameStream
+            passthrough: streamTaps && rightInSameStream,
+            channelRoles: roles
         )
         kernel.configure(sampleRate: sampleRate, layout: layout)
 
@@ -190,6 +212,9 @@ final class TapEngine {
         diagnostics.append("aggregate inputs \(inputs) outputs \(outputs) @ \(Int(sampleRate)) Hz, buffer \(bufferFrames)")
         diagnostics.append("tap mode \(tapMode == .deviceStream ? "device stream \(deviceLeft.buffer)" : "stereo mixdown"), drift compensation \(driftCompensation ? "on" : "off") (\(output.transportName))")
         diagnostics.append("output L → buffer \(left.buffer) ch \(left.channel), R → \(right.map { "buffer \($0.buffer) ch \($0.channel)" } ?? "mono")")
+        if let speakerLayout {
+            diagnostics.append("speakers \(speakerLayout.name): \(speakerLayout.positions.map(\.abbreviation).joined(separator: " ")) from channel \(speakerFirstChannel + 1)")
+        }
         for line in diagnostics { log.info("\(line, privacy: .public)") }
 
         // 4. IOProc in C, reading only the tap streams (never the hardware inputs).
@@ -274,6 +299,8 @@ final class TapEngine {
         tapDescriptions = []
         sources = []
         outputDevice = nil
+        speakerLayout = nil
+        speakerFirstChannel = 0
     }
 
     /// Maps a 1-based device channel number onto (buffer index, channel within buffer).

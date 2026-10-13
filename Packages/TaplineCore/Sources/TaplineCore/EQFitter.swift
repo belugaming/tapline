@@ -23,6 +23,11 @@ public enum EQFitter {
         /// Never boost below this frequency (the speakers' low-frequency limit);
         /// resonances there are still cut.
         public var noBoostBelow: Double?
+        /// Never boost above this frequency (an LFE channel, which carries nothing above about 120 Hz).
+        public var noBoostAbove: Double?
+        /// Where the measurement is level-matched to the target: the lower midrange, or a
+        /// subwoofer's own band.
+        public var levelMatchRange: ClosedRange<Double> = 200...1200
         /// Narrowest bell allowed. Room modes need more than headphones.
         public var maxQ: Double = 6
         /// Smoothing width in octaves below 1 kHz.
@@ -128,7 +133,8 @@ public enum EQFitter {
         }
 
         // Level-match on the lower midrange, below the ear-gain region where targets differ most.
-        let mids = (0..<n).filter { f[$0] >= 200 && f[$0] <= 1200 }
+        let band = options.levelMatchRange
+        let mids = (0..<n).filter { f[$0] >= band.lowerBound && f[$0] <= band.upperBound }
         let offset = mids.reduce(0) { $0 + t[$1] - m[$1] } / Double(max(mids.count, 1))
         for i in 0..<n { m[i] += offset }
 
@@ -168,6 +174,7 @@ public enum EQFitter {
                 }
             }
             if let floor = options.noBoostBelow, f[i] < floor { c[i] = min(c[i], 0) }
+            if let ceiling = options.noBoostAbove, f[i] > ceiling { c[i] = min(c[i], 0) }
             c[i] = c[i].clamped(to: -options.maxCutDB...options.maxBoostDB)
         }
 
@@ -364,9 +371,12 @@ private struct Model {
         refine(maxPasses: 400)
         quantize()
 
-        // Drop filters that ended up doing nothing.
+        // Drop filters that ended up doing nothing, and boosts above the ceiling.
         var keep: [Int] = []
-        for (i, x) in filters.enumerated() where abs(x.gain) >= 0.25 { keep.append(i) }
+        for (i, x) in filters.enumerated() where abs(x.gain) >= 0.25 {
+            if let ceiling = options.noBoostAbove, x.gain > 0, x.kind != .lowShelf, x.frequency > ceiling { continue }
+            keep.append(i)
+        }
         if keep.count != filters.count {
             filters = keep.map { filters[$0] }
             responses = keep.map { responses[$0] }

@@ -69,9 +69,14 @@ struct RoomPage: View {
                 VStack(alignment: .leading, spacing: 16) {
                     intro
                     microphoneCard
-                    measureCard.id("measure")
-                    checkCard.id("check")
-                    correctionCard.id("correct")
+                    if let layout = model.speakerLayout {
+                        // 5.1 … 9.1.6: every speaker on its own.
+                        SpeakerRoomCards(layout: layout, input: input, inputChannel: inputChannel)
+                    } else {
+                        measureCard.id("measure")
+                        checkCard.id("check")
+                        correctionCard.id("correct")
+                    }
                 }
                 .padding(20)
                 .frame(maxWidth: 980)
@@ -83,7 +88,10 @@ struct RoomPage: View {
             }
         }
         .task(id: fitKey) { await refit() }
-        .onAppear { if DebugSnapshot.usesDemoData { room.applyDemo() } }
+        .onAppear {
+            guard DebugSnapshot.usesDemoData else { return }
+            if let layout = DebugSnapshot.demoSpeakerLayout { room.applySpeakerDemo(layout: layout) } else { room.applyDemo() }
+        }
     }
 
     // MARK: - Intro
@@ -95,6 +103,9 @@ struct RoomPage: View {
                 Label("Use a measurement or studio condenser microphone at ear height, pointing between the speakers. A calibration file improves accuracy.", systemImage: "mic")
                 Label("Switch off any EQ, Bass/Treble or Loudness in the DAC (such as the RME ADI-2) while measuring, so Tapline sees the speakers as they are.", systemImage: "slider.horizontal.3")
                 Label("Measurements play at the current output volume. Start low.", systemImage: "exclamationmark.triangle")
+                if model.speakerLayout != nil {
+                    Label("With an AV receiver, switch off its own room correction (Audyssey, Dirac Live, YPAO) while measuring, and use either it or Tapline, not both.", systemImage: "hifispeaker.and.homepod")
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -143,7 +154,9 @@ struct RoomPage: View {
             HStack(spacing: 12) {
                 Button {
                     guard let output = model.currentOutput, let input else { return }
-                    Task { await room.checkLevel(output: output, input: input, channel: inputChannel, speakers: speakers) }
+                    // On a multichannel output, the front pair.
+                    let front = model.speakerLayout.map { layout in [SpeakerPosition.frontLeft, .frontRight].compactMap { layout.positions.firstIndex(of: $0) } }
+                    Task { await room.checkLevel(output: output, input: input, channel: inputChannel, speakers: speakers, outputChannels: front) }
                 } label: {
                     Label("Check Level", systemImage: "waveform")
                 }
@@ -252,27 +265,10 @@ struct RoomPage: View {
 
     /// Where to put the microphone next, and how many positions are done.
     private var positionGuide: some View {
-        let measured = room.measuredPositions
-        let total = RoomMeasurementService.positionCount
-        return HStack(spacing: 16) {
-            PositionMap(measured: measured, next: room.nextPosition)
-                .frame(width: 168, height: 118)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(measured.count) of \(total) positions measured")
-                    .font(.callout.weight(.semibold).monospacedDigit())
-                ProgressView(value: Double(measured.count), total: Double(total))
-                    .tint(Theme.accent)
-                    .frame(maxWidth: 260)
-                Text(positionAdvice(measured: measured.count, next: room.nextPosition))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
+        RoomPositionGuide(measured: room.measuredPositions, next: room.nextPosition)
     }
 
-    private func positionAdvice(measured: Int, next: Int?) -> String {
+    static func positionAdvice(measured: Int, next: Int?) -> String {
         guard let next else { return String(localized: "All positions measured. The correction below uses their average.") }
         let step = switch next {
         case 0: String(localized: "Put the microphone where your head is when you listen, at ear height, then click Measure.")
@@ -348,11 +344,11 @@ struct RoomPage: View {
                                  positions: showPositions ? overlay.positions : [])
                     .frame(height: 200)
                 HStack(spacing: 14) {
-                    Legend(color: .gray, text: "Measured")
-                    Legend(color: .white, dashed: true, text: "Target")
-                    Legend(color: Theme.accent, text: "With EQ")
+                    RoomLegend(color: .gray, text: "Measured")
+                    RoomLegend(color: .white, dashed: true, text: "Target")
+                    RoomLegend(color: Theme.accent, text: "With EQ")
                     if !overlay.positions.isEmpty {
-                        Legend(color: .gray, band: true, text: "Spread")
+                        RoomLegend(color: .gray, band: true, text: "Spread")
                             .help(Text("One standard deviation between the measured positions. Where it is wide, the response changes from spot to spot and the average is less certain."))
                         Toggle("Positions", isOn: $showPositions)
                             .toggleStyle(.checkbox)
@@ -733,8 +729,34 @@ private struct AdviceRow: View {
 
 // MARK: - Pieces
 
+/// Where to put the microphone next, and how many positions are done.
+struct RoomPositionGuide: View {
+    let measured: Set<Int>
+    let next: Int?
+
+    var body: some View {
+        let total = RoomMeasurementService.positionCount
+        HStack(spacing: 16) {
+            PositionMap(measured: measured, next: next)
+                .frame(width: 168, height: 118)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(measured.count) of \(total) positions measured")
+                    .font(.callout.weight(.semibold).monospacedDigit())
+                ProgressView(value: Double(measured.count), total: Double(total))
+                    .tint(Theme.accent)
+                    .frame(maxWidth: 260)
+                Text(RoomPage.positionAdvice(measured: measured.count, next: next))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 /// The fitted filters, as they would be entered into a hardware EQ.
-private struct FilterList: View {
+struct FilterList: View {
     let bands: [EQBand]
 
     var body: some View {
@@ -763,7 +785,7 @@ private struct FilterList: View {
     }
 }
 
-private struct InputLevelBar: View {
+struct InputLevelBar: View {
     let peakDB: Double
     let rmsDB: Double
     let active: Bool
@@ -782,7 +804,7 @@ private struct InputLevelBar: View {
 
 /// The listening spot from above, speakers ahead: the suggested microphone positions,
 /// filled once measured, the next one marked with a microphone.
-private struct PositionMap: View {
+struct PositionMap: View {
     let measured: Set<Int>
     let next: Int?
 
@@ -824,7 +846,7 @@ private struct PositionMap: View {
 }
 
 /// Good, fair or measure again, with the reason on hover.
-private struct QualityBadge: View {
+struct QualityBadge: View {
     let quality: RoomMeasurementService.Measurement.Quality
     /// Clearly unlike the other positions.
     let differs: Bool
@@ -876,7 +898,7 @@ private struct QualityBadge: View {
     }
 }
 
-private struct DeviceWarning: View {
+struct DeviceWarning: View {
     let text: String
 
     var body: some View {
@@ -889,7 +911,7 @@ private struct DeviceWarning: View {
     }
 }
 
-private struct Legend: View {
+struct RoomLegend: View {
     let color: Color
     var dashed = false
     /// A filled band instead of a line.

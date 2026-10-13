@@ -19,15 +19,20 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
     let canBeDefaultOutput: Bool
     let canBeDefaultInput: Bool
     let hasOutputVolume: Bool
+    /// The speakers on the output channels (see `SpeakerLayout.fromCoreAudio`).
+    var speakerLayout = SpeakerLayout([])
 
     var isOutput: Bool { outputChannels > 0 }
     var isBluetooth: Bool { transportType == kAudioDeviceTransportTypeBluetooth || transportType == kAudioDeviceTransportTypeBluetoothLE }
     var isVirtual: Bool { transportType == kAudioDeviceTransportTypeVirtual }
+    var isHDMI: Bool { transportType == kAudioDeviceTransportTypeHDMI || transportType == kAudioDeviceTransportTypeDisplayPort }
+    /// A 5.1 … 9.1.6 speaker layout, which Tapline processes channel by channel.
+    var surroundLayout: SpeakerLayout? { speakerLayout.isSurround ? speakerLayout : nil }
 
     /// The properties that decide how the engine is wired. Anything else (name,
     /// volume support...) can change without rebuilding the audio path.
     var routingSignature: String {
-        "\(id)|\(uid)|\(sampleRate)|\(outputChannels)|\(inputStreamCount)|\(preferredStereo)"
+        "\(id)|\(uid)|\(sampleRate)|\(outputChannels)|\(inputStreamCount)|\(preferredStereo)|\(speakerLayout.positions.map(\.abbreviation))"
     }
     var isInput: Bool { inputChannels > 0 }
 
@@ -71,13 +76,17 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
                 return [44_100, 48_000, 88_200, 96_000, 176_400, 192_000].filter { $0 >= r.mMinimum && $0 <= r.mMaximum }
             }
         let stereo = CA.readArray(id, kAudioDevicePropertyPreferredChannelsForStereo, kAudioObjectPropertyScopeOutput, of: UInt32.self)
+        let transport = CA.read(id, kAudioDevicePropertyTransportType, default: UInt32(0))
+        let outputChannels = outputs.reduce(0, +)
+        let labels = outputChannels > 2 ? CA.outputChannelLabels(id).map(Optional.some) : []
+        let isHDMI = transport == kAudioDeviceTransportTypeHDMI || transport == kAudioDeviceTransportTypeDisplayPort
         return AudioDevice(
             id: id,
             uid: uid,
             name: CA.readString(id, kAudioObjectPropertyName) ?? uid,
             manufacturer: CA.readString(id, kAudioObjectPropertyManufacturer) ?? "",
-            transportType: CA.read(id, kAudioDevicePropertyTransportType, default: UInt32(0)),
-            outputChannels: outputs.reduce(0, +),
+            transportType: transport,
+            outputChannels: outputChannels,
             inputChannels: inputs.reduce(0, +),
             inputStreamCount: inputs.count,
             sampleRate: CA.read(id, kAudioDevicePropertyNominalSampleRate, default: 0.0),
@@ -85,7 +94,8 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
             preferredStereo: stereo,
             canBeDefaultOutput: CA.read(id, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeOutput, default: UInt32(0)) != 0,
             canBeDefaultInput: CA.read(id, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput, default: UInt32(0)) != 0,
-            hasOutputVolume: CA.has(id, kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyScopeOutput)
+            hasOutputVolume: CA.has(id, kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyScopeOutput),
+            speakerLayout: SpeakerLayout.fromCoreAudio(labels: labels, channelCount: outputChannels, isHDMI: isHDMI)
         )
     }
 }
@@ -152,6 +162,15 @@ final class AudioDeviceCenter {
         defaultOutputID = 9101
         defaultInputID = 9104
         systemOutputID = 9101
+        if let layout = DebugSnapshot.demoSpeakerLayout {
+            // An AV receiver over HDMI with a Dolby Atmos speaker setup, as the default output.
+            devices.insert(AudioDevice(id: 9105, uid: "demo.receiver", name: "AV Receiver", manufacturer: "Home Cinema", transportType: kAudioDeviceTransportTypeHDMI,
+                                       outputChannels: layout.channelCount, inputChannels: 0, inputStreamCount: 0, sampleRate: 48_000, availableSampleRates: [48_000],
+                                       preferredStereo: [1, 2], canBeDefaultOutput: true, canBeDefaultInput: false, hasOutputVolume: true,
+                                       speakerLayout: layout), at: 0)
+            defaultOutputID = 9105
+            systemOutputID = 9105
+        }
         outputVolume = 0.55
         outputMuted = false
     }
@@ -176,6 +195,7 @@ final class AudioDeviceCenter {
             CA.address(kAudioDevicePropertyNominalSampleRate),
             CA.address(kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput),
             CA.address(kAudioDevicePropertyPreferredChannelsForStereo, kAudioObjectPropertyScopeOutput),
+            CA.address(kAudioDevicePropertyPreferredChannelLayout, kAudioObjectPropertyScopeOutput),
         ]) { [weak self] in
             guard let self, !self.demoMode else { return }
             self.devices = CA.readArray(CA.system, kAudioHardwarePropertyDevices, of: AudioObjectID.self)

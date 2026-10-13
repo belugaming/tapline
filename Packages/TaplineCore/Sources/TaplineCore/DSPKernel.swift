@@ -15,6 +15,19 @@ public struct KernelMeters: Sendable, Equatable {
     public init() {}
 }
 
+/// What one channel of a multichannel output is, for the kernel.
+public enum KernelChannelRole: Sendable, Equatable {
+    /// Not a known speaker: passes through untouched.
+    case passthrough
+    case speaker
+    /// An LFE channel: the EQ leaves out its boosts above 120 Hz.
+    case lfe
+
+    public init(_ position: SpeakerPosition) {
+        self = position.isLFE ? .lfe : (position == .unknown ? .passthrough : .speaker)
+    }
+}
+
 public struct KernelLayout: Sendable, Equatable {
     public var sourceBufferIndices: [Int]
     /// Stereo pair inside each source buffer (0/1 for mixdown taps).
@@ -26,9 +39,13 @@ public struct KernelLayout: Sendable, Equatable {
     public var rightChannel: Int
     /// Sources mirror the output stream; pass non-stereo channels through.
     public var passthrough: Bool
+    /// Multichannel speakers: one role per channel of the output stream (which holds the
+    /// stereo pair; needs `passthrough`). Empty: stereo processing only.
+    public var channelRoles: [KernelChannelRole]
 
     public init(sourceBufferIndices: [Int], sourceLeftChannel: Int = 0, sourceRightChannel: Int = 1,
-                leftBuffer: Int, leftChannel: Int, rightBuffer: Int, rightChannel: Int, passthrough: Bool = false) {
+                leftBuffer: Int, leftChannel: Int, rightBuffer: Int, rightChannel: Int, passthrough: Bool = false,
+                channelRoles: [KernelChannelRole] = []) {
         self.sourceBufferIndices = sourceBufferIndices
         self.sourceLeftChannel = sourceLeftChannel
         self.sourceRightChannel = sourceRightChannel
@@ -37,6 +54,7 @@ public struct KernelLayout: Sendable, Equatable {
         self.rightBuffer = rightBuffer
         self.rightChannel = rightChannel
         self.passthrough = passthrough
+        self.channelRoles = channelRoles
     }
 }
 
@@ -46,6 +64,8 @@ public final class DSPKernel: @unchecked Sendable {
     public static let analyzerCapacity = Int(TL_ANALYZER_SIZE)
     /// Samples of delay Virtual Speakers add while they are on.
     public static let virtualSpeakerLatency = Int(TL_CONV_BLOCK)
+    /// Channels of a multichannel output the kernel processes.
+    public static let maxChannels = Int(TL_MAX_CHANNELS)
 
     public let pointer: OpaquePointer
 
@@ -86,6 +106,18 @@ public final class DSPKernel: @unchecked Sendable {
         l.out_channel_l = Int32(layout.leftChannel)
         l.out_buffer_r = Int32(layout.rightBuffer)
         l.out_channel_r = Int32(layout.rightChannel)
+        let roles = layout.channelRoles.count >= 3 && layout.channelRoles.count <= Self.maxChannels ? layout.channelRoles : []
+        l.channel_count = Int32(roles.count)
+        withUnsafeMutableBytes(of: &l.channel_role) { raw in
+            let p = raw.bindMemory(to: Int32.self)
+            for i in 0..<Self.maxChannels {
+                p[i] = switch i < roles.count ? roles[i] : .passthrough {
+                case .passthrough: Int32(TL_ROLE_PASS)
+                case .speaker: Int32(TL_ROLE_SPEAKER)
+                case .lfe: Int32(TL_ROLE_LFE)
+                }
+            }
+        }
         tl_kernel_configure(pointer, sampleRate, &l)
         // The kernel drops a set made for another rate.
         let rate = sampleRate < 8000 ? 48_000 : sampleRate
@@ -131,6 +163,13 @@ public final class DSPKernel: @unchecked Sendable {
         var p = settings.kernelParams(sampleRate: sampleRate, levelMatchedBypass: levelMatchedBypass,
                                       simulation: simulation, simulating: simulating)
         tl_kernel_set_params(pointer, &p)
+    }
+
+    /// Multichannel outputs: the EQ on the other speakers and each speaker's correction, for
+    /// an output with `layout` whose processed stream starts at device channel `firstChannel`.
+    public func setSpeakers(_ settings: DSPSettings, layout: SpeakerLayout?, firstChannel: Int = 0, sampleRate: Double) {
+        var s = settings.kernelSpeakers(layout: layout, firstChannel: firstChannel, sampleRate: sampleRate)
+        tl_kernel_set_speakers(pointer, &s)
     }
 
     public func setSourceGain(_ gain: Float, at index: Int) {

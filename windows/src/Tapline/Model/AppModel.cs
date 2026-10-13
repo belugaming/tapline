@@ -143,7 +143,9 @@ sealed class AppModel
 
     // MARK: - Power & Equalizer APO
 
-    public AudioDevice? CurrentOutput => Devices.DefaultOutput;
+    public AudioDevice? CurrentOutput => demoOutput ?? Devices.DefaultOutput;
+    /// Snapshots only: an AV receiver standing in for the default output (see ShowDemoSpeakers).
+    private AudioDevice? demoOutput;
     public string CurrentDeviceId => CurrentOutput?.Id ?? "none";
     public double SampleRate => CurrentOutput?.SampleRate ?? 48000;
 
@@ -217,9 +219,12 @@ sealed class AppModel
                     var guid = known?.Guid ?? GuidOf(p.Key);
                     var channels = known?.Channels ?? state.DeviceChannels.GetValueOrDefault(p.Key, 2);
                     var rate = known?.SampleRate ?? 48000;
+                    // A multichannel speaker output gets per-speaker processing (and no headphone effects).
+                    var layout = known?.Layout;
                     return new ApoConfig.Device(guid, known?.Name ?? state.DeviceNames.GetValueOrDefault(p.Key, guid),
-                                                channels, rate, p.Value, SpeakerFilesFor(p.Value, channels, rate),
-                                                p.Key == current?.Id ? simulated : null);
+                                                channels, rate, p.Value,
+                                                ApoConfig.ProcessesPerSpeaker(channels, layout) ? null : SpeakerFilesFor(p.Value, channels, rate),
+                                                p.Key == current?.Id ? simulated : null, layout);
                 })
                 .Where(d => !string.Equals(d.Guid, bypassDeviceGuid, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -342,7 +347,8 @@ sealed class AppModel
         }
     }
 
-    /// Leaves `device` unprocessed while a measurement runs, so it sees the speakers and the room.
+    /// Leaves `device` unprocessed while a measurement runs, so it sees the speakers and the room: the
+    /// device's whole section (EQ, effects and speaker corrections) leaves Equalizer APO's configuration.
     public async Task BypassWhile(AudioDevice device, Func<Task> action)
     {
         bypassDeviceGuid = device.Guid;
@@ -478,6 +484,26 @@ sealed class AppModel
         }
         Meters.Spectrum = spectrum;
         Meters.Ingest(0.62f, 0.58f, 0.31f, 0.29f, 0, 0.03);
+    }
+
+    /// Snapshots: makes an AV receiver with `layout` the output, with the demo EQ and a correction of
+    /// every speaker, for the multichannel Room and Effects pages.
+    public void ShowDemoSpeakers(SpeakerLayout layout)
+    {
+        if (!Snapshot.UsesDemoData) return;
+        var settings = Settings.Clone();
+        settings.Speakers = new SpeakerSetup(layout: layout, corrections: layout.SpeakerChannels.Select(c =>
+        {
+            var p = layout.Positions[c];
+            var bands = p.IsLfe()
+                ? new List<EqBand> { new(FilterType.Peak, 42, -6.5, 5), new(FilterType.Peak, 63, 2, 4) }
+                : new List<EqBand> { new(FilterType.Peak, 48 + c, -5.5, 5), new(FilterType.Peak, 105 + 9 * c, 2.5, 4), new(FilterType.Peak, 170 + 6 * c, -3.5, 6) };
+            return new SpeakerCorrection(c, p, bands, trimDb: p.IsLfe() ? 0 : -(c % 4) * 0.7, delayMs: p.IsLfe() ? 0 : 0.4 + c % 3 * 0.9);
+        }));
+        demoOutput = new AudioDevice("{0.0.0.00000000}.{7a1d4c2e-5f3b-4e8a-9c71-0000000714a0}", "AV Receiver (HDMI)", "High Definition Audio Device",
+                                     true, layout.ChannelCount, 48000, FormFactor.Hdmi, layout);
+        state.Profiles[demoOutput.Id] = settings;
+        NotifyChanged();
     }
 
     // MARK: - Shortcuts
@@ -809,6 +835,50 @@ sealed class AppModel
             return updated;
         }
         return SaveCurrentAsPreset(name, source);
+    }
+
+    // MARK: - Multichannel speakers
+
+    /// The current output's speakers, one position per channel (null without an output).
+    public SpeakerLayout? CurrentLayout => CurrentOutput?.Layout;
+
+    /// Whether the current output is a multichannel speaker layout (5.1 … 7.1.4) that Tapline processes
+    /// speaker by speaker: the EQ on every speaker, each speaker's room correction, no headphone effects.
+    public bool IsSurroundOutput => CurrentOutput?.IsSurround == true;
+
+    /// The EQ plays on every speaker (on: the default) or on the front left and right only.
+    public void SetEqOnAllSpeakers(bool on) => Mutate(s => s.Speakers.EqOnAllSpeakers = on);
+
+    /// Switches the speaker corrections on or off; switching off keeps them.
+    public void SetSpeakerCorrectionEnabled(bool on) => Mutate(s => s.Speakers.CorrectionEnabled = on);
+
+    /// Applies a multichannel room correction from the Room page to the current output: each speaker's
+    /// filters, trim and delay, measured on `layout`. They play while the output has that layout. The
+    /// EQ stays as it is (it plays on top, on every speaker or the front pair). Undoable.
+    public void ApplySpeakerCorrection(IEnumerable<SpeakerCorrection> corrections, SpeakerLayout layout)
+    {
+        var list = corrections.Select(c => c.Clone()).ToList();
+        Mutate(s =>
+        {
+            s.Speakers.Corrections = list;
+            s.Speakers.Layout = layout;
+            s.Speakers.CorrectionEnabled = true;
+        });
+    }
+
+    /// Removes the current output's speaker corrections. Undoable.
+    public void ClearSpeakerCorrection() => Mutate(s =>
+    {
+        s.Speakers.Corrections = [];
+        s.Speakers.Layout = null;
+    });
+
+    /// The current output's speaker corrections as Equalizer APO text, one section per speaker.
+    public string ExportSpeakerCorrection()
+    {
+        var setup = Settings.Speakers;
+        return ParametricEqFormat.ExportSpeakers(setup.Corrections, setup.Layout?.Name ?? CurrentLayout?.Name ?? "",
+                                                 SpeakerSetup.HeadroomDb(setup.Corrections, SampleRate));
     }
 
     public string ExportParametricEq() =>

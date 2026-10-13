@@ -150,6 +150,89 @@ public struct EffectsSettings: Codable, Hashable, Sendable {
     }
 }
 
+/// One speaker's room correction on a multichannel output, from the Room page.
+public struct SpeakerCorrection: Codable, Hashable, Sendable {
+    /// The output channel (0-based, counted over the whole device).
+    public var channel: Int
+    public var position: SpeakerPosition
+    /// Its room correction. The `channels` of each band is ignored.
+    public var bands: [EQBand]
+    /// Level trim, never a boost.
+    public var trimDB: Double
+    /// Holds the speaker back until the farthest one arrives.
+    public var delayMS: Double
+
+    public init(channel: Int, position: SpeakerPosition, bands: [EQBand] = [], trimDB: Double = 0, delayMS: Double = 0) {
+        self.channel = channel
+        self.position = position
+        self.bands = bands
+        self.trimDB = trimDB
+        self.delayMS = delayMS
+    }
+
+    public static let maxBands = 16
+    public static let trimRange: ClosedRange<Double> = -24...0
+    public static let delayRange: ClosedRange<Double> = 0...SpeakerAlignment.maxDelayMS
+}
+
+/// How a multichannel output (5.1, 7.1.4…) is processed. The EQ, tone controls and output
+/// gain play on every speaker (or on the front pair only); each speaker then gets its own
+/// room correction, trim and delay. A stereo output ignores all of this.
+public struct SpeakerSetup: Codable, Hashable, Sendable {
+    /// The EQ plays on every speaker; off: on the front left and right only. Never boosts
+    /// above 120 Hz on LFE channels.
+    public var eqOnAllSpeakers = true
+    /// Whether the speaker corrections play. Switching off keeps them.
+    public var correctionEnabled = true
+    public var corrections: [SpeakerCorrection] = []
+    /// The layout the corrections were measured on: they only play while the output still has it.
+    public var layout: SpeakerLayout?
+
+    public init(eqOnAllSpeakers: Bool = true, correctionEnabled: Bool = true, corrections: [SpeakerCorrection] = [], layout: SpeakerLayout? = nil) {
+        self.eqOnAllSpeakers = eqOnAllSpeakers
+        self.correctionEnabled = correctionEnabled
+        self.corrections = corrections
+        self.layout = layout
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        eqOnAllSpeakers = try c.decodeIfPresent(Bool.self, forKey: .eqOnAllSpeakers) ?? true
+        correctionEnabled = try c.decodeIfPresent(Bool.self, forKey: .correctionEnabled) ?? true
+        corrections = try c.decodeIfPresent([SpeakerCorrection].self, forKey: .corrections) ?? []
+        layout = try c.decodeIfPresent(SpeakerLayout.self, forKey: .layout)
+    }
+
+    /// The corrections that play on an output with `layout`: none when switched off or measured on other speakers.
+    public func activeCorrections(for layout: SpeakerLayout?) -> [SpeakerCorrection] {
+        guard correctionEnabled, let layout, layout == self.layout else { return [] }
+        return corrections
+    }
+
+    /// Headroom for the corrections' boosts, dB (zero or negative). The same for every speaker,
+    /// so the trims keep the speakers level-matched.
+    public static func headroomDB(_ corrections: [SpeakerCorrection], sampleRate: Double = 48_000) -> Double {
+        let boost = corrections.map { ResponseCurve.maxBoostDB(bands: $0.bands.map(Self.mono), sampleRate: sampleRate) }.max() ?? 0
+        return -max(0, boost)
+    }
+
+    /// A band as a speaker plays it: on its one channel.
+    static func mono(_ band: EQBand) -> EQBand {
+        var b = band.clamped()
+        b.channels = .both
+        return b
+    }
+
+    /// LFE channels carry nothing above about 120 Hz; the EQ's boosts there would only lift noise.
+    public static let lfeBoostCeiling = 120.0
+
+    /// Whether the EQ leaves `band` out on LFE channels: bells and high shelves that boost above 120 Hz.
+    public static func skipsOnLFE(_ band: EQBand) -> Bool {
+        guard band.gain > 0, band.frequency > lfeBoostCeiling else { return false }
+        return band.type == .peak || band.type == .highShelf
+    }
+}
+
 /// The full processing state for one output device.
 public struct DSPSettings: Codable, Hashable, Sendable {
     public static let maxBands = 24
@@ -161,14 +244,18 @@ public struct DSPSettings: Codable, Hashable, Sendable {
     public var bands: [EQBand] = []
     public var tone = ToneSettings()
     public var effects = EffectsSettings()
+    /// Multichannel outputs only.
+    public var speakers = SpeakerSetup()
 
-    public init(eqEnabled: Bool = true, preampDB: Double = 0, autoPreamp: Bool = true, bands: [EQBand] = [], tone: ToneSettings = ToneSettings(), effects: EffectsSettings = EffectsSettings()) {
+    public init(eqEnabled: Bool = true, preampDB: Double = 0, autoPreamp: Bool = true, bands: [EQBand] = [], tone: ToneSettings = ToneSettings(),
+                effects: EffectsSettings = EffectsSettings(), speakers: SpeakerSetup = SpeakerSetup()) {
         self.eqEnabled = eqEnabled
         self.preampDB = preampDB
         self.autoPreamp = autoPreamp
         self.bands = bands
         self.tone = tone
         self.effects = effects
+        self.speakers = speakers
     }
 
     public init(from decoder: Decoder) throws {
@@ -179,6 +266,7 @@ public struct DSPSettings: Codable, Hashable, Sendable {
         bands = try c.decodeIfPresent([EQBand].self, forKey: .bands) ?? []
         tone = try c.decodeIfPresent(ToneSettings.self, forKey: .tone) ?? ToneSettings()
         effects = try c.decodeIfPresent(EffectsSettings.self, forKey: .effects) ?? EffectsSettings()
+        speakers = try c.decodeIfPresent(SpeakerSetup.self, forKey: .speakers) ?? SpeakerSetup()
     }
 
     /// Bands that actually shape the signal: parametric bands followed by tone macros.

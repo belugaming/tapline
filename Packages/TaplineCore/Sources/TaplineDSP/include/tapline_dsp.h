@@ -2,12 +2,15 @@
 //
 // Everything that runs on the CoreAudio IO thread lives here. The kernel mixes
 // the tapped process streams, runs the EQ / effects chain and writes the result
-// into the output device's preferred stereo channels.
+// into the output device's preferred stereo channels. On a multichannel speaker layout
+// (5.1 ... 9.1.6) it processes every channel of that stream: the EQ plays on every speaker,
+// the stereo effects on the front pair, and each speaker gets its own room correction,
+// level trim and delay, under one limiter.
 //
 // Threading model:
-//   - tl_kernel_set_params / tl_kernel_set_source_gain / tl_kernel_set_ir_set /
-//     tl_kernel_collect: any single non-realtime thread (the main thread in practice).
-//     Lock-free.
+//   - tl_kernel_set_params / tl_kernel_set_speakers / tl_kernel_set_source_gain /
+//     tl_kernel_set_ir_set / tl_kernel_collect: any single non-realtime thread (the main
+//     thread in practice). Lock-free.
 //   - tl_ir_set_create / tl_ir_set_destroy: any non-realtime thread.
 //   - tl_kernel_configure / tl_kernel_reset: only while IO is stopped.
 //   - tl_kernel_read_meters / tl_kernel_copy_analyzer: any thread. Lock-free.
@@ -35,6 +38,22 @@ extern "C" {
 #define TL_CONV_BLOCK 256
 /// Longest impulse response the convolution uses (at the device rate); longer ones are cut.
 #define TL_CONV_MAX_TAPS 65536
+
+/// Multichannel speakers: channels of the output stream, room-correction stages per speaker,
+/// and the longest speaker delay in samples (85 ms at 192 kHz, 341 ms at 48 kHz).
+#define TL_MAX_CHANNELS 16
+#define TL_MAX_SPEAKER_STAGES 16
+#define TL_MAX_DELAY 16384
+
+/// What one channel of a multichannel output is (tl_layout.channel_role).
+enum {
+    /// Not a known speaker: passed through untouched, as on a stereo output.
+    TL_ROLE_PASS = 0,
+    /// A speaker: the EQ (when it plays on every speaker), then its correction, trim and delay.
+    TL_ROLE_SPEAKER = 1,
+    /// An LFE channel: like a speaker, but without the EQ stages in tl_speakers.lfe_skip.
+    TL_ROLE_LFE = 2,
+};
 
 typedef struct {
     double b0, b1, b2, a1, a2;
@@ -80,7 +99,26 @@ typedef struct {
     /// Sources are copies of the output stream (device-stream taps): channels other
     /// than the processed stereo pair are passed through unchanged.
     int32_t passthrough;
+    /// Multichannel speakers: the number of channels of the output stream (which must hold
+    /// the stereo pair and match the sources, see `passthrough`) and what each one is.
+    /// Below 3: stereo processing only.
+    int32_t channel_count;
+    int32_t channel_role[TL_MAX_CHANNELS];
 } tl_layout;
+
+/// One speaker of a multichannel output.
+typedef struct {
+    tl_biquad stages[TL_MAX_SPEAKER_STAGES];  // its room correction; `channels` is ignored
+    float gain;             // linear: its level trim and the corrections' headroom, 0 ... 4
+    float delay;            // seconds, until the farthest speaker arrives; 0 ... TL_MAX_DELAY samples
+} tl_speaker;
+
+/// How a multichannel output is processed. Ignored while the layout has no channel_count.
+typedef struct {
+    tl_speaker channel[TL_MAX_CHANNELS];   // by channel of the output stream
+    int32_t eq_all;         // the EQ (preamp, stages) plays on every speaker; 0: the front pair only
+    uint32_t lfe_skip;      // EQ stages left out on LFE channels, one bit per stage
+} tl_speakers;
 
 typedef struct {
     float peak_l, peak_r;
@@ -117,6 +155,13 @@ uint64_t tl_kernel_copy_analyzer(tl_kernel *kernel, int32_t which, float *dst, u
 
 /// Neutral parameter block: EQ and simulation stages inactive, unity gains, no effects.
 void tl_params_init(tl_params *params);
+
+/// Neutral speakers: no corrections, unity gains, no delays, the EQ on every speaker.
+void tl_speakers_init(tl_speakers *speakers);
+
+/// Publishes new speaker settings to the IO thread. Gains ramp over one buffer, switching a
+/// speaker's correction on or off crossfades over one buffer, delays crossfade over 20 ms.
+void tl_kernel_set_speakers(tl_kernel *kernel, const tl_speakers *speakers);
 
 /// Prepares the impulse responses of a pair of speakers for the kernel. `irs` holds four
 /// pointers to `length` samples each: front left -> left ear, front left -> right ear,
