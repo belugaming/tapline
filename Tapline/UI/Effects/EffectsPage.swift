@@ -1,8 +1,11 @@
+import AppKit
 import SwiftUI
 import TaplineCore
+import UniformTypeIdentifiers
 
 struct EffectsPage: View {
     @Environment(AppModel.self) private var model
+    @State private var importMessage: String?
 
     var body: some View {
         let fx = model.settings.effects
@@ -47,11 +50,13 @@ struct EffectsPage: View {
                     }
 
                     Card(title: "Headphone Crossfeed", subtitle: "Blends a little of each channel into the other, like listening to speakers. Reduces fatigue on hard-panned recordings.", systemImage: "headphones") {
-                        Toggle("Enabled", isOn: binding(\.crossfeedEnabled, fx.crossfeedEnabled))
+                        Toggle("Enabled", isOn: Binding(get: { fx.crossfeedEnabled }, set: { model.setCrossfeed($0) }))
                             .toggleStyle(.switch)
                         LabeledSlider(title: "Amount", value: binding(\.crossfeed, fx.crossfeed), range: 0...1, format: { Format.percent($0) })
                             .disabled(!fx.crossfeedEnabled)
                     }
+
+                    virtualSpeakersCard(fx)
                 }
 
                 HStack {
@@ -64,6 +69,82 @@ struct EffectsPage: View {
             .padding(20)
             .frame(maxWidth: 980)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func virtualSpeakersCard(_ fx: EffectsSettings) -> some View {
+        let current = model.currentVirtualSpeakers
+        return Card(title: "Virtual Speakers", subtitle: "Puts the sound in front of you, like a pair of speakers at ±30°, with binaural impulse responses. For headphones; replaces crossfeed.", systemImage: "hifispeaker.2") {
+            Toggle("Enabled", isOn: Binding(get: { fx.virtualSpeakersEnabled }, set: { model.setVirtualSpeakers($0) }))
+                .toggleStyle(.switch)
+            HStack {
+                Picker("Speakers", selection: Binding(get: { current.id }, set: { model.chooseVirtualSpeakers($0) })) {
+                    Section("Built in") {
+                        ForEach(VirtualSpeakerLibrary.builtIn) { Text($0.name).tag($0.id) }
+                    }
+                    if !model.speakers.imported.isEmpty {
+                        Section("Imported") {
+                            ForEach(model.speakers.imported) { Text($0.name).tag($0.id) }
+                        }
+                    }
+                }
+                .frame(maxWidth: 300)
+                Button("Import…") { importSpeakers() }
+                    .help("A HeSuVi or Impulcifer WAV file, a 4-channel file, or two stereo files (one per speaker)")
+            }
+            Text(Self.detail(current))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                if !current.isBuiltIn {
+                    Button("Remove “\(current.name)”", role: .destructive) { model.removeVirtualSpeakers(current.id) }
+                }
+                Spacer()
+                Link("Where to find HRIR files", destination: URL(string: "https://github.com/belugaming/tapline#virtual-speakers")!)
+                    .font(.caption)
+            }
+            if let problem = model.virtualSpeakersProblem ?? importMessage {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private static func detail(_ set: VirtualSpeakerSet) -> String {
+        switch set.id {
+        case EffectsSettings.defaultVirtualSpeakers:
+            return String(localized: "Neumann KU100 dummy head from the SADIE II database, with the reflections of a treated studio room. Bass and lower mids stay dry.")
+        case "sadie-ku100":
+            return String(localized: "Neumann KU100 dummy head from the SADIE II database, anechoic: the speakers without a room. The cleanest sound, but it may seem closer to your head.")
+        default:
+            let layout: String = switch set.layout {
+            case .hesuvi14: String(localized: "HeSuVi, 14 channels")
+            case .hesuvi7: String(localized: "HeSuVi, 7 channels")
+            case .impulcifer16: String(localized: "Impulcifer hrir.wav")
+            case .fourChannel: String(localized: "4 channels")
+            case .stereoPair: String(localized: "Two stereo files")
+            case .mirroredStereo: String(localized: "One speaker, mirrored")
+            }
+            let rate = Format.sampleRate(set.sampleRate)
+            let length = String(format: "%.0f ms", set.duration * 1000)
+            return "\(layout) · \(rate) · \(length)"
+        }
+    }
+
+    private func importSpeakers() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.wav]
+        panel.allowsMultipleSelection = true
+        panel.message = String(localized: "Choose a HeSuVi or Impulcifer file, or two stereo files (one per speaker).")
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        do {
+            try model.importVirtualSpeakers(from: panel.urls)
+            importMessage = nil
+        } catch {
+            importMessage = VirtualSpeakerLibrary.message(for: error)
         }
     }
 

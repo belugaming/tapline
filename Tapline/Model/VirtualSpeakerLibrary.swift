@@ -123,7 +123,7 @@ final class VirtualSpeakerLibrary {
     /// The file name, or for two files their common start ("Room L" + "Room R" → "Room").
     private static func name(for urls: [URL]) -> String {
         let names = urls.map { $0.deletingPathExtension().lastPathComponent }
-        guard names.count == 2 else { return names.first ?? String(localized: "Imported") }
+        guard names.count == 2 else { return names.first ?? String(localized: "Imported speakers") }
         let common = String(zip(names[0], names[1]).prefix(while: { $0.0 == $0.1 }).map { $0.0 })
             .trimmingCharacters(in: CharacterSet(charactersIn: " -_.(").union(.whitespaces))
         return common.count >= 3 ? common : names[0]

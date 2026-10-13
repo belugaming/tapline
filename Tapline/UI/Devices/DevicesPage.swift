@@ -111,7 +111,9 @@ private struct EngineInfoCard: View {
                 }
                 GridRow {
                     Text("Added latency").foregroundStyle(.secondary)
-                    Text(String(format: "%.1f ms", Double(model.engine.latencyFrames) / max(model.engine.sampleRate, 1) * 1000))
+                    // Virtual Speakers add one convolution block while they are on.
+                    let frames = model.engine.latencyFrames + (model.settings.effects.virtualSpeakersEnabled ? DSPKernel.virtualSpeakerLatency : 0)
+                    Text(String(format: "%.1f ms", Double(frames) / max(model.engine.sampleRate, 1) * 1000))
                 }
                 GridRow {
                     Text("Tapped streams").foregroundStyle(.secondary)

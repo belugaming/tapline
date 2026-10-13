@@ -56,6 +56,8 @@ enum Format {
 
     static func percent(_ v: Double) -> String { String(format: "%.0f%%", v * 100) }
 
+    static func sampleRate(_ hz: Double) -> String { String(format: "%g kHz", hz / 1000) }
+
     static func meterDB(_ linear: Float) -> String {
         let db = linearToDB(Double(linear))
         return db < -90 ? "-∞" : String(format: "%.1f", db)

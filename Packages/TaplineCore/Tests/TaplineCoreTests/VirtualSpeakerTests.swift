@@ -292,7 +292,7 @@ private struct Noise {
         kernel.setSettings(s, sampleRate: Self.rate)
         let after = Self.process(kernel, [Float](repeating: 0.5, count: 8192), [Float](repeating: 0.5, count: 8192))
         let steady = 0.5 * Double(irs[0].reduce(0, +) + irs[2].reduce(0, +))
-        #expect(after.left.allSatisfy(\.isFinite))
+        #expect(after.left.allSatisfy { $0.isFinite })
         #expect(abs(Double(after.left[8000]) - steady) < 1e-3, "got \(after.left[8000]), want \(steady)")
     }
 
