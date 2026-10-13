@@ -421,7 +421,7 @@ extension SpeakerProfile {
         case .phone: "Phone speaker"
         case .laptop: "Laptop speakers"
         case .tv: "TV speakers"
-        case .bluetoothSpeaker: "Small Bluetooth speaker"
+        case .bluetoothSpeaker: "Bluetooth speaker"
         case .car: "Car"
         }
     }

@@ -94,7 +94,7 @@ To update, quit Tapline and replace the app with the new one. Releases are signe
 
 Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages as on the Mac (Equalizer, Assistant with headphone correction, Room, Mixer, Effects, Devices) and keeps a separate EQ for every output device.
 
-Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine: Tapline is the editor, and Equalizer APO applies the EQ inside Windows' audio engine. Since 0.4.0, Windows releases come out together with the Mac releases and carry the same version number, titled "Tapline for Windows"; what changed on Windows is in [windows/CHANGELOG.md](windows/CHANGELOG.md). Please report problems in [Issues](https://github.com/belugaming/tapline/issues).
+Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine: Tapline is the editor, and Equalizer APO applies the EQ inside Windows' audio engine. Windows releases are titled "Tapline for Windows" and use the Mac's version numbers; what changed on Windows is in [windows/CHANGELOG.md](windows/CHANGELOG.md). Windows releases are paused after **0.4.0** for now: the features marked *not released yet* below are written for Windows but not in a Windows release. Please report problems in [Issues](https://github.com/belugaming/tapline/issues).
 
 ### What works on Windows
 
@@ -103,20 +103,20 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Parametric EQ, up to 24 bands: drag on the graph, presets, A/B, undo, Auto preamp | ✓ | ✓ |
 | Bands for the left or right channel only | ✓ | ✓ |
 | Level-matched EQ bypass | ✓, crossfaded | ✓ |
-| Linear-phase EQ, high precision | ✓, 704 ms latency at 48 kHz; edits crossfade | ✓ (Equalizer APO's convolver), 683 ms at 48 kHz; the sound pauses after each change |
+| Linear-phase EQ, high precision | ✓, 704 ms latency at 48 kHz; edits crossfade | ✓ (Equalizer APO's convolver), 683 ms at 48 kHz; the sound pauses after each change — *not released yet* |
 | Linear-phase EQ, low latency | ✓, 176 ms latency at 48 kHz | ✗ (macOS only for now) |
 | A separate EQ for every output device | ✓ | ✓, and it keeps playing while Tapline is closed |
 | Spectrum analyzer | Before and after the EQ | After the EQ only |
 | Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
 | Room correction: guided measurement, setup check, separate left/right correction, RME ADI-2 export | ✓ | ✓ |
-| Surround and Dolby Atmos speakers (5.1 … 9.1.6): wiring check, a correction, trim and delay for every speaker | ✓ | ✓ (per-channel Equalizer APO sections) |
+| Surround and Dolby Atmos speakers (5.1 … 9.1.6): wiring check, a correction, trim and delay for every speaker | ✓ | ✓ (per-channel Equalizer APO sections) — *not released yet* |
 | Quick Tone, Sound Assistant, import and export (Equalizer APO, AutoEQ, RME ADI-2) | ✓ | ✓ |
 | Per-app volume and mute | 0–200 % | 0–100 % (Windows' own app volumes) |
 | Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
 | Limiter | ✓ | ✗ (keep the preamp on **Auto**) |
 | Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
 | Virtual speakers (HRIR/BRIR convolution, HeSuVi import) | ✓ | ✓ (Equalizer APO's convolver) |
-| Listen As: other headphones (squig.link) and everyday speakers through your headphones | ✓, level-matched | ✓, quieter than level-matched where a boost could clip (no limiter) |
+| Listen As: other headphones (squig.link) and everyday speakers through your headphones | ✓, level-matched | ✓, quieter than level-matched where a boost could clip (no limiter) — *not released yet* |
 | Audio Unit plugin for Logic Pro, GarageBand and other hosts | ✓ (AUv3) | ✗ |
 | Switch the output or input device | ✓ | ✓ |
 | Change a device's sample rate | ✓ | ✗ (shown only) |
@@ -402,7 +402,7 @@ Practising or mixing on good headphones, you may wonder how it sounds where most
 - Above 10 kHz only the broad trend is simulated, as in headphone correction.
 - Correct your own headphones first (see [2. Correct your headphones](#2-correct-your-headphones)): the simulation starts from the target your correction aims at.
 
-**Speakers in devices** (approximate): click **Phone speaker**, **Laptop speakers**, **TV speakers**, **Small Bluetooth speaker** or **Car**. Each is a response curve (where the bass ends, typical resonances, the treble) and a channel handling: a phone and a Bluetooth speaker are mono, a laptop is narrow stereo. They are approximations written from general knowledge of how such speakers behave, not measurements of any product. Click the tile again to stop.
+**Speakers in devices** (approximate): click **Phone speaker**, **Laptop speakers**, **TV speakers**, **Bluetooth speaker** or **Car**. Each is a response curve (where the bass ends, typical resonances, the treble) and a channel handling: a phone and a Bluetooth speaker are mono, a laptop is narrow stereo. They are approximations written from general knowledge of how such speakers behave, not measurements of any product. Click the tile again to stop.
 
 Switching is **level-matched**: a make-up gain cancels the device curve's loudness change on pink noise (weighted like a LUFS meter), so you compare sound, not level. With the limiter off, Tapline keeps the headroom instead and the card says how much quieter the simulation plays.
 
@@ -557,7 +557,7 @@ scripts/release.sh 0.2.0 --push
 
 The script checks that `main` is clean, bumps the version, turns the Unreleased section into `0.2.0`, commits, tags `v0.2.0` and pushes. The [Release workflow](.github/workflows/release.yml) then tests and builds Tapline on GitHub's macOS runners and publishes the disk image with that changelog section as release notes. Versions with a suffix such as `0.3.0-beta.1` become pre-releases. Every push to `main` is built with Xcode 27 by the [CI workflow](.github/workflows/ci.yml).
 
-The Windows version is released together with the Mac version, under the same number. Collect its changes under **Unreleased** in [windows/CHANGELOG.md](windows/CHANGELOG.md): when that section has entries, `scripts/release.sh` also turns it into `## 0.2.0`, sets the version in `Tapline.csproj` and tags `windows-v0.2.0` on the same commit. The [Windows release workflow](.github/workflows/release-windows.yml) then tests and builds Tapline on a Windows runner and publishes the installer as "Tapline for Windows 0.2.0", with that changelog section as release notes. Versions with a suffix become pre-releases, and Windows releases are never marked as the latest release, so the download link in [Install](#install) keeps pointing to the Mac version. Changes to `windows/` are built on Windows by the [Windows workflow](.github/workflows/windows.yml).
+The Windows version is released together with the Mac version, under the same number. Collect its changes under **Unreleased** in [windows/CHANGELOG.md](windows/CHANGELOG.md): when that section has entries, `scripts/release.sh` also turns it into `## 0.2.0`, sets the version in `Tapline.csproj` and tags `windows-v0.2.0` on the same commit. Add `--no-windows` to release the Mac only and keep the Windows entries for later. The [Windows release workflow](.github/workflows/release-windows.yml) then tests and builds Tapline on a Windows runner and publishes the installer as "Tapline for Windows 0.2.0", with that changelog section as release notes. Versions with a suffix become pre-releases, and Windows releases are never marked as the latest release, so the download link in [Install](#install) keeps pointing to the Mac version. Changes to `windows/` are built on Windows by the [Windows workflow](.github/workflows/windows.yml).
 
 ## Known limitations
 
