@@ -53,7 +53,11 @@ sealed class EffectsPage : PageBase
     }
 
     /// A headphone effect's switch: off on a multichannel speaker output, where the effect never plays.
-    private T HeadphonesOnly<T>(T element) where T : UIElement => Scope.Bind(element, e => e.IsEnabled = !Model.IsSurroundOutput);
+    private T HeadphonesOnly<T>(T element) where T : UIElement => Scope.Bind(element, e =>
+    {
+        e.IsEnabled = !Model.IsSurroundOutput;
+        e.Opacity = e.IsEnabled ? 1 : 0.45;
+    });
 
     /// A multichannel output: which effects reach which speakers, and the speaker corrections.
     private FrameworkElement SpeakersCard(UiScope scope, SpeakerLayout layout)
