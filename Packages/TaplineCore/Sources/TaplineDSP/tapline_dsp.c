@@ -53,12 +53,17 @@ struct tl_kernel {
     double z[TL_MAX_STAGES][2][2];
     int32_t was_active[TL_MAX_STAGES];
     float preamp_current;
+    float bypass_current;
     float output_current;
     float balance_current;
     float width_current;
+    int32_t eq_on;          // whether the last buffer went through the EQ
 
     float buf_l[TL_MAX_FRAMES];
     float buf_r[TL_MAX_FRAMES];
+    // The bypassed signal while switching the EQ on or off (crossfaded over one buffer).
+    float dry_l[TL_MAX_FRAMES];
+    float dry_r[TL_MAX_FRAMES];
 
     // Crossfeed
     float xf_ring_l[TL_XFEED_RING];
@@ -146,6 +151,7 @@ void tl_params_init(tl_params *p) {
     p->output_gain = 1.0f;
     p->width = 1.0f;
     p->limiter_ceiling = 1.0f;
+    p->bypass_gain = 1.0f;
     p->eq_enabled = 1;
 }
 
@@ -200,6 +206,8 @@ void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layo
 
     const tl_params *p = &k->slots[k->front];
     k->preamp_current = p->preamp;
+    k->bypass_current = p->bypass_gain;
+    k->eq_on = p->eq_enabled ? 1 : 0;
     k->output_current = p->output_gain;
     k->balance_current = p->balance;
     k->width_current = p->width;
@@ -335,6 +343,8 @@ static void sanitize_params(tl_params *p) {
     if (!isfinite(p->width)) p->width = 1.0f;
     if (!isfinite(p->crossfeed)) p->crossfeed = 0.0f;
     if (!(p->limiter_ceiling > 0.0f && p->limiter_ceiling <= 1.0f)) p->limiter_ceiling = 1.0f;
+    // Bypass never boosts, so it cannot drive the limiter harder than the input does.
+    if (!(p->bypass_gain >= 0.0f && p->bypass_gain <= 1.0f)) p->bypass_gain = 1.0f;
 }
 
 void tl_kernel_set_params(tl_kernel *k, const tl_params *params) {
@@ -700,13 +710,34 @@ OSStatus tl_ioproc(AudioObjectID device,
         k->ana_pre[(pos + i) & (TL_ANALYZER_SIZE - 1)] = 0.5f * (l[i] + r[i]);
     }
 
-    // 3. Preamp + EQ
-    if (p->eq_enabled) {
-        apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
-        run_biquads(k, p, frames);
-    } else {
-        k->preamp_current = p->preamp;
-        for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
+    // 3. Preamp + EQ. While the EQ is bypassed, `bypass_gain` takes their place so that
+    //    switching compares the sound, not the level. A switch crossfades the two paths
+    //    over one buffer: the filters shift the phase, and a hard cut would click.
+    {
+        const int32_t eq_on = p->eq_enabled ? 1 : 0;
+        if (eq_on != k->eq_on) {
+            memcpy(k->dry_l, l, frames * sizeof(float));
+            memcpy(k->dry_r, r, frames * sizeof(float));
+            apply_gain_ramp(k->dry_l, k->dry_r, frames, &k->bypass_current, p->bypass_gain);
+            apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
+            run_biquads(k, p, frames);
+            const float step = 1.0f / (float)frames;
+            for (uint32_t i = 0; i < frames; i++) {
+                const float t = (float)(i + 1) * step;
+                const float wet = eq_on ? t : 1.0f - t;
+                l[i] = k->dry_l[i] + (l[i] - k->dry_l[i]) * wet;
+                r[i] = k->dry_r[i] + (r[i] - k->dry_r[i]) * wet;
+            }
+            k->eq_on = eq_on;
+        } else if (eq_on) {
+            apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
+            run_biquads(k, p, frames);
+            k->bypass_current = p->bypass_gain;
+        } else {
+            apply_gain_ramp(l, r, frames, &k->bypass_current, p->bypass_gain);
+            k->preamp_current = p->preamp;
+            for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
+        }
     }
 
     // 4. Channel utilities

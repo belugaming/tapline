@@ -103,6 +103,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 |---|---|---|
 | Parametric EQ, up to 24 bands: drag on the graph, presets, A/B, undo, Auto preamp | ✓ | ✓ |
 | Bands for the left or right channel only | ✓ | ✓ |
+| Level-matched EQ bypass | ✓, crossfaded | ✓ |
 | A separate EQ for every output device | ✓ | ✓, and it keeps playing while Tapline is closed |
 | Spectrum analyzer | Before and after the EQ | After the EQ only |
 | Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
@@ -176,7 +177,7 @@ Below the graph:
 
 At the top of the page:
 
-- **EQ** switch: turn the EQ off for this device. Press **⌃⌥⌘B** anywhere to compare with the original sound.
+- **EQ** switch: turn the EQ off for this device. Press **⌃⌥⌘B** anywhere to compare with the original sound. The comparison is fair: a correction's preamp makes it a few dB quieter than the original, and louder almost always sounds better, so while the EQ is off Tapline plays the original at the loudness of the EQ. The gain shows next to the switch (*Level-matched −4.6 dB*, for example). It is the EQ's loudness change on pink noise, weighted like a LUFS meter (ITU-R BS.1770), and never a boost. To hear the original at its own level, turn off **Settings → EQ Bypass → Match loudness when bypassing**. Switching crossfades over a few milliseconds, so it doesn't click.
 - **Preset menu**: built-in presets (Bass Boost, Vocal Clarity, Loudness and more) and your own. **Delete Preset** is at the bottom of the menu.
 - **Save** (download icon): save the current curve as a preset. Tick **Include effects** to store crossfeed, limiter and the other effects with it.
 - **A / B**: two independent settings to switch between. Make a change on B, then toggle to hear the difference.
@@ -185,7 +186,7 @@ At the top of the page:
 
 Undo and redo (⌘Z / ⇧⌘Z) cover every change.
 
-> **On Windows:** use Ctrl for ⌘ and Alt for ⌥ (Alt-click deletes a band; Alt or Shift for fine adjustments). Scroll changes Q; there is no pinch. The graph shows the spectrum after the EQ only, so there is no input spectrum toggle. Undo and redo are Ctrl+Z and Ctrl+Y.
+> **On Windows:** use Ctrl for ⌘ and Alt for ⌥ (Alt-click deletes a band; Alt or Shift for fine adjustments). Scroll changes Q; there is no pinch. The graph shows the spectrum after the EQ only, so there is no input spectrum toggle. Undo and redo are Ctrl+Z and Ctrl+Y. The level-matched bypass is a `Preamp` line in Equalizer APO's configuration; switching doesn't crossfade.
 
 ### 2. Correct your headphones
 
@@ -193,23 +194,24 @@ Every headphone colours the sound. Correction curves bring it closer to a neutra
 
 ![Headphone correction](docs/images/en/headphone-correction.png)
 
-**AutoEQ presets**: ready-made curves for 5,000+ headphones. Search your model, pick a result and click **Apply Correction**. Results from oratory1990 and crinacle are listed first. The AutoEQ database was last updated in July 2025, so newer headphones may be missing.
+**AutoEQ presets**: ready-made curves for 5,000+ headphones. Search your model, pick a result and click **Apply Correction**. Results from oratory1990 and crinacle are listed first. The AutoEQ database was last updated in July 2025, so newer headphones may be missing. **Strength** applies part of the curve: at 50 % every band has half its gain.
 
 **squig.link measurements**: raw measurements from 130+ reviewer databases, updated continuously. Tapline computes the EQ itself:
 
 1. Search your model. Each result shows who measured it and with which rig. The name usually says in which mode it was measured (ANC on/off, wired, passive, a volume step…). **Pick the mode you actually use.**
 2. Choose a **Target**. Each database offers targets that match its rig; a Harman target is a good start.
 3. Read the chart: **grey** is the headphone as measured, **dashed** is the target, **green** is the result with Tapline's EQ. The closer green follows dashed, the better. *Deviation* shows the average difference before → after.
-4. Adjust to taste: **Bass** adds a low shelf on top of the target, **Tilt** makes the balance brighter (right) or warmer (left), **Filters** sets how many bands are used (10 is plenty).
+4. Adjust to taste: **Strength** sets how much of the correction to apply, like a Dry/Wet control: at 50 % the EQ is fitted to a curve halfway between your headphones and the target, so the green line lands halfway and *Deviation* shows how much is left. **Bass** adds a low shelf on top of the target, **Tilt** makes the balance brighter (right) or warmer (left), **Filters** sets how many bands are used (10 is plenty).
 5. Click **Apply Correction**. The curve is applied to the current output and saved as a preset you can keep editing.
 
-**My measurement**: import a frequency response you measured yourself (REW, miniDSP EARS, CSV) and fit it to a target from any database.
+**My measurement**: import a frequency response you measured yourself (REW, miniDSP EARS, CSV) and fit it to a target from any database. **Strength**, **Bass**, **Tilt** and **Filters** work as for squig.link.
 
 Tips:
 
 - **Keep my bass** leaves everything below 250 Hz alone. Use it when you listen differently from how the headphones were measured, for example noise-cancelling headphones used passively (powered off) on a cable: their bass changes a lot when the electronics are off, so the measured bass correction would be wrong.
 - Treble above 8 kHz is only corrected broadly, because measurement rigs disagree a lot up there.
 - AirPods and other adaptive headphones change their own EQ with volume and fit. Corrections for them are approximate; compare with ⌃⌥⌘B and keep what sounds better.
+- A full correction can sound odd at first, because your ears are used to your headphones. Try a lower **Strength**, such as 70 %, and raise it later if you like. Compare with ⌃⌥⌘B: the bypass is level-matched, so you hear the difference in sound, not in level.
 
 ### 3. Correct your speakers and room
 
@@ -323,7 +325,7 @@ Global shortcuts work in every app (turn them off in **Settings**):
 | Shortcut | Action |
 |---|---|
 | ⌃⌥⌘P | Turn processing on or off |
-| ⌃⌥⌘B | Bypass the EQ (compare with the original) |
+| ⌃⌥⌘B | Bypass the EQ (compare with the original, at the same loudness) |
 | ⌃⌥⌘K | Switch between A and B |
 
 Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compares A/B, ⌘Q hides Tapline to the menu bar, ⌥⌘Q quits.
@@ -392,7 +394,8 @@ apps ──► process taps of the output device's stream (apps are muted at the
 - Drift compensation is on for devices with their own crystal (USB, built-in) and off for Bluetooth and virtual devices, where it would make the HAL add and drop samples.
 - The realtime path is plain C (`Packages/TaplineCore/Sources/TaplineDSP`): no allocation, locks or Swift runtime on the audio thread. Parameters reach it through a lock-free triple buffer. Filters are RBJ biquads computed in double precision.
 - Virtual Speakers are a uniformly partitioned FFT convolution (overlap-save, 256-sample partitions, Accelerate's real FFT) of up to 65,536 taps per path. The main thread transforms a new set and hands it over through an atomic pointer; the audio thread crossfades to it and hands the old one back to be freed.
-- The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search.
+- While the EQ is bypassed, one gain takes the place of preamp, EQ and tone: the loudness change of the whole EQ on pink noise, K-weighted as in ITU-R BS.1770, limited to 0 dB at most. Switching the EQ on or off crossfades the two paths over one audio buffer.
+- The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search. Below 100 % strength it fits the measurement moved that far towards the target, which keeps the result as accurate as a full correction.
 - Only one copy of Tapline runs at a time, a watchdog restarts the engine if the device stops calling it, and a guard switches processing off if it detects a feedback loop. If Tapline quits or crashes, its private taps and aggregate device disappear with it.
 
 On Windows, Tapline writes Equalizer APO's `config.txt`: one `Device:` section per output with its preamp, filters (the same RBJ biquads as on the Mac), left/right sections and effects. Equalizer APO reloads the file and processes the audio inside Windows' audio engine. The spectrum and meters read the output with a WASAPI loopback capture, and room measurements play and record in WASAPI shared mode.

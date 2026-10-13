@@ -72,6 +72,15 @@ public struct EQBand: Codable, Hashable, Identifiable, Sendable {
         b.q = q.isNaN ? 1 : q.clamped(to: Self.qRange)
         return b
     }
+
+    /// The band with its gain scaled by `strength` (0...1), to apply part of a ready-made
+    /// correction. Filters without a gain (high-pass, notch…) stay as they are.
+    public func scaled(by strength: Double) -> EQBand {
+        guard type.usesGain else { return self }
+        var b = self
+        b.gain = gain * (strength.isNaN ? 1 : strength.clamped(to: 0...1))
+        return b
+    }
 }
 
 /// Simple "macro" tone controls layered on top of the parametric EQ.
@@ -188,6 +197,36 @@ public struct DSPSettings: Codable, Hashable, Sendable {
         guard autoPreamp else { return preampDB.clamped(to: Self.preampRange) }
         let boost = ResponseCurve.maxBoostDB(bands: activeBands, sampleRate: sampleRate)
         return -max(0, boost)
+    }
+
+    /// How much the whole EQ (bands, tone controls and preamp) changes the loudness of
+    /// pink noise, in dB (LU, K-weighted as in ITU-R BS.1770). A correction with a -6 dB
+    /// preamp typically comes out a few dB quieter than the original.
+    public func eqLoudnessDB(sampleRate: Double = 48_000) -> Double {
+        effectivePreampDB(sampleRate: sampleRate) + curveLoudnessDB(sampleRate: sampleRate)
+    }
+
+    /// Gain that takes the place of the EQ while it is bypassed, so that switching it off
+    /// changes the sound but not the loudness: the EQ's loudness change, but never a boost,
+    /// so bypass cannot drive the limiter harder than the original sound does.
+    public func bypassGainDB(sampleRate: Double = 48_000) -> Double {
+        Self.bypassGainDB(loudnessDB: eqLoudnessDB(sampleRate: sampleRate))
+    }
+
+    static func bypassGainDB(loudnessDB: Double) -> Double {
+        loudnessDB.isFinite ? loudnessDB.clamped(to: preampRange.lowerBound...0) : 0
+    }
+
+    /// Loudness change of the bands and tone controls as the kernel plays them. Left and
+    /// right count equally when they get different curves.
+    func curveLoudnessDB(sampleRate: Double) -> Double {
+        let bands = activeBands.map { $0.clamped() }
+        guard !bands.isEmpty else { return 0 }
+        guard hasChannelSpecificBands else { return ResponseCurve.loudnessChangeDB(bands: bands, sampleRate: sampleRate) }
+        let power = [EQChannels.left, .right].reduce(0.0) {
+            $0 + pow(10, ResponseCurve.loudnessChangeDB(bands: bands, sampleRate: sampleRate, channel: $1) / 10)
+        }
+        return 10 * log10(power / 2)
     }
 
     /// The default five-band layout used for new profiles.

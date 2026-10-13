@@ -49,15 +49,14 @@ typedef struct {
     float width;            // 0 = mono, 1 = unchanged, 2 = extra wide
     float crossfeed;        // 0 ... 1
     float limiter_ceiling;  // linear, e.g. 0.966 for -0.3 dBFS
+    float bypass_gain;      // linear gain in place of preamp + EQ while eq_enabled == 0, 0 ... 1
     int32_t eq_enabled;
     int32_t mono;
     int32_t swap_channels;
     int32_t crossfeed_enabled;
     int32_t limiter_enabled;
-    int32_t reserved;
     /// Convolves with the IR set from tl_kernel_set_ir_set. Takes crossfeed's place.
     int32_t virtual_speakers_enabled;
-    int32_t reserved2;
 } tl_params;
 
 typedef struct {

@@ -73,6 +73,11 @@ public record struct EqBand
         Gain = double.IsNaN(Gain) ? 0 : Gain.Clamp((GainMin, GainMax)),
         Q = double.IsNaN(Q) ? 1 : Q.Clamp((QMin, QMax)),
     };
+
+    /// <summary>The band with its gain scaled by <paramref name="strength"/> (0...1), to apply part of a
+    /// ready-made correction. Filters without a gain (high-pass, notch…) stay as they are.</summary>
+    public readonly EqBand Scaled(double strength) =>
+        Type.UsesGain() ? this with { Gain = Gain * (double.IsNaN(strength) ? 1 : Math.Clamp(strength, 0, 1)) } : this;
 }
 
 /// <summary>Simple "macro" tone controls layered on top of the parametric EQ.</summary>
@@ -181,6 +186,30 @@ public sealed class DspSettings : IEquatable<DspSettings>
         // Clamped like the bands Equalizer APO gets, so a NaN band cannot make the preamp NaN.
         double boost = ResponseCurve.MaxBoostDb([.. ActiveBands.Select(b => b.Clamped())], sampleRate);
         return -Math.Max(0, boost);
+    }
+
+    /// <summary>How much the whole EQ (bands, tone controls and preamp) changes the loudness of
+    /// pink noise, in dB (LU, K-weighted as in ITU-R BS.1770). A correction with a -6 dB
+    /// preamp typically comes out a few dB quieter than the original.</summary>
+    public double EqLoudnessDb(double sampleRate = 48_000) => EffectivePreampDb(sampleRate) + CurveLoudnessDb(sampleRate);
+
+    /// <summary>Gain that takes the place of the EQ while it is bypassed, so that switching it off
+    /// changes the sound but not the loudness: the EQ's loudness change, but never a boost.</summary>
+    public double BypassGainDb(double sampleRate = 48_000) => BypassGainFromLoudness(EqLoudnessDb(sampleRate));
+
+    internal static double BypassGainFromLoudness(double loudnessDb) =>
+        double.IsFinite(loudnessDb) ? Math.Clamp(loudnessDb, PreampMin, 0) : 0;
+
+    /// <summary>Loudness change of the bands and tone controls as they are played. Left and
+    /// right count equally when they get different curves.</summary>
+    internal double CurveLoudnessDb(double sampleRate)
+    {
+        var bands = ActiveBands.Select(b => b.Clamped()).ToList();
+        if (bands.Count == 0) return 0;
+        if (!HasChannelSpecificBands) return ResponseCurve.LoudnessChangeDb(bands, sampleRate);
+        double power = Math.Pow(10, ResponseCurve.LoudnessChangeDb(bands, sampleRate, EqChannels.Left) / 10)
+                       + Math.Pow(10, ResponseCurve.LoudnessChangeDb(bands, sampleRate, EqChannels.Right) / 10);
+        return 10 * Math.Log10(power / 2);
     }
 
     /// <summary>The default five-band layout used for new profiles.</summary>

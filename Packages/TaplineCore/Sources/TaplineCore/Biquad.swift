@@ -145,15 +145,46 @@ public enum ResponseCurve {
             responseDB(bands: bands, frequencies: probe, sampleRate: sampleRate, channel: $0).max() ?? 0
         }.max() ?? 0
     }
+
+    // Pink noise has equal power per octave, so every point of a log-spaced grid carries the
+    // same power. Each point is weighted by the K-weighting filter of ITU-R BS.1770 (the
+    // loudness of LUFS meters): a high-pass around 40 Hz and +4 dB above 2 kHz.
+    private static let loudnessGrid = logFrequencies(count: 320)
+    private static let loudnessWeights: [Double] = {
+        let shelf = BiquadCoefficients(b0: 1.53512485958697, b1: -2.69169618940638, b2: 1.19839281085285,
+                                       a1: -1.69065929318241, a2: 0.73248077421585)
+        let highPass = BiquadCoefficients(b0: 1, b1: -2, b2: 1, a1: -1.99004745483398, a2: 0.99007225036621)
+        return loudnessGrid.map { f in
+            let g = shelf.magnitude(at: f, sampleRate: 48_000) * highPass.magnitude(at: f, sampleRate: 48_000)
+            return g * g
+        }
+    }()
+
+    /// How much the bands change the loudness of pink noise, in dB (LU): positive when the
+    /// curve makes music louder. With `channel`, only the bands that process that channel count.
+    public static func loudnessChangeDB(bands: [EQBand], sampleRate: Double, channel: EQChannels? = nil) -> Double {
+        let response = responseDB(bands: bands, frequencies: loudnessGrid, sampleRate: sampleRate, channel: channel)
+        var power = 0.0, total = 0.0
+        for (db, w) in zip(response, loudnessWeights) {
+            power += w * pow(10, db / 10)
+            total += w
+        }
+        return 10 * log10(max(power / total, 1e-12))
+    }
 }
 
 extension DSPSettings {
-    /// Builds the C parameter block for the realtime kernel.
-    public func kernelParams(sampleRate: Double) -> tl_params {
+    /// Builds the C parameter block for the realtime kernel. With `levelMatchedBypass`, the
+    /// bypassed signal plays at the loudness of the EQ (see `bypassGainDB`), else at unity.
+    public func kernelParams(sampleRate: Double, levelMatchedBypass: Bool = true) -> tl_params {
         var p = tl_params()
         tl_params_init(&p)
         p.eq_enabled = eqEnabled ? 1 : 0
-        p.preamp = Float(dbToLinear(effectivePreampDB(sampleRate: sampleRate)))
+        let preampDB = effectivePreampDB(sampleRate: sampleRate)
+        p.preamp = Float(dbToLinear(preampDB))
+        if levelMatchedBypass {
+            p.bypass_gain = Float(dbToLinear(Self.bypassGainDB(loudnessDB: preampDB + curveLoudnessDB(sampleRate: sampleRate))))
+        }
 
         // EQ bands keep their slot index so filter state survives edits.
         // Tone macros live in the last four slots.

@@ -208,7 +208,7 @@ sealed class AppModel
                 })
                 .Where(d => !string.Equals(d.Guid, bypassDeviceGuid, StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            EqualizerApo.Write(ApoConfig.Build(state.PowerOn, devices));
+            EqualizerApo.Write(ApoConfig.Build(state.PowerOn, devices, state.LevelMatchedBypass));
             LastError = null;
             Status = ComputeStatus();
         }
@@ -452,6 +452,20 @@ sealed class AppModel
         {
             state.CloseToTray = value;
             ScheduleSave();
+            NotifyChanged();
+        }
+    }
+
+    /// Plays the bypassed sound at the loudness of the EQ, so that switching the EQ off
+    /// compares the sound and not the level (a correction's preamp makes it quieter).
+    public bool LevelMatchedBypass
+    {
+        get => state.LevelMatchedBypass;
+        set
+        {
+            state.LevelMatchedBypass = value;
+            ScheduleSave();
+            ScheduleConfig();
             NotifyChanged();
         }
     }

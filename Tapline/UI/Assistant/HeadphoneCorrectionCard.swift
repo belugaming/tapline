@@ -44,6 +44,7 @@ private struct AutoEQSection: View {
     @Environment(AppModel.self) private var model
     @Environment(AutoEQService.self) private var autoEQ
     @AppStorage(DebugSnapshot.key("correctionKeepBass")) private var keepBass = false
+    @AppStorage(DebugSnapshot.key("correctionStrength")) private var strength = 1.0
     @State private var query = ""
     @State private var selected: AutoEQService.Entry?
     @State private var parsed: ParametricEQFormat.Parsed?
@@ -51,9 +52,11 @@ private struct AutoEQSection: View {
     @State private var failed = false
     @State private var applied = false
 
+    /// A ready-made curve can only be scaled: each band's gain times the strength.
     private var previewBands: [EQBand] {
         guard let parsed else { return [] }
-        return keepBass ? parsed.bands.filter { $0.frequency >= 250 } : parsed.bands
+        let bands = keepBass ? parsed.bands.filter { $0.frequency >= 250 } : parsed.bands
+        return bands.map { $0.scaled(by: strength) }
     }
 
     var body: some View {
@@ -97,6 +100,7 @@ private struct AutoEQSection: View {
                         } else if failed {
                             Text("No parametric EQ available for this entry.").font(.caption).foregroundStyle(Theme.danger)
                         }
+                        StrengthSlider(value: $strength)
                         KeepBassToggle(isOn: $keepBass)
                         HStack {
                             Button {
@@ -121,6 +125,7 @@ private struct AutoEQSection: View {
             }
         }
         .onChange(of: keepBass) { applied = false }
+        .onChange(of: strength) { applied = false }
         .task { await autoEQ.loadIndex() }
     }
 
@@ -333,6 +338,7 @@ private struct CorrectionWorkbench: View {
     @AppStorage(DebugSnapshot.key("fitTilt")) private var tilt = 0.0
     @AppStorage(DebugSnapshot.key("fitFilters")) private var filterCount = 10
     @AppStorage(DebugSnapshot.key("correctionKeepBass")) private var keepBass = false
+    @AppStorage(DebugSnapshot.key("correctionStrength")) private var strength = 1.0
 
     @State private var measurement: FrequencyResponse?
     /// Where the targets come from: the measurement's own database, or a fallback of the same kind.
@@ -351,6 +357,7 @@ private struct CorrectionWorkbench: View {
         var tilt: Double
         var filters: Int
         var keepBass: Bool
+        var strength: Double
         var ready: Bool
     }
 
@@ -406,6 +413,12 @@ private struct CorrectionWorkbench: View {
 
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                 GridRow {
+                    Text("Strength")
+                    Slider(value: $strength, in: 0...1, step: 0.05)
+                        .help(Text(StrengthSlider.help))
+                    Text(strength, format: .percent.precision(.fractionLength(0))).monospacedDigit().frame(width: 86, alignment: .trailing)
+                }
+                GridRow {
                     Text("Bass")
                     Slider(value: $bass, in: -6...10, step: 0.5)
                     Text(Format.gain(bass)).monospacedDigit().frame(width: 86, alignment: .trailing)
@@ -452,7 +465,7 @@ private struct CorrectionWorkbench: View {
             }
             if targets.isEmpty { error = String(localized: "This database does not publish target curves.") }
         }
-        .task(id: FitKey(target: targetName, bass: bass, tilt: tilt, filters: filterCount, keepBass: keepBass, ready: measurement != nil)) {
+        .task(id: FitKey(target: targetName, bass: bass, tilt: tilt, filters: filterCount, keepBass: keepBass, strength: strength, ready: measurement != nil)) {
             await refit()
         }
     }
@@ -468,6 +481,7 @@ private struct CorrectionWorkbench: View {
             let target = try await squig.target(named: targetName, in: targetDatabase ?? database)
             var options = EQFitter.Options(maxFilters: filterCount, bassAdjustDB: bass, tiltDBPerOctave: tilt, keepBassBelow: keepBass ? 250 : nil)
             options.maxFilters = filterCount
+            options.strength = strength
             let fitted = await Task.detached(priority: .userInitiated) {
                 EQFitter.fit(measurement: measurement, target: target, options: options)
             }.value
@@ -481,6 +495,24 @@ private struct CorrectionWorkbench: View {
 }
 
 // MARK: - Shared pieces
+
+/// How much of the correction to apply, 0 ... 100 %, like the dry/wet control of a plug-in.
+private struct StrengthSlider: View {
+    static var help: LocalizedStringKey { "How much of the correction to apply. At full strength the EQ corrects all the way to the target; lower values go part of the way, like a dry/wet control." }
+
+    @Binding var value: Double
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Strength")
+            Slider(value: $value, in: 0...1, step: 0.05)
+            Text(value, format: .percent.precision(.fractionLength(0)))
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+        }
+        .help(Text(Self.help))
+    }
+}
 
 private struct KeepBassToggle: View {
     @Binding var isOn: Bool

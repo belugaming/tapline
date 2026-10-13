@@ -126,8 +126,8 @@ public final class DSPKernel: @unchecked Sendable {
         tl_kernel_collect(pointer)
     }
 
-    public func setSettings(_ settings: DSPSettings, sampleRate: Double) {
-        var p = settings.kernelParams(sampleRate: sampleRate)
+    public func setSettings(_ settings: DSPSettings, sampleRate: Double, levelMatchedBypass: Bool = true) {
+        var p = settings.kernelParams(sampleRate: sampleRate, levelMatchedBypass: levelMatchedBypass)
         tl_kernel_set_params(pointer, &p)
     }
 

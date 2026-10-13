@@ -68,6 +68,14 @@ struct EqualizerPage: View {
 
             CompareButton()
 
+            if !model.settings.eqEnabled && model.levelMatchedBypass {
+                Text("Level-matched \(Format.gain(model.settings.bypassGainDB(sampleRate: model.engine.sampleRate)))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(Text("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings."))
+            }
+
             Spacer(minLength: 16)
 
             Toggle(isOn: Binding(get: { model.showPreSpectrum }, set: { model.showPreSpectrum = $0 })) {
