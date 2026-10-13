@@ -34,15 +34,17 @@ struct SettingsPage: View {
                     .labelsHidden()
                     .fixedSize()
                     .disabled(model.speakerLayout != nil)
-                    Picker("Length", selection: Binding(get: { phase == .linearHighPrecision ? FilterPhase.linearHighPrecision : .linearLowLatency },
-                                                        set: { model.setFilterPhase($0) })) {
-                        Text("Low latency · \(model.linearPhaseLatencyMS(.linearLowLatency)) ms").tag(FilterPhase.linearLowLatency)
-                        Text("High precision · \(model.linearPhaseLatencyMS(.linearHighPrecision)) ms").tag(FilterPhase.linearHighPrecision)
+                    // Only in linear phase: disabled, its selected segment still looked like a choice.
+                    if phase.isLinear && model.speakerLayout == nil {
+                        Picker("Length", selection: Binding(get: { phase == .linearHighPrecision ? FilterPhase.linearHighPrecision : .linearLowLatency },
+                                                            set: { model.setFilterPhase($0) })) {
+                            Text("Low latency · \(model.linearPhaseLatencyMS(.linearLowLatency)) ms").tag(FilterPhase.linearLowLatency)
+                            Text("High precision · \(model.linearPhaseLatencyMS(.linearHighPrecision)) ms").tag(FilterPhase.linearHighPrecision)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .disabled(!phase.isLinear || model.speakerLayout != nil)
                     if let unavailable = model.linearPhaseUnavailable {
                         Label(unavailable, systemImage: "info.circle")
                             .font(.caption)
