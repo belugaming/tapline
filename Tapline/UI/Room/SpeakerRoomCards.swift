@@ -290,7 +290,7 @@ struct SpeakerRoomCards: View {
                         ForEach(fits.speakers) { s in Text(verbatim: "\(s.position.abbreviation) · \(s.position.name)").tag(s.channel) }
                     }
                     .labelsHidden()
-                    .frame(width: 240)
+                    .fixedSize()
                     Spacer()
                     Text(String(format: String(localized: "Deviation %.1f → %.1f dB"), shown.result.errorBeforeDB, shown.result.errorAfterDB))
                         .font(.caption.monospacedDigit())
