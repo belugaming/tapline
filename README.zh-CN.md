@@ -9,14 +9,14 @@
   <a href="https://github.com/belugaming/tapline/releases/latest"><img src="https://img.shields.io/github/v/release/belugaming/tapline?include_prereleases&sort=semver" alt="Release"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-black" alt="Apple Silicon">
-  <a href="#windows-版测试版"><img src="https://img.shields.io/badge/Windows-10%2B%20(%E6%B5%8B%E8%AF%95%E7%89%88)-0078D4" alt="Windows 10+（测试版）"></a>
+  <a href="#windows-版"><img src="https://img.shields.io/badge/Windows-10%2B-0078D4" alt="Windows 10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/belugaming/tapline" alt="License: GPL-3.0"></a>
 </p>
 
 <p align="center">
-  <b>macOS 全局参数均衡器、分应用混音器和耳机校正工具，现在也有 Windows 测试版。</b><br>
+  <b>macOS 和 Windows 上的全局参数均衡器、分应用混音器和耳机校正工具。</b><br>
   在 macOS 上不装驱动，不建虚拟声卡，基于 Core Audio 的进程截取接口实现。<br>
-  <a href="#windows-版测试版">Windows 版</a>目前是测试版，基于 Equalizer APO。<br>
+  <a href="#windows-版">Windows 版</a>基于 Equalizer APO。<br>
   <a href="README.md">English</a>
 </p>
 
@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/022a002c-c52c-459e-8b60-b277e9fa475c
 
 Tapline 夹在各个 App 和你的音箱、耳机之间，让你调整听到的所有声音：带实时频谱的精确参数 EQ、每个 App 单独调音量、根据公开测量数据算出的耳机校正曲线，以及几种听音效果。它常驻在菜单栏，自动跟随 macOS 当前的输出设备，每个设备各自保存一套设置。
 
-Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一样，基于 Equalizer APO。详见 [Windows 版（测试版）](#windows-版测试版)。
+Tapline 也有 Windows 10 和 11 版，页面和 macOS 版一样，基于 Equalizer APO。详见 [Windows 版](#windows-版)。
 
 和同类软件相比：
 
@@ -43,7 +43,7 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 
 - [系统要求](#系统要求)
 - [安装](#安装)
-- [Windows 版（测试版）](#windows-版测试版)
+- [Windows 版](#windows-版)
   - [Windows 版功能一览](#windows-版功能一览)
   - [在 Windows 上安装](#在-windows-上安装)
   - [在 Windows 上使用](#在-windows-上使用)
@@ -74,7 +74,7 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 - macOS 26 Tahoe 或更高版本
 - Apple Silicon 芯片的 Mac
 
-**Windows（测试版）**
+**Windows**
 
 - 64 位 Windows 10 或 11，x64 电脑（不支持 ARM 版 Windows，因为 Equalizer APO 只有 x64 版本）
 - 免费的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)，并在要用的输出设备上启用
@@ -89,18 +89,15 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 
 更新时，退出 Tapline，用新版本替换掉旧的 App 就行。发布版用 Tapline 自己的证书签名，所以更新后系统会保留音频权限。从更早的临时签名版本更新过来时，还会再要一次。
 
-## Windows 版（测试版）
+## Windows 版
 
 Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版的页面和 Mac 版一样（均衡器、助手和耳机校正、房间校正、混音器、效果器、设备），每个输出设备也各自保存一套 EQ。
 
-> [!NOTE]
-> Windows 版目前是**测试版**。它刚推出，还没有在很多电脑上测试过，难免有不完善的地方。欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈哪些能用、哪些不行。
-
-Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。Windows 版有自己的版本号（0.1.0-beta.x），以预发布版的形式发布，标题以 “Tapline for Windows” 开头；每个版本的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。
+Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。从 0.4.0 起，Windows 版和 Mac 版同时发布、版本号相同，标题以 “Tapline for Windows” 开头；Windows 版的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。遇到问题欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈。
 
 ### Windows 版功能一览
 
-| 功能 | macOS | Windows（测试版） |
+| 功能 | macOS | Windows |
 |---|---|---|
 | 参数 EQ，最多 24 个频段：在曲线上拖动、预设、A/B 对比、撤销、自动预增益 | ✓ | ✓ |
 | 只作用于左声道或右声道的频段 | ✓ | ✓ |
@@ -473,13 +470,7 @@ scripts/release.sh 0.2.0 --push
 
 这个脚本会检查 `main` 分支有没有未提交的改动，然后更新版本号，把 Unreleased 整理成 `0.2.0`，提交、打 `v0.2.0` 标签并推送。接着[发布工作流](.github/workflows/release.yml)会在 GitHub 的 macOS 服务器上测试、编译，把 .dmg 磁盘映像连同这一段更新日志发布到 Releases。带后缀的版本（比如 `0.3.0-beta.1`）会标记为预发布版。每次推送到 `main`，[CI 工作流](.github/workflows/ci.yml)都会用 Xcode 27 编译一遍。
 
-Windows 测试版单独定版本号、单独发布。先在 [windows/CHANGELOG.md](windows/CHANGELOG.md) 里加一段，比如 `## 0.1.0-beta.4`，再推送同一版本号的标签：
-
-```bash
-git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
-```
-
-[Windows 发布工作流](.github/workflows/release-windows.yml)会在 Windows 服务器上测试、编译，把安装程序发布为 “Tapline for Windows 0.1.0-beta.4”，并用这一段更新日志作为发布说明。带后缀的版本会标记为预发布版；Windows 版永远不会被标记为最新版本，所以[安装](#安装)里的下载链接始终指向 Mac 版。`windows/` 下的改动由 [Windows 工作流](.github/workflows/windows.yml)在 Windows 上编译。
+Windows 版和 Mac 版一起发布，版本号相同。Windows 版的改动记在 [windows/CHANGELOG.md](windows/CHANGELOG.md) 的 **Unreleased** 部分：这一段有内容时，`scripts/release.sh` 会把它也整理成 `## 0.2.0`，更新 `Tapline.csproj` 里的版本号，并在同一个提交上打 `windows-v0.2.0` 标签。[Windows 发布工作流](.github/workflows/release-windows.yml)随后会在 Windows 服务器上测试、编译，把安装程序发布为 “Tapline for Windows 0.2.0”，并用这一段更新日志作为发布说明。带后缀的版本会标记为预发布版；Windows 版永远不会被标记为最新版本，所以[安装](#安装)里的下载链接始终指向 Mac 版。`windows/` 下的改动由 [Windows 工作流](.github/workflows/windows.yml)在 Windows 上编译。
 
 ## 已知限制
 
@@ -488,7 +479,7 @@ git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
 - ADI-2 导出的是 ADI-2 DAC（FS）的文件；ADI-2 Pro 和 2/4 Pro 用的是别的文件类型。
 - 第一次调某个 App 的音量时，重建音频通路会短暂停一下。
 - 发布版还没有经过公证（见[安装](#安装)）。
-- Windows 版是测试版，还没有代码签名。它和 macOS 版的区别见 [Windows 版功能一览](#windows-版功能一览)。
+- Windows 版还没有代码签名。它和 macOS 版的区别见 [Windows 版功能一览](#windows-版功能一览)。
 - 虚拟音箱没有头部追踪：转头时音箱会跟着转。
 - 模拟试听的设备扬声器是典型设备的近似模拟，不是任何产品的实测数据；耳机模拟假定你自己的耳机已经校正到目标曲线。
 
