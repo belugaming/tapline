@@ -81,12 +81,17 @@ struct EqualizerPage: View {
             }
 
             if model.settings.filterPhase == .linear {
-                Label("Linear phase · \(model.linearPhaseLatencyMS) ms", systemImage: "timer")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help(Text("The EQ plays in linear phase: the same curve without phase shift, but the sound comes \(model.linearPhaseLatencyMS) ms late and video may lose lip sync. Switch it in the More menu or in Settings."))
+                // On a narrow window only the latency, or only the symbol.
+                ViewThatFits(in: .horizontal) {
+                    Label("Linear phase · \(model.linearPhaseLatencyMS) ms", systemImage: "timer")
+                    Label("\(model.linearPhaseLatencyMS) ms", systemImage: "timer")
+                    Image(systemName: "timer")
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .layoutPriority(-1)
+                .help(Text("The EQ plays in linear phase: the same curve without phase shift, but the sound comes \(model.linearPhaseLatencyMS) ms late and video may lose lip sync. Switch it in the More menu or in Settings."))
             }
 
             Spacer(minLength: 16)
