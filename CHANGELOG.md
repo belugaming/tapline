@@ -10,6 +10,11 @@ GitHub release notes, so write entries for users.
 ## [Unreleased]
 
 ### Added
+- **Listen As** on the Assistant page: hear how your music would sound on other playback devices, through your own headphones, like Sonarworks SoundID's Translation Check. Pick headphones or earbuds from squig.link (AirPods, EarPods, Galaxy Buds…) and Tapline fits an EQ from the target your headphone correction aims at to that device: the raw difference when both were measured in the same database, else through each database's own target so the measurement rigs cancel. Or pick one of five built-in speakers: phone, laptop, TV, small Bluetooth speaker and car, approximations with their channel handling (mono, narrow stereo). It plays on top of your EQ without changing it, switching is level-matched, and it is never saved in presets. Switch it on the card, in the menu bar panel or with ⌃⌥⌘L; Tapline remembers the last device and starts with it off.
+
+## [0.4.0] - 2026-10-13
+
+### Added
 - **Virtual Speakers** on the Effects page: on headphones, the music plays from a pair of speakers in front of you instead of inside your head, like Sonarworks SoundID Virtual Monitoring. Two built-in sets from the SADIE II database (Neumann KU100 dummy head): a treated studio room, and anechoic. Import your own: HeSuVi files, Impulcifer's measurements of your own ears, 4-channel files or two stereo files. Saved per device and in presets with **Include effects**. It replaces crossfeed and adds 5 ms of latency while it is on.
 - **Strength** in Assistant → Headphone Correction, 0–100 %, like a Dry/Wet control: apply only part of a correction. For squig.link measurements and your own measurement, the EQ is fitted to a curve that far between the headphones and the target, so it stays accurate; the green line and *Deviation* show the result. AutoEQ presets scale each band's gain.
 - **Settings → EQ Bypass → Match loudness when bypassing** (on by default).
@@ -17,6 +22,9 @@ GitHub release notes, so write entries for users.
 ### Changed
 - Switching the EQ off (EQ switch, ⌘B, ⌃⌥⌘B, menu bar) is now level-matched: the original plays at the loudness of the EQ instead of a few dB louder, because a correction's preamp makes it quieter and louder tends to sound better. The gain is the EQ's loudness change on pink noise, weighted like a LUFS meter, and is never a boost. It shows next to the EQ switch while the EQ is off.
 - Switching the EQ on or off crossfades over a few milliseconds instead of cutting, so it no longer clicks.
+
+### Fixed
+- The controls at the top right of the Equalizer page (input spectrum, range, more) keep their size while you edit the EQ. On a narrow window they were squeezed whenever the preset name changed, for example from a preset's name to "Custom".
 
 ## [0.3.2] - 2026-10-12
 
@@ -120,7 +128,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/belugaming/tapline/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/belugaming/tapline/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/belugaming/tapline/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/belugaming/tapline/compare/v0.2.3...v0.3.0

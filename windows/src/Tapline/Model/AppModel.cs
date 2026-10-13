@@ -204,8 +204,13 @@ sealed class AppModel
         }
         try
         {
-            var devices = state.Profiles
-                .Where(p => p.Key != "none")
+            // "Listen as" plays on the current output only, also when its EQ was never changed.
+            var simulated = Simulating ? state.ListenAs : null;
+            var current = CurrentOutput;
+            var profiles = state.Profiles.Where(p => p.Key != "none").ToList();
+            if (simulated != null && current != null && !state.Profiles.ContainsKey(current.Id))
+                profiles.Add(new(current.Id, DspSettings.Flat));
+            var devices = profiles
                 .Select(p =>
                 {
                     var known = Devices.Outputs.FirstOrDefault(d => d.Id == p.Key);
@@ -213,7 +218,8 @@ sealed class AppModel
                     var channels = known?.Channels ?? state.DeviceChannels.GetValueOrDefault(p.Key, 2);
                     var rate = known?.SampleRate ?? 48000;
                     return new ApoConfig.Device(guid, known?.Name ?? state.DeviceNames.GetValueOrDefault(p.Key, guid),
-                                                channels, rate, p.Value, SpeakerFilesFor(p.Value, channels, rate));
+                                                channels, rate, p.Value, SpeakerFilesFor(p.Value, channels, rate),
+                                                p.Key == current?.Id ? simulated : null);
                 })
                 .Where(d => !string.Equals(d.Guid, bypassDeviceGuid, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -448,6 +454,8 @@ sealed class AppModel
         ];
         state.Profiles[CurrentDeviceId] = demo;
         selectedBandId = demo.Bands[4].Id;
+        state.ListenAs = SpeakerProfile.Phone.Simulation();
+        Simulating = true;
 
         var frequencies = Meters.SpectrumFrequencies;
         var eq = ResponseCurve.ResponseDb(demo.ActiveBands, frequencies, 48000);
@@ -499,6 +507,7 @@ sealed class AppModel
         if (!hotKeys.Register(1, System.Windows.Input.Key.P, TogglePower)) failed.Add("Ctrl+Alt+Shift+P");
         if (!hotKeys.Register(2, System.Windows.Input.Key.B, () => SetEqEnabled(!Settings.EqEnabled))) failed.Add("Ctrl+Alt+Shift+B");
         if (!hotKeys.Register(3, System.Windows.Input.Key.K, ToggleCompare)) failed.Add("Ctrl+Alt+Shift+K");
+        if (!hotKeys.Register(4, System.Windows.Input.Key.L, ToggleSimulation)) failed.Add("Ctrl+Alt+Shift+L");
         ShortcutConflicts = failed;
     }
 
@@ -526,6 +535,42 @@ sealed class AppModel
             NotifyChanged();
         }
     }
+
+    // MARK: - Listen as
+
+    /// "Listen as": the device chosen last (remembered). Never part of the device's settings, so
+    /// presets, A/B and undo never see it; it plays on top of whatever the current output's EQ does.
+    public DeviceSimulation? Simulation => state.ListenAs;
+
+    /// Whether the simulation plays now: off at every start.
+    public bool Simulating { get; private set; }
+
+    /// Plays `simulation` from now on (or only chooses it, with `play` false) and remembers it.
+    public void ChooseSimulation(DeviceSimulation simulation, bool play = true)
+    {
+        state.ListenAs = simulation;
+        if (play) Simulating = true;
+        ScheduleSave();
+        ScheduleConfig();
+        NotifyChanged();
+    }
+
+    public void SetSimulating(bool on)
+    {
+        Simulating = on && state.ListenAs != null;
+        ScheduleConfig();
+        NotifyChanged();
+    }
+
+    public void ToggleSimulation() => SetSimulating(!Simulating);
+
+    /// How much quieter than level-matched the simulation plays: Equalizer APO has no limiter, so the
+    /// make-up gain keeps the EQ's headroom (see DeviceSimulation.MakeupGainDb).
+    public double SimulationLevelShortfallDb =>
+        state.ListenAs is { } sim ? sim.LevelShortfallDb(Settings, SampleRate, state.LevelMatchedBypass) : 0;
+
+    /// What the current output's headphone correction was fitted to, if Tapline fitted it.
+    public CorrectionReference? CorrectionReference => state.CorrectionReferences.GetValueOrDefault(CurrentDeviceId);
 
     // MARK: - Device settings
 
@@ -731,8 +776,11 @@ sealed class AppModel
     }
 
     /// Applies a generated correction (AutoEQ, squig.link fit, room) and saves it as a preset.
-    public EqPreset ApplyCorrection(IEnumerable<EqBand> bands, string name, string? source, double? preampDb = null)
+    /// `reference` records what a squig.link or own-measurement fit aimed at, for "Listen as".
+    public EqPreset ApplyCorrection(IEnumerable<EqBand> bands, string name, string? source, double? preampDb = null, CorrectionReference? reference = null)
     {
+        if (reference != null) state.CorrectionReferences[CurrentDeviceId] = reference;
+        else state.CorrectionReferences.Remove(CurrentDeviceId);
         var list = bands.Take(DspSettings.MaxBands).ToList();
         Mutate(s =>
         {
@@ -798,6 +846,9 @@ sealed class AppModel
     {
         state.Profiles.Clear();
         state.UserPresets.Clear();
+        state.CorrectionReferences.Clear();
+        state.ListenAs = null;
+        Simulating = false;
         StateStore.ForgetUnreadable();
         alternate.Clear();
         undoStack.Clear();

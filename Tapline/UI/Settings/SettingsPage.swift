@@ -29,6 +29,7 @@ struct SettingsPage: View {
                         GridRow { Text("⌃⌥⌘P").monospaced(); Text("Turn processing on or off") }
                         GridRow { Text("⌃⌥⌘B").monospaced(); Text("Bypass EQ (compare with the original sound)") }
                         GridRow { Text("⌃⌥⌘K").monospaced(); Text("Compare A/B") }
+                        GridRow { Text("⌃⌥⌘L").monospaced(); Text("Listen as another device (Assistant → Listen As)") }
                     }
                     .font(.callout)
                     .foregroundStyle(model.globalShortcutsEnabled ? .primary : .secondary)

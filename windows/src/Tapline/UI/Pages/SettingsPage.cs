@@ -32,7 +32,8 @@ sealed class SettingsPage : PageBase
             Ui.Form(170,
                 ("Ctrl+Alt+Shift+P", Ui.Text(L.T("Turn processing on or off"))),
                 ("Ctrl+Alt+Shift+B", Ui.Text(L.T("Bypass EQ (compare with the original sound)"))),
-                ("Ctrl+Alt+Shift+K", Ui.Text(L.T("Compare A/B")))),
+                ("Ctrl+Alt+Shift+K", Ui.Text(L.T("Compare A/B"))),
+                ("Ctrl+Alt+Shift+L", Ui.Text(L.T("Listen as another device (Assistant → Listen As)")))),
             conflicts,
             Ui.Caption(L.T("In the Tapline window: Ctrl+Z undo, Ctrl+Y redo, Ctrl+B bypass EQ, Ctrl+K compare A/B.")));
 

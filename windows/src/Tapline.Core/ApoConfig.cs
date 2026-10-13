@@ -11,7 +11,8 @@ namespace Tapline.Core;
 /// crossfeed or virtual speakers, balance, output gain. There is no limiter in Equalizer APO; the
 /// automatic preamp keeps the EQ from clipping. With <c>levelMatchedBypass</c>, a device whose EQ is off gets a
 /// preamp equal to the EQ's loudness change instead (never a boost), so switching the EQ off
-/// compares sound rather than level.
+/// compares sound rather than level. A "Listen as" simulation follows the EQ, as on macOS: its
+/// make-up gain and filters, and its stereo width folded into the width matrix.
 public static class ApoConfig
 {
     /// First line of every configuration Tapline writes, so it can tell its own from the user's.
@@ -23,8 +24,10 @@ public static class ApoConfig
     public sealed record SpeakerFiles(string FrontLeftToLeft, string FrontLeftToRight, string FrontRightToLeft, string FrontRightToRight);
 
     /// <summary><paramref name="Speakers"/>: the files for Virtual Speakers when the device has
-    /// them on and they could be written; without them the effect is left out.</summary>
-    public sealed record Device(string Guid, string Name, int Channels, double SampleRate, DspSettings Settings, SpeakerFiles? Speakers = null);
+    /// them on and they could be written; without them the effect is left out.
+    /// <paramref name="Simulation"/>: the "Listen as" device playing on this output, if any.</summary>
+    public sealed record Device(string Guid, string Name, int Channels, double SampleRate, DspSettings Settings, SpeakerFiles? Speakers = null,
+                                DeviceSimulation? Simulation = null);
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -51,6 +54,7 @@ public static class ApoConfig
         sb.AppendLine($"Device: {d.Guid}");
         sb.AppendLine("Channel: all");
 
+        var number = 1;
         if (s.EqEnabled)
         {
             var preamp = s.EffectivePreampDb(d.SampleRate);
@@ -61,7 +65,6 @@ public static class ApoConfig
                 .Where(b => !b.Type.UsesGain() || Math.Abs(b.Gain) >= 0.005)
                 .ToList();
             var both = bands.Where(b => b.Channels == EqChannels.Both || (!stereo && b.Channels == EqChannels.Left)).ToList();
-            var number = 1;
             foreach (var b in both) sb.AppendLine(Filter(number++, b));
             if (stereo)
             {
@@ -81,6 +84,18 @@ public static class ApoConfig
             if (Math.Abs(gain) >= 0.005) sb.AppendLine($"Preamp: {N(gain, 2)} dB");
         }
 
+        // "Listen as": on top of the EQ, bypassed or not. No limiter follows, so the make-up gain
+        // keeps the headroom of the EQ (see DeviceSimulation.MakeupGainDb).
+        var simulation = d.Simulation;
+        if (simulation != null)
+        {
+            sb.AppendLine($"# Listen as {simulation.Name.Replace('\n', ' ')}: a temporary simulation, not part of the EQ");
+            var makeup = simulation.MakeupGainDb(s, d.SampleRate, levelMatchedBypass);
+            if (Math.Abs(makeup) >= 0.005) sb.AppendLine($"Preamp: {N(makeup, 2)} dB");
+            foreach (var b in simulation.PlayedBands.Where(b => !b.Type.UsesGain() || Math.Abs(b.Gain) >= 0.005))
+                sb.AppendLine(Filter(number++, b));
+        }
+
         var fx = s.Effects;
         // Clamp (NaN-safe) every value that is written, so the configuration never holds "NaN".
         var outputGainDb = fx.OutputGainDb.Clamp(EffectsSettings.OutputGainMin, EffectsSettings.OutputGainMax);
@@ -91,8 +106,9 @@ public static class ApoConfig
             return;
         }
 
-        // Swap, then mid/side width (0 = mono), as one matrix.
-        var w = fx.Mono ? 0 : fx.Width.Clamp(EffectsSettings.WidthMin, EffectsSettings.WidthMax);
+        // Swap, then mid/side width (0 = mono), as one matrix. A simulated device's width comes
+        // first; two mid/side widths in a row make one of their product.
+        var w = (fx.Mono ? 0 : fx.Width.Clamp(EffectsSettings.WidthMin, EffectsSettings.WidthMax)) * (simulation?.Width ?? 1);
         double a = 0.5 + 0.5 * w, c = 0.5 - 0.5 * w;
         var (m11, m12, m21, m22) = fx.SwapChannels ? (c, a, a, c) : (a, c, c, a);
         var balance = fx.Balance.Clamp(EffectsSettings.BalanceMin, EffectsSettings.BalanceMax);

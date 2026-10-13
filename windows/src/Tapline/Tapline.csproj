@@ -15,7 +15,7 @@
     <Product>Tapline</Product>
     <Company>Tapline contributors</Company>
     <Copyright>Copyright © 2026 Tapline contributors. GPL-3.0.</Copyright>
-    <Version Condition="'$(Version)' == ''">0.1.0</Version>
+    <Version Condition="'$(Version)' == ''">0.4.0</Version>
     <!-- Equalizer APO only ships for x64, so Tapline does too. -->
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

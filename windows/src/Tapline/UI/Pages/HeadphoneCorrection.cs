@@ -136,7 +136,7 @@ static class HeadphoneCorrection
     }
 
     /// Cancels the previous lifetime each time a new one starts, so work of replaced views stops.
-    private sealed class Lifetime
+    internal sealed class Lifetime
     {
         private CancellationTokenSource? current;
 
@@ -149,7 +149,7 @@ static class HeadphoneCorrection
     }
 
     /// A search field with a placeholder, a busy indicator and a ~150 ms debounce.
-    private sealed class SearchBox
+    internal sealed class SearchBox
     {
         private readonly ProgressBar busy = HeadphoneCorrection.Spinner(36);
 
@@ -207,7 +207,7 @@ static class HeadphoneCorrection
     }
 
     /// A bordered list of search results with an overlay when it is empty.
-    private sealed class ResultList<T> where T : class
+    internal sealed class ResultList<T> where T : class
     {
         private readonly ListBox list;
         private readonly TextBlock empty;
@@ -556,7 +556,7 @@ static class HeadphoneCorrection
                         L.T("• Measurements belong to their reviewers. Visit their sites to support them."));
                 }
                 return new CorrectionWorkbench(model, inner, workbenchLife.Next(life),
-                    phone.DisplayName, phone.Database.SiteName, phone.Database.BaseUrl, phone.Database,
+                    phone.DisplayName, phone.Database.SiteName, phone.Database.BaseUrl, phone.Database, phone.Database,
                     $"{phone.File} · {phone.Database.SiteName}",
                     token => Task.Run(() => model.Squig.MeasurementAsync(phone, token), token)).View;
             }).Top();
@@ -629,7 +629,7 @@ static class HeadphoneCorrection
             var workbench = scope.Dynamic(() => measurement != null && TargetDatabase is { } db ? $"{measurementVersion}|{fileName}|{db.Id}" : null, inner =>
             {
                 if (measurement is not { } fr || TargetDatabase is not { } db) return null;
-                return new CorrectionWorkbench(model, inner, workbenchLife.Next(life), fileName, null, null, db, fileName,
+                return new CorrectionWorkbench(model, inner, workbenchLife.Next(life), fileName, null, null, db, null, fileName,
                     _ => Task.FromResult(fr)).View;
             });
 
@@ -735,6 +735,8 @@ static class HeadphoneCorrection
         private readonly UiScope scope;
         private readonly CancellationToken life;
         private readonly SquigService.Database database;
+        /// The squig.link database of the measurement; null for the user's own.
+        private readonly SquigService.Database? measuredIn;
         private readonly string presetName;
         private readonly string? credit;
         private readonly Func<CancellationToken, Task<FrequencyResponse>> loadMeasurement;
@@ -760,12 +762,14 @@ static class HeadphoneCorrection
         private readonly record struct FitKey(string? Target, double Bass, double Tilt, int Filters, bool KeepBass, double Strength, bool Ready);
 
         public CorrectionWorkbench(AppModel model, UiScope scope, CancellationToken life, string title, string? credit, Uri? creditUrl,
-                                   SquigService.Database database, string presetName, Func<CancellationToken, Task<FrequencyResponse>> loadMeasurement)
+                                   SquigService.Database database, SquigService.Database? measuredIn, string presetName,
+                                   Func<CancellationToken, Task<FrequencyResponse>> loadMeasurement)
         {
             this.model = model;
             this.scope = scope;
             this.life = life;
             this.database = database;
+            this.measuredIn = measuredIn;
             this.presetName = presetName;
             this.credit = credit;
             this.loadMeasurement = loadMeasurement;
@@ -834,8 +838,10 @@ static class HeadphoneCorrection
 
             var apply = new ApplyButton(() =>
             {
-                if (result is not { } r || computing) return;
-                model.ApplyCorrection(r.Bands, presetName, this.credit ?? L.T("My measurement"));
+                if (result is not { } r || computing || targetName is not { } target) return;
+                var targets = targetDatabase ?? database;
+                model.ApplyCorrection(r.Bands, presetName, this.credit ?? L.T("My measurement"),
+                    reference: new CorrectionReference(measuredIn?.Id, targets.Id, targets.SiteName, target));
                 applied = true;
                 Refresh();
             });

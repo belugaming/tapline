@@ -28,6 +28,7 @@ sealed class AssistantPage : PageBase
         var toneRow = Ui.Columns((QuickToneCard(), Ui.Star()), (null, Ui.Px(16)), (SoundAssistantCard(), Ui.Star()));
         Content = Ui.Page(Ui.VStack(16,
             HeadphoneCorrection.Card(model, Scope),
+            ListenAs.Card(model, Scope),
             toneRow,
             PresetsCard(),
             ImportExportCard()), 980);

@@ -78,7 +78,7 @@ sealed class TrayIcon : IDisposable
     }
 }
 
-/// The panel opened from the tray icon: power, output, volume, EQ and the apps playing now.
+/// The panel opened from the tray icon: power, output, volume, EQ, "Listen as" and the apps playing now.
 sealed class TrayPanel : Window
 {
     private readonly AppModel model;
@@ -117,6 +117,16 @@ sealed class TrayPanel : Window
         thumbHost.Cursor = System.Windows.Input.Cursors.Hand;
         thumbHost.MouseLeftButtonUp += (_, _) => openMain();
 
+        var listen = scope.Switch(() => model.Simulating, model.SetSimulating);
+        scope.Bind(listen, s => s.IsEnabled = model.Simulation != null);
+        var listenName = scope.Text(() => model.Simulation is { } sim ? ListenAs.Title(sim) : L.T("Choose a device in Assistant"), 13);
+        listenName.TextTrimming = TextTrimming.CharacterEllipsis;
+        scope.Bind(listenName, t =>
+        {
+            t.Foreground = model.Simulating ? Theme.Accent : Theme.Secondary;
+            t.ToolTip = model.Simulation is { } sim ? ListenAs.Detail(sim) : null;
+        });
+
         var playing = scope.Dynamic(() => string.Join("|", model.Sessions.Apps.Where(a => a.IsPlaying).Select(a => a.Key)), inner =>
         {
             var apps = model.Sessions.Apps.Where(a => a.IsPlaying).Take(6).ToList();
@@ -135,6 +145,7 @@ sealed class TrayPanel : Window
             volume,
             Ui.HStack(8, Ui.Text(L.T("EQ"), 13, FontWeights.SemiBold), eq, Ui.Spacer(), preset),
             thumbHost,
+            Ui.HStack(8, Ui.Text(L.T("Listen as"), 13, FontWeights.SemiBold), listen, listenName.Filling()),
             playing,
             new Border { Height = 1, Background = Theme.Separator },
             footer);
