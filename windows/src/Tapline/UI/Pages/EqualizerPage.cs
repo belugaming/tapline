@@ -66,6 +66,11 @@ sealed class EqualizerPage : PageBase
         var presetMenu = PresetMenuButton(Model, Scope);
         var save = Ui.IconButton(Glyphs.Save, SavePreset, L.T("Save the current curve as a preset"));
         var compare = CompareButton();
+        var matched = Scope.Text(() => !Model.Settings.EqEnabled && Model.LevelMatchedBypass
+            ? L.F("Level-matched %@", Format.Gain(Model.Settings.BypassGainDb(Model.SampleRate))) : "", 11.5, null, Theme.Secondary);
+        matched.VerticalAlignment = VerticalAlignment.Center;
+        matched.ToolTip = L.T("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings.");
+        Scope.Bind(matched, t => t.Visibility = t.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible);
         var range = Scope.Segmented<double>([(6, "±6"), (12, "±12"), (18, "±18"), (24, "±24")],
             () => graph.DbRange, v => { graph.DbRange = v; Model.Prefs.Set("graphRange", v); Scope.Refresh(); }, 12).Tip(L.T("Vertical range of the graph"));
         var more = Ui.MenuButton(Ui.Glyph(Glyphs.More, 14, Theme.Text), () =>
@@ -76,7 +81,7 @@ sealed class EqualizerPage : PageBase
             Ui.Item(L.T("Copy as Equalizer APO Text"), () => Ui.Copy(Model.ExportParametricEq())),
         ], L.T("More"));
         more.Margin = new Thickness(10, 0, 0, 0);
-        return Ui.HStack(10, eqLabel, eqSwitch, presetMenu.MaxW(260), save, compare, Ui.Spacer(16), range, more);
+        return Ui.HStack(10, eqLabel, eqSwitch, presetMenu.MaxW(260), save, compare, matched, Ui.Spacer(16), range, more);
     }
 
     private FrameworkElement MeterColumn()

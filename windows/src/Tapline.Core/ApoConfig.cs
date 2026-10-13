@@ -9,7 +9,9 @@ namespace Tapline.Core;
 /// plays. Channels are addressed by number ("1" = left, "2" = right), which works whatever channel
 /// names the driver reports. Effects follow the order of the macOS kernel: EQ, swap/width,
 /// crossfeed, balance, output gain. There is no limiter in Equalizer APO; the automatic preamp
-/// keeps the EQ from clipping.
+/// keeps the EQ from clipping. With <c>levelMatchedBypass</c>, a device whose EQ is off gets a
+/// preamp equal to the EQ's loudness change instead (never a boost), so switching the EQ off
+/// compares sound rather than level.
 public static class ApoConfig
 {
     /// First line of every configuration Tapline writes, so it can tell its own from the user's.
@@ -20,7 +22,7 @@ public static class ApoConfig
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    public static string Build(bool processing, IEnumerable<Device> devices)
+    public static string Build(bool processing, IEnumerable<Device> devices, bool levelMatchedBypass = true)
     {
         var sb = new StringBuilder();
         sb.AppendLine(HeaderLine + " Edit the EQ in Tapline; changes made here are overwritten.");
@@ -30,11 +32,11 @@ public static class ApoConfig
             sb.AppendLine("# Processing is off.");
             return sb.ToString();
         }
-        foreach (var device in devices) AppendDevice(sb, device);
+        foreach (var device in devices) AppendDevice(sb, device, levelMatchedBypass);
         return sb.ToString();
     }
 
-    private static void AppendDevice(StringBuilder sb, Device d)
+    private static void AppendDevice(StringBuilder sb, Device d, bool levelMatchedBypass)
     {
         var s = d.Settings;
         var stereo = d.Channels >= 2;
@@ -66,6 +68,11 @@ public static class ApoConfig
                 }
                 sb.AppendLine("Channel: all");
             }
+        }
+        else if (levelMatchedBypass)
+        {
+            var gain = s.BypassGainDb(d.SampleRate);
+            if (Math.Abs(gain) >= 0.005) sb.AppendLine($"Preamp: {N(gain, 2)} dB");
         }
 
         var fx = s.Effects;

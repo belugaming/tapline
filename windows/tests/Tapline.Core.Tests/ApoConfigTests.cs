@@ -267,10 +267,35 @@ public class ApoConfigTests
         s.EqEnabled = false;
         s.Bands = [new EqBand(FilterType.Peak, 1000, 6, 1)];
         s.Effects = new EffectsSettings { Mono = true };
-        var config = Build(s);
+        var config = ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 2, SampleRate, s)], levelMatchedBypass: false);
         Assert.DoesNotContain("Filter", config);
         Assert.DoesNotContain("Preamp", config);
         Assert.Contains("Copy:", config);
+    }
+
+    [Fact]
+    public void EqOffIsLevelMatched()
+    {
+        var s = DspSettings.Flat;
+        s.EqEnabled = false;
+        s.Bands = [new EqBand(FilterType.LowShelf, 105, 6, 0.7), new EqBand(FilterType.Peak, 1000, 6, 1)];
+        s.Effects = new EffectsSettings { Width = 1.3 };
+        var config = Build(s);
+        Assert.DoesNotContain("Filter", config);
+        Assert.Contains("Copy:", config);
+        var expected = s.BypassGainDb(SampleRate);
+        Assert.InRange(expected, -6, -2);
+        // No curve, just the EQ's loudness change at every frequency (for a centred sound, L and R in phase).
+        foreach (var f in new[] { 50.0, 1000, 10_000 })
+        {
+            var t = Interpret(config, f);
+            Assert.True(Math.Abs(Db(t.LL + t.LR) - expected) < 0.006, $"{f} Hz: {Db(t.LL + t.LR)} dB, want {expected}");
+        }
+
+        // A bypass that would have to boost plays at the original level.
+        s.AutoPreamp = false;
+        s.PreampDb = 6;
+        Assert.DoesNotContain("Preamp", Build(s));
     }
 
     [Fact]

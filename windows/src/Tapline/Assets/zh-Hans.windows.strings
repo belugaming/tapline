@@ -54,3 +54,4 @@
 "Waiting for your go-ahead" = "等待你确认";
 "Previous Equalizer APO configuration" = "原 Equalizer APO 配置";
 "Tapline keeps running in the notification area. Right-click its icon to quit." = "Tapline 仍在通知区域（托盘）运行。右键点它的图标可以退出。";
+"What you hear when the EQ is switched off (EQ switch, Ctrl+B, Ctrl+Alt+Shift+B, notification area)." = "关掉 EQ 时听到的声音（EQ 开关、Ctrl+B、Ctrl+Alt+Shift+B、通知区域）。";

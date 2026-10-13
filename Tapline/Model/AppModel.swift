@@ -58,6 +58,14 @@ final class AppModel {
             updateShortcuts()
         }
     }
+    /// Plays the bypassed sound at the loudness of the EQ, so that switching the EQ off
+    /// compares the sound and not the level (a correction's preamp makes it quieter).
+    var levelMatchedBypass: Bool {
+        didSet {
+            defaults.set(levelMatchedBypass, forKey: Keys.levelMatchedBypass)
+            pushSettings()
+        }
+    }
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var alternate: [String: DSPSettings] = [:]
@@ -94,6 +102,7 @@ final class AppModel {
         static let showPre = "showPreSpectrum"
         static let tilt = "analyzerTilt"
         static let shortcuts = "globalShortcuts"
+        static let levelMatchedBypass = "levelMatchedBypass"
     }
 
     init() {
@@ -101,6 +110,7 @@ final class AppModel {
         showPreSpectrum = defaults.object(forKey: Keys.showPre) as? Bool ?? true
         analyzerTilt = defaults.object(forKey: Keys.tilt) as? Double ?? 3
         globalShortcutsEnabled = defaults.object(forKey: Keys.shortcuts) as? Bool ?? true
+        levelMatchedBypass = defaults.object(forKey: Keys.levelMatchedBypass) as? Bool ?? true
         loadStoredSettings()
         postAnalyzer.tiltDBPerOctave = analyzerTilt
         preAnalyzer.tiltDBPerOctave = analyzerTilt
@@ -298,7 +308,7 @@ final class AppModel {
 
     private func pushSettings() {
         guard engine.isRunning else { return }
-        engine.kernel.setSettings(settings, sampleRate: engine.sampleRate)
+        engine.kernel.setSettings(settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass)
     }
 
     private func pushGains() {
