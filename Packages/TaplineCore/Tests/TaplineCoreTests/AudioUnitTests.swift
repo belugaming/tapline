@@ -279,14 +279,14 @@ import TaplineDSP
                                        bands: [EQBand(frequency: 3000, gain: 4, q: 2)], source: "Crinacle")
         var state = AudioUnitState()
         // Without headphones from the app there is nothing to play.
-        state.set(.listenAs, to: AudioUnitParameter.listenAsHeadphones)
+        state.set(.listenAs, to: PluginParameter.listenAsHeadphones)
         #expect(state.playingDevice == nil)
-        state.set(.listenAs, to: AudioUnitParameter.listenAsHeadphones, headphones: airpods)
+        state.set(.listenAs, to: PluginParameter.listenAsHeadphones, headphones: airpods)
         #expect(state.playingDevice == airpods)
-        #expect(state.value(of: .listenAs) == AudioUnitParameter.listenAsHeadphones)
+        #expect(state.value(of: .listenAs) == PluginParameter.listenAsHeadphones)
         // The state keeps them: the project plays them on a Mac without the app's choice too.
         state.set(.listenAs, to: 0)
-        state.set(.listenAs, to: AudioUnitParameter.listenAsHeadphones)
+        state.set(.listenAs, to: PluginParameter.listenAsHeadphones)
         #expect(state.playingDevice == airpods)
     }
 }

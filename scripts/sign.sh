@@ -2,6 +2,7 @@
 # Signs Tapline.app with Tapline's self-signed certificate, so macOS keeps the audio and
 # microphone permissions across updates: an ad-hoc signature is a new identity with every
 # build, a certificate stays the same. Not notarization: Gatekeeper still asks once.
+# The Audio Unit extension inside is signed first, with its sandbox entitlements.
 #
 #   scripts/sign.sh build/Build/Products/Release/Tapline.app
 #
@@ -45,7 +46,24 @@ if [[ -z "$identity" ]]; then
   exit 1
 fi
 
+# Embedded extensions first (the Audio Unit, Contents/PlugIns/TaplineAU.appex), each with the
+# entitlements it was built with: an Audio Unit extension without its sandbox does not load.
+for appex in "$app"/Contents/PlugIns/*.appex; do
+  [[ -d "$appex" ]] || continue
+  entitlements="$work/$(basename "$appex").entitlements"
+  codesign --display --entitlements - --xml "$appex" > "$entitlements"
+  if ! grep -q "com.apple.security.app-sandbox" "$entitlements"; then
+    echo "::error::$(basename "$appex") is not sandboxed: build it with its entitlements."
+    exit 1
+  fi
+  # A debugging allowance has no place in a release.
+  /usr/libexec/PlistBuddy -c "Delete :com.apple.security.get-task-allow" "$entitlements" >/dev/null 2>&1 || true
+  codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none --entitlements "$entitlements" "$appex"
+  codesign --verify --strict --verbose=2 "$appex"
+  codesign --display --entitlements - "$appex"
+done
+
 codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none "$app"
-codesign --verify --strict --verbose=2 "$app"
+codesign --verify --strict --deep --verbose=2 "$app"
 # The designated requirement names the certificate; it is what macOS remembers permissions by.
 codesign --display --requirements - "$app"

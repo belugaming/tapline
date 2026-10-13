@@ -31,7 +31,7 @@ public enum SharedPresets {
 }
 
 /// The Audio Unit's automatable parameters, by address.
-public enum AudioUnitParameter: UInt64, CaseIterable, Sendable {
+public enum PluginParameter: UInt64, CaseIterable, Sendable {
     /// 0 ... 100 %: how much of the curve plays.
     case strength = 0
     /// 1: the EQ plays; 0: its (level-matched) bypass.
@@ -176,7 +176,7 @@ public struct AudioUnitState: Codable, Hashable, Sendable {
     }
 
     /// The value of a parameter for the host.
-    public func value(of parameter: AudioUnitParameter) -> Float {
+    public func value(of parameter: PluginParameter) -> Float {
         switch parameter {
         case .strength:
             return Float((strength.isNaN ? 1 : strength.clamped(to: 0...1)) * 100)
@@ -187,7 +187,7 @@ public struct AudioUnitState: Codable, Hashable, Sendable {
         case .listenAs:
             guard let device = playingDevice else { return 0 }
             if let profile = device.profile, let i = SpeakerProfile.allCases.firstIndex(of: profile) { return Float(i + 1) }
-            return AudioUnitParameter.listenAsHeadphones
+            return PluginParameter.listenAsHeadphones
         case .filterPhase:
             return Float(FilterPhase.allCases.firstIndex(of: filterPhase) ?? 0)
         }
@@ -195,7 +195,7 @@ public struct AudioUnitState: Codable, Hashable, Sendable {
 
     /// Sets a parameter from the host. `headphones` are the app's (`SharedPresets.listenAsHeadphones`),
     /// for the last value of `listenAs`; without them it plays the headphones it already has, if any.
-    public mutating func set(_ parameter: AudioUnitParameter, to value: Float, headphones: DeviceSimulation? = nil) {
+    public mutating func set(_ parameter: PluginParameter, to value: Float, headphones: DeviceSimulation? = nil) {
         guard value.isFinite else { return }
         let v = value.clamped(to: parameter.range)
         switch parameter {

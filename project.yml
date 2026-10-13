@@ -24,6 +24,8 @@ targets:
       - path: Tapline
     dependencies:
       - package: TaplineCore
+      # The Audio Unit, embedded in Contents/PlugIns: macOS registers it when Tapline is opened.
+      - target: TaplineAU
     info:
       path: Tapline/Resources/Info.plist
       properties:
@@ -50,6 +52,81 @@ targets:
         ENABLE_HARDENED_RUNTIME: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LOCALIZATION_PREFERS_STRING_CATALOGS: NO
+        ONLY_ACTIVE_ARCH: NO
+  # Tapline as an Audio Unit effect (AUv3, aufx Tpln Tpln) for Logic Pro, GarageBand and other
+  # hosts: the same kernel on the host's buffers. Sandboxed, as AUv3 extensions must be; it
+  # reads the app's presets through a read-only exception for the app's preferences domain.
+  TaplineAU:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: TaplineAU
+      - path: Tapline/UI/Theme.swift
+      - path: Tapline/Resources/VirtualSpeakers
+    dependencies:
+      - package: TaplineCore
+      - sdk: CoreAudioKit.framework
+    info:
+      path: TaplineAU/Info.plist
+      properties:
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleDisplayName: Tapline
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en, zh-Hans]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "Copyright © 2026 Tapline contributors. Licensed under GPL-3.0."
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.AudioUnit-UI
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+          NSExtensionAttributes:
+            AudioComponents:
+              - type: aufx
+                subtype: Tpln
+                manufacturer: Tpln
+                name: "Tapline: Tapline"
+                description: Tapline
+                # Set from MARKETING_VERSION when the extension is built (see postBuildScripts).
+                version: 1
+                sandboxSafe: true
+                factoryFunction: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+                tags: [Effects, Equalizer]
+    entitlements:
+      path: TaplineAU/TaplineAU.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        # Import a ParametricEQ.txt from the plugin's window.
+        com.apple.security.files.user-selected.read-only: true
+        # Read the user's presets from the app's preferences (see SharedPresets).
+        com.apple.security.temporary-exception.shared-preference.read-only: [io.github.belugaming.Tapline]
+    postBuildScripts:
+      - name: Audio Unit version
+        shell: /bin/bash
+        basedOnDependencyAnalysis: false
+        script: |
+          # Hosts re-scan an Audio Unit when its version changes: major << 16 | minor << 8 | patch
+          # of MARKETING_VERSION (a suffix such as -beta.1 is left out).
+          set -eu
+          base="${MARKETING_VERSION%%-*}"
+          IFS=. read -r major minor patch <<< "$base"
+          version=$(( ${major:-0} * 65536 + ${minor:-0} * 256 + ${patch:-0} ))
+          /usr/libexec/PlistBuddy -c "Set :NSExtension:NSExtensionAttributes:AudioComponents:0:version $version" \
+            "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.belugaming.Tapline.AudioUnit
+        PRODUCT_NAME: TaplineAU
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # No get-task-allow: the release signature keeps exactly TaplineAU.entitlements.
+        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+        SKIP_INSTALL: YES
         SWIFT_EMIT_LOC_STRINGS: YES
         LOCALIZATION_PREFERS_STRING_CATALOGS: NO
         ONLY_ACTIVE_ARCH: NO
