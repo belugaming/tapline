@@ -9,29 +9,7 @@
 "RME ADI-2 EQ preset" = "RME ADI-2 EQ 预设";
 "All files" = "所有文件";
 
-/* Multichannel speakers (5.1 … 7.1.4): the speakers' names and the measurement's messages. */
-"Front left" = "左前置";
-"Front right" = "右前置";
-"Center speaker" = "中置";
-"Subwoofer (LFE)" = "超低音（LFE）";
-"Second subwoofer (LFE 2)" = "第二超低音（LFE 2）";
-"Front left center" = "左中置";
-"Front right center" = "右中置";
-"Front wide left" = "左前宽";
-"Front wide right" = "右前宽";
-"Surround left" = "左环绕";
-"Surround right" = "右环绕";
-"Rear surround left" = "左后环绕";
-"Rear surround right" = "右后环绕";
-"Rear center" = "后中置";
-"Top front left" = "左前顶置";
-"Top front center" = "中前顶置";
-"Top front right" = "右前顶置";
-"Top middle left" = "左中顶置";
-"Top middle center" = "正中顶置";
-"Top middle right" = "右中顶置";
-"Top rear left" = "左后顶置";
-"Top rear center" = "中后顶置";
-"Top rear right" = "右后顶置";
-"Other channel" = "其他声道";
+/* Multichannel speakers (5.1 … 7.1.4). The speakers' names and the Room page's other strings come from the macOS file. */
 "The output's channels changed. Check its speaker setup in Windows' Sound settings, then try again." = "输出的声道变了。请在 Windows 的声音设置中检查扬声器配置，然后重试。";
+"Windows renders surround sound to the speakers set for this output in the Sound control panel (your output › Configure); Tapline reads the same layout. A Dolby or DTS bitstream passed through to a receiver cannot be processed." = "Windows 会按“声音”控制面板里为这个输出设定的扬声器（你的输出 › 配置）渲染环绕声；Tapline 读取的也是这个布局。直通给功放的杜比或 DTS 码流无法处理。";
+"Not from its place: %@. Check the speaker cables, the receiver's speaker setup and the speakers set for this output in Windows' Sound control panel, then check again." = "位置不对：%@。请检查音箱线、功放的音箱设置以及 Windows“声音”控制面板里为这个输出设定的扬声器，然后再检查一次。";

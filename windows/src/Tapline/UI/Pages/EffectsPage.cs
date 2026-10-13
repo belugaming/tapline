@@ -33,7 +33,7 @@ sealed class EffectsPage : PageBase
         var amount = Scope.LabeledSlider(L.T("Amount"), 0, 1, () => Fx().Crossfeed, (v, d) => Set(f => f with { Crossfeed = v }, d), Format.Percent, 0, Model.Checkpoint);
         Scope.Bind(amount, a => a.IsEnabled = Fx().CrossfeedEnabled);
         var crossfeed = Ui.Card(L.T("Headphone Crossfeed"), L.T("Blends a little of each channel into the other, like listening to speakers. Reduces fatigue on hard-panned recordings."), Glyphs.Headphones,
-            Scope.LabeledSwitch(L.T("Enabled"), () => Fx().CrossfeedEnabled, Model.SetCrossfeed),
+            HeadphonesOnly(Scope.LabeledSwitch(L.T("Enabled"), () => Fx().CrossfeedEnabled, Model.SetCrossfeed)),
             amount);
 
         var speakers = VirtualSpeakersCard();
@@ -46,7 +46,33 @@ sealed class EffectsPage : PageBase
         grid.Children.Add(speakers);
 
         var reset = Ui.Button(L.T("Reset Effects"), () => Model.Mutate(s => s.Effects = new EffectsSettings())).Right();
-        Content = Ui.Page(Ui.VStack(16, intro, grid, reset));
+        var speakerSetup = Scope.Dynamic(() => (Model.IsSurroundOutput ? Model.CurrentLayout : null, Model.CurrentOutput?.Name), inner =>
+            Model.IsSurroundOutput && Model.CurrentLayout is { } layout ? SpeakersCard(inner, layout) : null);
+        Scope.Bind(speakerSetup, c => c.Visibility = Model.IsSurroundOutput ? Visibility.Visible : Visibility.Collapsed);
+        Content = Ui.Page(Ui.VStack(16, intro, speakerSetup, grid, reset));
+    }
+
+    /// A headphone effect's switch: off on a multichannel speaker output, where the effect never plays.
+    private T HeadphonesOnly<T>(T element) where T : UIElement => Scope.Bind(element, e => e.IsEnabled = !Model.IsSurroundOutput);
+
+    /// A multichannel output: which effects reach which speakers, and the speaker corrections.
+    private FrameworkElement SpeakersCard(UiScope scope, SpeakerLayout layout)
+    {
+        bool Corrected() => Model.Settings.Speakers.Layout?.Equals(layout) == true && Model.Settings.Speakers.Corrections.Count > 0;
+        var correction = scope.LabeledSwitch(L.T("Speaker correction"), () => Corrected() && Model.Settings.Speakers.CorrectionEnabled,
+            Model.SetSpeakerCorrectionEnabled);
+        scope.Bind(correction, c => c.IsEnabled = Corrected());
+        return Ui.Card(L.T("Speakers"),
+            L.F("%@ is a %@ speaker layout. Tapline processes each of its %lld speakers.", Model.CurrentOutput?.Name ?? "", layout.Name, layout.SpeakerChannels.Count),
+            Glyphs.Speakers,
+            scope.LabeledSwitch(L.T("Play the EQ on every speaker"), () => Model.Settings.Speakers.EqOnAllSpeakers, Model.SetEqOnAllSpeakers),
+            Ui.Caption(L.T("Off: the EQ plays on the front left and right only. On the subwoofer (LFE) channel it never boosts above 120 Hz.")),
+            correction,
+            scope.Text(() => Corrected()
+                ? L.T("Each speaker's room correction, trim and delay from the Room page.")
+                : L.T("Measure the speakers on the Room page to correct each one."), 11.5, null, Theme.Secondary, wrap: true),
+            Ui.HStack(8, Ui.Glyph(Glyphs.Info, 12, Theme.Secondary).Width(16).Top().Margin(0, 1, 0, 0),
+                Ui.Caption(L.T("Balance, width, mono and swap act on the front left and right speakers. Crossfeed, Virtual Speakers and Listen As are for headphones and stay off on this output.")).Filling()));
     }
 
     private string? importMessage;
@@ -73,7 +99,7 @@ sealed class EffectsPage : PageBase
             t.Visibility = text == null ? Visibility.Collapsed : Visibility.Visible;
         });
         return Ui.Card(L.T("Virtual Speakers"), L.T("Puts the sound in front of you, like a pair of speakers at ±30°, with binaural impulse responses. For headphones; replaces crossfeed."), Glyphs.Speakers,
-            Scope.LabeledSwitch(L.T("Enabled"), () => Model.Settings.Effects.VirtualSpeakersEnabled, Model.SetVirtualSpeakers),
+            HeadphonesOnly(Scope.LabeledSwitch(L.T("Enabled"), () => Model.Settings.Effects.VirtualSpeakersEnabled, Model.SetVirtualSpeakers)),
             Ui.HStack(10, Ui.Text(L.T("Speakers")), picker, Ui.Spacer(), import),
             Scope.Text(() => Detail(Model.CurrentVirtualSpeakers), 11.5, null, Theme.Secondary, wrap: true),
             Ui.HStack(10, remove, Ui.Spacer(), Ui.Link(L.T("Where to find HRIR files"), "https://github.com/belugaming/tapline#virtual-speakers")),

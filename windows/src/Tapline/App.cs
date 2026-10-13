@@ -54,7 +54,9 @@ sealed class App : Application
         if (Snapshot.IsActive)
         {
             window.Show();
-            Snapshot.Run(window, () => new TrayPanel(model, () => { }), Quit);
+            var demo = model;
+            Snapshot.Run(window, () => new TrayPanel(model, () => { }),
+                         Snapshot.UsesDemoData ? () => demo.ShowDemoSpeakers(Audio.RoomAudio.DemoLayout) : null, Quit);
             return;
         }
         if (!background) window.Show();

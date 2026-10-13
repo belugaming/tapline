@@ -64,21 +64,32 @@ public class SpeakerLayoutTests
     [Fact]
     public void OutputsWithoutAUsefulMaskFallBackSensibly()
     {
-        // No mask: Windows' default for the channel count.
-        Assert.Equal([L, R, C, Lfe, Lrs, Rrs, Ls, Rs], SpeakerLayout.FromChannelMask(0, 8).Positions);
-        Assert.Equal(SpeakerLayout.FromChannelMask(0x2D63F, 12), SpeakerLayout.FromChannelMask(0, 12));
-        Assert.Equal(SpeakerLayout.FromChannelMask(0x2D60F, 10), SpeakerLayout.FromChannelMask(0, 10));
-        Assert.Equal([L, R], SpeakerLayout.FromChannelMask(0, 2).Positions);
-        // A mask that names too few channels gives way to the default too.
-        Assert.Equal(SpeakerLayout.FromChannelMask(0x63F, 8), SpeakerLayout.FromChannelMask(0x3F, 8));
+        // KSAUDIO_SPEAKER_DIRECTOUT (no mask), as audio interfaces report: no speakers, no surround.
+        var direct = SpeakerLayout.FromChannelMask(0, 10);
+        Assert.Equal(10, direct.ChannelCount);
+        Assert.All(direct.Positions, p => Assert.Equal(Unknown, p));
+        Assert.False(direct.IsSurround);
+        Assert.False(ApoConfig.ProcessesPerSpeaker(10, direct));
+        // A mask naming only the front pair on an interface: the other channels pass through.
+        Assert.Equal([L, R, .. Enumerable.Repeat(Unknown, 8)], SpeakerLayout.FromChannelMask(0x3, 10).Positions);
+        Assert.False(SpeakerLayout.FromChannelMask(0x3, 10).IsSurround);
+        // The same on HDMI, DisplayPort or S/PDIF (an AV receiver or a TV): Windows' default for the channel count.
+        Assert.Equal(SpeakerLayout.FromChannelMask(0x2D60F, 10), SpeakerLayout.FromChannelMask(0, 10, toReceiver: true));
+        Assert.Equal("5.1.4", SpeakerLayout.FromChannelMask(0x3, 10, toReceiver: true).Name);
+        Assert.True(ApoConfig.ProcessesPerSpeaker(10, SpeakerLayout.FromChannelMask(0, 10, toReceiver: true)));
+        Assert.Equal([L, R, C, Lfe, Lrs, Rrs, Ls, Rs], SpeakerLayout.FromChannelMask(0, 8, toReceiver: true).Positions);
+        Assert.Equal(SpeakerLayout.FromChannelMask(0x2D63F, 12), SpeakerLayout.FromChannelMask(0, 12, toReceiver: true));
+        Assert.Equal([L, R], SpeakerLayout.FromChannelMask(0, 2, toReceiver: true).Positions);
+        // A receiver whose mask names its speakers keeps them, even when they are fewer than its channels.
+        Assert.Equal([L, R, C, Lfe, Ls, Rs, Unknown, Unknown], SpeakerLayout.FromChannelMask(0x3F, 8, toReceiver: true).Positions);
         // Without a default, the channels beyond the mask are unknown.
-        var sixteen = SpeakerLayout.FromChannelMask(0, 16);
+        var sixteen = SpeakerLayout.FromChannelMask(0, 16, toReceiver: true);
         Assert.Equal(16, sixteen.ChannelCount);
         Assert.All(sixteen.Positions, p => Assert.Equal(Unknown, p));
         Assert.False(sixteen.IsSurround);
         Assert.Empty(sixteen.SpeakerChannels);
         Assert.Null(sixteen.ReferenceChannel);
-        var fourteen = SpeakerLayout.FromChannelMask(0x63F, 14);
+        var fourteen = SpeakerLayout.FromChannelMask(0x63F, 14, toReceiver: true);
         Assert.Equal([L, R, C, Lfe, Lrs, Rrs, Ls, Rs, Unknown, Unknown, Unknown, Unknown, Unknown, Unknown], fourteen.Positions);
         Assert.Equal("7.1", fourteen.Name);
         Assert.Equal(Enumerable.Range(0, 8), fourteen.SpeakerChannels);
@@ -236,6 +247,10 @@ public class SpeakerMeasurementTests
     {
         var speakers = new List<SpeakerSweepPlan.Speaker> { new(0), new(1), new(3, IsLfe: true) };
         var plan = new SpeakerSweepPlan(Rate, speakers, sweepSeconds: 1);
+        Assert.Equal(plan.Duration, SpeakerSweepPlan.DurationOf(speakers, sweepSeconds: 1), 9);
+        var atmos = SpeakerLayout.Atmos714;
+        var all = atmos.SpeakerChannels.Select(c => new SpeakerSweepPlan.Speaker(c, atmos.Positions[c].IsLfe())).ToList();
+        Assert.InRange(SpeakerSweepPlan.DurationOf(all), 90, 100);
         Assert.Equal([0, 0, 1, 2, 0], plan.ChirpSlots.Select(s => s.Speaker));
         Assert.Equal(SpeakerSweepPlan.PreRoll + 3 * (1 + SpeakerSweepPlan.Gap), plan.ChirpSlots[0].Start, 9);
         // The LFE's low chirp takes twice the room.
@@ -818,6 +833,25 @@ public class MultichannelApoConfigTests
         Assert.Equal(Build(s, null, channels: 6), Build(s, Atmos, channels: 6));
         Assert.Contains("3=1.0*3", Build(s, null, channels: 6));
         Assert.Contains("XL", Build(s, null, channels: 6));
+    }
+
+    [Fact]
+    public void AnInterfaceWithoutSpeakerPositionsStaysAStereoPair()
+    {
+        // A 10-channel endpoint reporting KSAUDIO_SPEAKER_DIRECTOUT, say outputs 3/4 to a headphone amp.
+        var s = DspSettings.Flat;
+        s.Bands = [new EqBand(FilterType.Peak, 1000, 4, 1), new EqBand(FilterType.Peak, 68, -4, 4, channels: EqChannels.Left)];
+        s.Effects = new EffectsSettings { CrossfeedEnabled = true, Width = 1.2, OutputGainDb = -2 };
+        var direct = SpeakerLayout.FromChannelMask(0, 10);
+        Assert.Equal(Build(s, null, channels: 10), Build(s, direct, channels: 10));
+        Assert.DoesNotContain("speakers:", Build(s, direct, channels: 10));
+        // The same endpoint on HDMI is an AV receiver: 5.1.4, speaker by speaker.
+        var receiver = Build(s, SpeakerLayout.FromChannelMask(0, 10, toReceiver: true), channels: 10);
+        Assert.Contains("# 5.1.4 speakers: 1 L, 2 R, 3 C, 4 LFE, 5 Ls, 6 Rs, 7 Ltf, 8 Rtf, 9 Ltr, 10 Rtr", receiver);
+        Assert.DoesNotContain("XL", receiver);
+        var t = Interpret(receiver, 1000, channels: 10);
+        AssertNoCrosstalk(t, Left, Right);
+        Assert.InRange(Db(t[Center][Center]) - (4 + s.EffectivePreampDb(SampleRate) - 2), -0.01, 0.01);
     }
 
     [Fact]

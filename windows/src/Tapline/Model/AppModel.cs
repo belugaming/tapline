@@ -143,7 +143,9 @@ sealed class AppModel
 
     // MARK: - Power & Equalizer APO
 
-    public AudioDevice? CurrentOutput => Devices.DefaultOutput;
+    public AudioDevice? CurrentOutput => demoOutput ?? Devices.DefaultOutput;
+    /// Snapshots only: an AV receiver standing in for the default output (see ShowDemoSpeakers).
+    private AudioDevice? demoOutput;
     public string CurrentDeviceId => CurrentOutput?.Id ?? "none";
     public double SampleRate => CurrentOutput?.SampleRate ?? 48000;
 
@@ -482,6 +484,26 @@ sealed class AppModel
         }
         Meters.Spectrum = spectrum;
         Meters.Ingest(0.62f, 0.58f, 0.31f, 0.29f, 0, 0.03);
+    }
+
+    /// Snapshots: makes an AV receiver with `layout` the output, with the demo EQ and a correction of
+    /// every speaker, for the multichannel Room and Effects pages.
+    public void ShowDemoSpeakers(SpeakerLayout layout)
+    {
+        if (!Snapshot.UsesDemoData) return;
+        var settings = Settings.Clone();
+        settings.Speakers = new SpeakerSetup(layout: layout, corrections: layout.SpeakerChannels.Select(c =>
+        {
+            var p = layout.Positions[c];
+            var bands = p.IsLfe()
+                ? new List<EqBand> { new(FilterType.Peak, 42, -6.5, 5), new(FilterType.Peak, 63, 2, 4) }
+                : new List<EqBand> { new(FilterType.Peak, 48 + c, -5.5, 5), new(FilterType.Peak, 105 + 9 * c, 2.5, 4), new(FilterType.Peak, 170 + 6 * c, -3.5, 6) };
+            return new SpeakerCorrection(c, p, bands, trimDb: p.IsLfe() ? 0 : -(c % 4) * 0.7, delayMs: p.IsLfe() ? 0 : 0.4 + c % 3 * 0.9);
+        }));
+        demoOutput = new AudioDevice("{0.0.0.00000000}.{7a1d4c2e-5f3b-4e8a-9c71-0000000714a0}", "AV Receiver (HDMI)", "High Definition Audio Device",
+                                     true, layout.ChannelCount, 48000, FormFactor.Hdmi, layout);
+        state.Profiles[demoOutput.Id] = settings;
+        NotifyChanged();
     }
 
     // MARK: - Shortcuts

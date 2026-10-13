@@ -218,7 +218,7 @@ public sealed class SpeakerLayout : IEquatable<SpeakerLayout>
     /// SPEAKER_TOP_BACK_RIGHT). A Windows stream holds the channels of the set bits in this order.</summary>
     public const uint SpeakerBits = 0x3FFFF;
 
-    /// <summary>Windows' default masks (ksmedia.h) for outputs that report none: stereo, 5.1
+    /// <summary>Windows' default masks (ksmedia.h) for a channel count: stereo, 5.1
     /// (KSAUDIO_SPEAKER_5POINT1_SURROUND), 7.1 (KSAUDIO_SPEAKER_7POINT1_SURROUND), 5.1.4 and 7.1.4.</summary>
     public static uint? DefaultChannelMask(int channelCount) => channelCount switch
     {
@@ -231,17 +231,20 @@ public sealed class SpeakerLayout : IEquatable<SpeakerLayout>
     };
 
     /// <summary>The layout of a Windows output from its speaker mask (WAVEFORMATEXTENSIBLE.dwChannelMask)
-    /// and channel count. The positions follow the mask's bits in order; channels beyond them are
-    /// unknown. A mask of 0, or one naming fewer channels than the output has, gives way to Windows'
-    /// default mask for the channel count, when there is one.
+    /// and channel count, as macOS reads Core Audio's channel labels. The positions follow the mask's
+    /// bits in order; channels beyond them are unknown. A mask of 0 (KSAUDIO_SPEAKER_DIRECTOUT) names no
+    /// speakers: an audio interface's outputs, which stay a stereo pair with channels that pass
+    /// through. Only a digital output to an AV receiver or a TV (<paramref name="toReceiver"/>: HDMI,
+    /// DisplayPort or S/PDIF) whose mask names nothing beyond the front pair gets Windows' default
+    /// layout for its channel count.
     ///
     /// The back pair (SPEAKER_BACK_LEFT / RIGHT) is 7.1's rear surrounds when the side pair is there
     /// too, else 5.1's surrounds, as Windows' "5.1 (back)" configuration uses it.</summary>
-    public static SpeakerLayout FromChannelMask(uint mask, int channels)
+    public static SpeakerLayout FromChannelMask(uint mask, int channels, bool toReceiver = false)
     {
         channels = Math.Max(0, channels);
         mask &= SpeakerBits;
-        if (System.Numerics.BitOperations.PopCount(mask) < channels && DefaultChannelMask(channels) is { } fallback) mask = fallback;
+        if (toReceiver && (mask & ~0x3u) == 0 && DefaultChannelMask(channels) is { } fallback) mask = fallback;
         bool sides = (mask & 0x600) != 0;
         var positions = new List<SpeakerPosition>(channels);
         for (int bit = 0; bit < 18 && positions.Count < channels; bit++)

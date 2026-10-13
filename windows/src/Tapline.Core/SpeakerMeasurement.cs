@@ -74,6 +74,16 @@ public sealed class SpeakerSweepPlan
         }
     }
 
+    /// <summary><see cref="Duration"/> of a plan, without making its signals.</summary>
+    public static double DurationOf(IReadOnlyList<Speaker> speakers, int reference = 0, double sweepSeconds = DefaultSweepSeconds)
+    {
+        if (speakers.Count == 0) return PreRoll + Tail;
+        var r = speakers[reference >= 0 && reference < speakers.Count ? reference : 0];
+        static double Spacing(Speaker s) => s.IsLfe ? LowChirpSpacing : ChirpSpacing;
+        double chirps = Spacing(r) + speakers.Sum(Spacing);
+        return PreRoll + speakers.Count * (sweepSeconds + Gap) + chirps + (r.IsLfe ? LowChirpSeconds : ChirpSeconds) + Tail;
+    }
+
     /// <summary>What happens at <paramref name="seconds"/> into the plan: which speaker plays (index into
     /// <see cref="Speakers"/>), and whether it is a timing chirp. Null before the first sweep and in the tail.</summary>
     public (int Speaker, bool Chirps)? Playing(double seconds)

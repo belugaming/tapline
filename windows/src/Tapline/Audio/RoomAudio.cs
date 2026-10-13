@@ -74,11 +74,11 @@ sealed class RoomAudio(AppModel model)
     }
 
     /// One multichannel run at one microphone position: every speaker of the layout in turn.
-    public sealed class SpeakerMeasurement
+    public sealed class SpeakerRun
     {
         public Guid Id { get; } = Guid.NewGuid();
-        public DateTime Date { get; } = DateTime.Now;
-        /// The output's speakers when it was measured.
+        public DateTime Date { get; init; } = DateTime.Now;
+        /// The layout it was measured on; runs on another layout are not averaged.
         public required SpeakerLayout Layout { get; init; }
         /// The speakers measured, in channel order (responses with the microphone calibration applied).
         public required IReadOnlyList<MeasuredSpeaker> Speakers { get; init; }
@@ -102,11 +102,11 @@ sealed class RoomAudio(AppModel model)
     public sealed record MeasuredSpeaker(int Channel, SpeakerPosition Position, FrequencyResponse Response, double? Arrival, bool? OppositePolarity,
                                          double SnrDb);
 
-    /// One speaker averaged over the multichannel runs: the power average of its responses, its mean
-    /// arrival, opposite polarity if any run heard it (null if none could tell), the worst signal to noise.
-    /// `LevelDb` is the response's level in the speaker's own band (`SpeakerAlignment.Level`).
-    public sealed record SpeakerAverage(int Channel, SpeakerPosition Position, FrequencyResponse Response, double LevelDb, double? Arrival,
-                                        bool? OppositePolarity, double SnrDb, int Count);
+    /// One speaker over every run of a layout: the power average of its responses (and each run's, for
+    /// the spread between positions), its mean arrival, opposite polarity if any run heard it (null if
+    /// none could tell), the worst signal to noise.
+    public sealed record SpeakerAverage(int Channel, SpeakerPosition Position, FrequencyResponse Response, IReadOnlyList<FrequencyResponse> Responses,
+                                        double? Arrival, bool? OppositePolarity, double SnrDb);
 
     public const double SweepSeconds = 8.0;
     /// Each speaker's sweep in a multichannel run: shorter, as a 7.1.4 layout plays twelve of them.
@@ -118,11 +118,10 @@ sealed class RoomAudio(AppModel model)
     private const string MicrophoneSettingsUri = "ms-settings:privacy-microphone";
 
     private readonly List<Measurement> measurements = [];
-    private readonly List<SpeakerMeasurement> speakerMeasurements = [];
+    private readonly List<SpeakerRun> speakerRuns = [];
     private double runPeakDb = -120;
-    // The multichannel run in progress: its layout and speakers, and its plan once made (on a worker thread).
+    // The multichannel run in progress: its layout, and a plan of it at a low rate for its timing.
     private SpeakerLayout? measuringLayout;
-    private IReadOnlyList<SpeakerSweepPlan.Speaker> measuringSpeakerList = [];
     private SpeakerSweepPlan? measuringPlan;
 
     public event Action? Changed;
@@ -135,10 +134,6 @@ sealed class RoomAudio(AppModel model)
     public double RunSeconds { get; private set; }
     private RoomSpeakers measuringSpeakers = RoomSpeakers.Stereo;
     public IReadOnlyList<Measurement> Measurements => measurements;
-    /// Multichannel runs, all of one layout (a run of another layout starts over).
-    public IReadOnlyList<SpeakerMeasurement> SpeakerMeasurements => speakerMeasurements;
-    /// The speakers the multichannel runs measured, null before the first.
-    public SpeakerLayout? MeasuredLayout => speakerMeasurements.Count > 0 ? speakerMeasurements[0].Layout : null;
     /// The output channel speaker identification plays on, null when it does not.
     public int? IdentifyingChannel { get; private set; }
     /// Live microphone level during a level check or measurement, dBFS.
@@ -160,10 +155,10 @@ sealed class RoomAudio(AppModel model)
         get
         {
             if (Phase != RoomPhase.Measuring) return null;
-            if (measuringLayout is { } layout)
+            if (measuringLayout != null)
             {
-                if (PlayingChannel is not { } channel) return null;
-                return Chirping ? L.T("Timing clicks") : SpeakerName(layout.Positions[channel]);
+                if (NowPlayingSpeaker is not { } now) return null;
+                return now.Chirps ? L.T("Timing clicks") : L.F("%@ (%d of %d)", SpeakerName(now.Position), now.Index, now.Count);
             }
             switch (measuringSpeakers)
             {
@@ -181,30 +176,29 @@ sealed class RoomAudio(AppModel model)
         }
     }
 
-    /// The output channel a multichannel run or speaker identification plays on right now (for a
-    /// multichannel run also during its timing clicks), null otherwise.
-    public int? PlayingChannel
+    /// What the multichannel measurement in progress plays now: which speaker, whether its sweep or
+    /// its timing click, and its place in the order (from 1).
+    public (SpeakerPosition Position, bool Chirps, int Index, int Count, int Channel)? NowPlayingSpeaker
     {
         get
         {
-            if (Phase == RoomPhase.Identifying) return IdentifyingChannel;
-            if (Phase != RoomPhase.Measuring || measuringLayout == null || measuringSpeakerList.Count == 0) return null;
-            if (Volatile.Read(ref measuringPlan) is not { } plan) return measuringSpeakerList[0].Channel;
-            var now = plan.Playing(Math.Max(ElapsedSeconds, SpeakerSweepPlan.PreRoll));
-            return now is { } n ? plan.Speakers[n.Speaker].Channel : null;
+            if (Phase != RoomPhase.Measuring || measuringPlan is not { } plan || measuringLayout is not { } layout) return null;
+            if (plan.Playing(Math.Max(ElapsedSeconds, SpeakerSweepPlan.PreRoll)) is not { } now) return null;
+            var channel = plan.Speakers[now.Speaker].Channel;
+            if (channel >= layout.ChannelCount) return null;
+            return (layout.Positions[channel], now.Chirps, now.Speaker + 1, plan.Speakers.Count, channel);
         }
     }
 
-    /// Whether a multichannel run is past its sweeps, playing the timing clicks.
-    private bool Chirping =>
-        Volatile.Read(ref measuringPlan) is { } plan && plan.Playing(Math.Max(ElapsedSeconds, SpeakerSweepPlan.PreRoll)) is { Chirps: true };
+    /// The output channel speaker identification or a multichannel measurement plays on now.
+    public int? PlayingChannel => Phase == RoomPhase.Identifying ? IdentifyingChannel : NowPlayingSpeaker?.Channel;
 
     /// A speaker's name for the UI: "Front left", "Top rear right"…
     public static string SpeakerName(SpeakerPosition p) => L.T(p switch
     {
         SpeakerPosition.FrontLeft => "Front left",
         SpeakerPosition.FrontRight => "Front right",
-        SpeakerPosition.Center => "Center speaker",
+        SpeakerPosition.Center => "Front center",
         SpeakerPosition.Lfe => "Subwoofer (LFE)",
         SpeakerPosition.Lfe2 => "Second subwoofer (LFE 2)",
         SpeakerPosition.FrontLeftCenter => "Front left center",
@@ -225,7 +219,7 @@ sealed class RoomAudio(AppModel model)
         SpeakerPosition.TopRearLeft => "Top rear left",
         SpeakerPosition.TopRearCenter => "Top rear center",
         SpeakerPosition.TopRearRight => "Top rear right",
-        _ => "Other channel",
+        _ => "Unknown",
     });
 
     // MARK: - Positions
@@ -275,73 +269,54 @@ sealed class RoomAudio(AppModel model)
 
     public double WorstSnrDb => measurements.Count == 0 ? 0 : measurements.Min(m => m.SnrDb);
 
-    // MARK: - Multichannel positions and averages
+    // MARK: - Multichannel runs, positions and averages
 
-    public IReadOnlySet<int> MeasuredSpeakerPositions =>
-        speakerMeasurements.Where(m => m.Position.HasValue).Select(m => m.Position!.Value).ToHashSet();
+    /// Every multichannel run, of any layout.
+    public IReadOnlyList<SpeakerRun> AllSpeakerRuns => speakerRuns;
 
-    /// The first suggested position without a multichannel run yet.
-    public int? NextSpeakerPosition
+    public IReadOnlyList<SpeakerRun> SpeakerRuns(SpeakerLayout layout) => [.. speakerRuns.Where(r => r.Layout.Equals(layout))];
+
+    public void RemoveSpeakerRun(Guid id)
     {
-        get
-        {
-            var taken = MeasuredSpeakerPositions;
-            for (var i = 0; i < PositionCount; i++)
-                if (!taken.Contains(i)) return i;
-            return null;
-        }
-    }
-
-    /// Every measured speaker averaged over the runs, in channel order.
-    public IReadOnlyList<SpeakerAverage> AveragedSpeakers { get; private set; } = [];
-
-    public double WorstSpeakerSnrDb => speakerMeasurements.Count == 0 ? 0 : speakerMeasurements.Min(m => m.SnrDb);
-
-    /// What the multichannel runs suggest checking, most severe first.
-    public List<SpeakerAdvice> AdviseSpeakers() => SpeakerAdvice.Advise(
-        AveragedSpeakers.Select(s => new SpeakerAdvice.Speaker(s.Channel, s.Position, s.LevelDb, s.Arrival, s.OppositePolarity)).ToList(),
-        speakerMeasurements.Count, WorstSpeakerSnrDb);
-
-    /// The trims and delays that level-match the averaged speakers and time-align them at the
-    /// listening position, by channel.
-    public IReadOnlyDictionary<int, SpeakerAlignment.Result> AlignSpeakers()
-    {
-        var speakers = AveragedSpeakers;
-        var results = SpeakerAlignment.Align(speakers.Select(s => new SpeakerAlignment.Speaker(s.Position, s.LevelDb, s.Arrival)).ToList());
-        return speakers.Select((s, i) => (s.Channel, results[i])).ToDictionary(x => x.Channel, x => x.Item2);
-    }
-
-    private void SpeakerMeasurementsChanged()
-    {
-        AveragedSpeakers = speakerMeasurements
-            .SelectMany(m => m.Speakers)
-            .GroupBy(s => s.Channel)
-            .OrderBy(g => g.Key)
-            .Select(g =>
-            {
-                var runs = g.ToList();
-                var response = RoomResponse.Average(runs.Select(s => s.Response).ToList()) ?? runs[0].Response;
-                var arrivals = runs.Where(s => s.Arrival.HasValue).Select(s => s.Arrival!.Value).ToList();
-                var polarities = runs.Where(s => s.OppositePolarity.HasValue).Select(s => s.OppositePolarity!.Value).ToList();
-                return new SpeakerAverage(g.Key, runs[0].Position, response, SpeakerAlignment.Level(response, runs[0].Position),
-                                          arrivals.Count == 0 ? null : arrivals.Average(),
-                                          polarities.Count == 0 ? null : polarities.Contains(true),
-                                          runs.Min(s => s.SnrDb), runs.Count);
-            })
-            .ToList();
+        speakerRuns.RemoveAll(r => r.Id == id);
         Changed?.Invoke();
     }
 
-    private void Add(SpeakerMeasurement m)
+    public void ClearSpeakerRuns(SpeakerLayout layout)
     {
-        speakerMeasurements.Add(m);
-        SpeakerMeasurementsChanged();
+        speakerRuns.RemoveAll(r => r.Layout.Equals(layout));
+        Changed?.Invoke();
     }
 
-    public void ClearSpeakerMeasurements()
+    public IReadOnlySet<int> MeasuredSpeakerPositions(SpeakerLayout layout) =>
+        SpeakerRuns(layout).Where(r => r.Position.HasValue).Select(r => r.Position!.Value).ToHashSet();
+
+    /// The first suggested position without a run of `layout` yet.
+    public int? NextSpeakerPosition(SpeakerLayout layout)
     {
-        speakerMeasurements.Clear();
-        SpeakerMeasurementsChanged();
+        var taken = MeasuredSpeakerPositions(layout);
+        for (var i = 0; i < PositionCount; i++)
+            if (!taken.Contains(i)) return i;
+        return null;
+    }
+
+    /// Every measured speaker of `layout`, in channel order.
+    public IReadOnlyList<SpeakerAverage> SpeakerAverages(SpeakerLayout layout)
+    {
+        var runs = SpeakerRuns(layout);
+        var result = new List<SpeakerAverage>();
+        foreach (var channel in layout.SpeakerChannels)
+        {
+            var measured = runs.SelectMany(r => r.Speakers.Where(s => s.Channel == channel).Take(1)).ToList();
+            if (RoomResponse.Average(measured.Select(s => s.Response).ToList()) is not { } response) continue;
+            var arrivals = measured.Where(s => s.Arrival.HasValue).Select(s => s.Arrival!.Value).ToList();
+            var polarities = measured.Where(s => s.OppositePolarity.HasValue).Select(s => s.OppositePolarity!.Value).ToList();
+            result.Add(new SpeakerAverage(channel, layout.Positions[channel], response, [.. measured.Select(s => s.Response)],
+                                          arrivals.Count == 0 ? null : arrivals.Average(),
+                                          polarities.Count == 0 ? null : polarities.Contains(true),
+                                          measured.Min(s => s.SnrDb)));
+        }
+        return result;
     }
 
     public static string Title(RoomSpeakers s) => L.T(s switch
@@ -390,10 +365,8 @@ sealed class RoomAudio(AppModel model)
         Changed?.Invoke();
     }
 
-    /// Removes a stereo measurement or a multichannel run.
     public void Remove(Guid id)
     {
-        if (speakerMeasurements.RemoveAll(m => m.Id == id) > 0) SpeakerMeasurementsChanged();
         measurements.RemoveAll(m => m.Id == id);
         MeasurementsChanged();
     }
@@ -429,12 +402,13 @@ sealed class RoomAudio(AppModel model)
             return Stereo(speakers == RoomSpeakers.Right ? silent : noise, speakers == RoomSpeakers.Left ? silent : noise);
         });
 
-    /// The level check of a multichannel output: the noise on one speaker (`outputChannel`, say the front left).
-    public Task CheckSpeakerLevel(AudioDevice output, AudioDevice input, int channel, int outputChannel) =>
-        CheckLevel(output, input, channel, (rate, _, outputChannels) =>
+    /// The level check of a multichannel output: the noise on `outputChannels` (its front left and right).
+    public Task CheckLevel(AudioDevice output, AudioDevice input, int channel, IReadOnlyList<int> outputChannels) =>
+        CheckLevel(output, input, channel, (rate, _, available) =>
         {
-            if (outputChannel < 0 || outputChannel >= outputChannels) throw new RoomAudioException(ChannelsChangedMessage);
-            return [(outputChannel, PinkNoise((int)(LevelCheckSeconds * rate), 0.12f))];
+            if (outputChannels.Count == 0 || outputChannels.Any(c => c < 0 || c >= available)) throw new RoomAudioException(ChannelsChangedMessage);
+            var noise = PinkNoise((int)(LevelCheckSeconds * rate), 0.12f);
+            return [.. outputChannels.Select(c => (c, noise))];
         });
 
     private const double LevelCheckSeconds = 3.0;
@@ -584,18 +558,18 @@ sealed class RoomAudio(AppModel model)
     /// Measures every known speaker of `layout` (the output's, one position per channel) in one run,
     /// in channel order: a sweep on each speaker in turn, then timing clicks, with the front left as
     /// the timing reference and a low click for LFE channels. The run is stored for the next suggested
-    /// position; runs of another layout are dropped first, as they cannot be averaged with it.
+    /// position of that layout.
     public async Task MeasureSpeakers(AudioDevice output, AudioDevice input, int channel, SpeakerLayout layout)
     {
         if (IsBusy) return;
-        LastMessage = null;
-        MicrophoneBlocked = false;
         var speakers = layout.SpeakerChannels.Select(c => new SpeakerSweepPlan.Speaker(c, layout.Positions[c].IsLfe())).ToList();
         if (speakers.Count == 0) return;
         var reference = layout.ReferenceChannel is { } r ? Math.Max(0, speakers.FindIndex(s => s.Channel == r)) : 0;
+        LastMessage = null;
+        MicrophoneBlocked = false;
+        // Only for its timing (what plays when): a low rate is quick to make.
+        measuringPlan = new SpeakerSweepPlan(8000, speakers, reference, SpeakerSweepSeconds);
         measuringLayout = layout;
-        measuringSpeakerList = speakers;
-        Volatile.Write(ref measuringPlan, null);
         Phase = RoomPhase.Measuring;
         Progress = 0;
         Changed?.Invoke();
@@ -612,8 +586,7 @@ sealed class RoomAudio(AppModel model)
             Phase = RoomPhase.Idle;
             Progress = 0;
             measuringLayout = null;
-            measuringSpeakerList = [];
-            Volatile.Write(ref measuringPlan, null);
+            measuringPlan = null;
             Changed?.Invoke();
         }
     }
@@ -625,9 +598,7 @@ sealed class RoomAudio(AppModel model)
         var (recording, inputRate, outputRate) = await Record(output, input, channel, 0.4, (rate, micRate, outputChannels) =>
         {
             if (speakers.Any(s => s.Channel >= outputChannels)) throw new RoomAudioException(ChannelsChangedMessage);
-            var plan = new SpeakerSweepPlan(rate, speakers, reference, sweepSeconds, SineSweep.EndFrequencyFor(rate, micRate));
-            Volatile.Write(ref measuringPlan, plan);
-            var signals = plan.Render();
+            var signals = new SpeakerSweepPlan(rate, speakers, reference, sweepSeconds, SineSweep.EndFrequencyFor(rate, micRate)).Render();
             return speakers.Select((s, i) => (s.Channel, signals[i])).ToList();
         });
 
@@ -644,18 +615,19 @@ sealed class RoomAudio(AppModel model)
             result.Channel, layout.Positions[result.Channel],
             calibration != null ? RoomResponse.ApplyCalibration(result.Response, calibration) : result.Response,
             result.Arrival, result.OppositePolarity, result.SnrDb)).ToList();
-        if (MeasuredLayout is { } previous && !previous.Equals(layout)) speakerMeasurements.Clear();
-        var run = new SpeakerMeasurement { Layout = layout, Speakers = measured, PeakDb = analysis.PeakDb, Position = NextSpeakerPosition };
-        Add(run);
+        var run = new SpeakerRun { Layout = layout, Speakers = measured, PeakDb = analysis.PeakDb, Position = NextSpeakerPosition(layout) };
+        speakerRuns.Add(run);
         LastMessage = ResultMessage(analysis.PeakDb, run.SnrDb);
+        Changed?.Invoke();
     }
 
     /// Plays two seconds of pink noise on one channel of `output`, without the microphone, to hear
-    /// which speaker it comes from. As for a measurement, the output leaves Equalizer APO meanwhile,
-    /// so swapped channels or a correction's delay cannot move or hold back the noise.
-    public async Task IdentifySpeaker(AudioDevice output, int outputChannel)
+    /// which speaker it comes from (the wiring check). As for a measurement, the output leaves
+    /// Equalizer APO meanwhile, so swapped channels or a correction's delay cannot move or hold back
+    /// the noise. `cancel` stops it early.
+    public async Task IdentifySpeaker(AudioDevice output, int outputChannel, CancellationToken cancel = default)
     {
-        if (IsBusy) return;
+        if (IsBusy || cancel.IsCancellationRequested) return;
         LastMessage = null;
         MicrophoneBlocked = false;
         Phase = RoomPhase.Identifying;
@@ -667,7 +639,10 @@ sealed class RoomAudio(AppModel model)
             {
                 if (outputChannel < 0 || outputChannel >= outputChannels) throw new RoomAudioException(ChannelsChangedMessage);
                 return [(outputChannel, PinkNoise((int)(IdentifySeconds * rate), 0.12f))];
-            });
+            }, cancel);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception e)
         {
@@ -727,10 +702,10 @@ sealed class RoomAudio(AppModel model)
 
     /// Runs one playback + recording with the output taken out of Equalizer APO. Without an input, only plays.
     private async Task<(float[] Recording, double InputRate, double OutputRate)> Record(AudioDevice output, AudioDevice? input, int channel, double extraSeconds,
-                                                                                        SignalMaker signals)
+                                                                                        SignalMaker signals, CancellationToken cancel = default)
     {
         (float[] Recording, double InputRate, double OutputRate) result = (Array.Empty<float>(), 0, 0);
-        await model.BypassWhile(output, async () => result = await Run(output, input, channel, extraSeconds, signals));
+        await model.BypassWhile(output, async () => result = await Run(output, input, channel, extraSeconds, signals, cancel));
         return result;
     }
 
@@ -846,9 +821,9 @@ sealed class RoomAudio(AppModel model)
     /// Plays the signals made by `signals` (given the output's mix-format sample rate, the input's rate
     /// and the output's channel count) on `output` and records one channel of `input` for the signals'
     /// length plus `extraSeconds`. Returns the recording, the input rate and the output rate. Without
-    /// an input it only plays, and returns an empty recording.
+    /// an input it only plays, and returns an empty recording. `cancel` stops playing early.
     private async Task<(float[] Recording, double InputRate, double OutputRate)> Run(AudioDevice output, AudioDevice? input, int channel, double extraSeconds,
-                                                                                     SignalMaker signals)
+                                                                                     SignalMaker signals, CancellationToken cancel)
     {
         MMDevice? outDevice = null, inDevice = null;
         WasapiOut? player = null;
@@ -961,7 +936,7 @@ sealed class RoomAudio(AppModel model)
             var clock = Stopwatch.StartNew();
             RunSeconds = seconds;
             ElapsedSeconds = 0;
-            while (clock.Elapsed.TotalSeconds < seconds)
+            while (clock.Elapsed.TotalSeconds < seconds && !cancel.IsCancellationRequested)
             {
                 await Task.Delay(100);
                 if (inputFailure.Value is { } fi) throw Wrap(fi, "Could not start the audio devices: %@", input, isInput: true);
@@ -1113,67 +1088,75 @@ sealed class RoomAudio(AppModel model)
     /// (L R C LFE Lrs Rrs Ls Rs Ltf Rtf Ltr Rtr).
     public static SpeakerLayout DemoLayout { get; } = SpeakerLayout.FromChannelMask(0x2D63F, 12);
 
-    /// A synthetic 7.1.4 room measured at four positions, for snapshots: the room's modes on every
-    /// speaker, the surrounds and heights farther and a little quieter, a subwoofer (LFE) low-passed,
-    /// hot and late, one rear surround wired the wrong way round and one height speaker turned down.
-    public void ApplySpeakerDemo()
+    /// A synthetic home cinema measured at four positions, for snapshots (as on macOS): every speaker
+    /// with its own room, distance and level, a subwoofer, and one height speaker wired backwards.
+    public void ApplySpeakerDemo(SpeakerLayout layout)
     {
-        if (speakerMeasurements.Count > 0) return;
-        var layout = DemoLayout;
+        if (SpeakerRuns(layout).Count > 0) return;
         var grid = EqFitter.Grid;
-        FrequencyResponse Response(SpeakerPosition position, double level, ulong seed, double shift)
+        double[] levelOffsets = [0, 0.6, 1.8, 9.5, -1.2, -0.8, -2.1, -1.7, -3.0, -2.6, -3.4, -2.9, -1, -1, -2, -2];
+        FrequencyResponse Response(SpeakerPosition position, int channel, int spot)
         {
-            var bands = position.IsLfe()
-                ? new List<EqBand>
-                {
-                    new(FilterType.HighPass, 24, q: 0.7),
-                    new(FilterType.LowPass, 110, q: 0.71),
-                    new(FilterType.LowPass, 110, q: 0.71),
-                    new(FilterType.Peak, 42, 7 + shift, 5),
-                    new(FilterType.Peak, 63, -8 - shift, 4),
-                }
-                : new List<EqBand>
-                {
-                    new(FilterType.HighPass, position.IsHeight() ? 70 : 45, q: 0.8),
-                    new(FilterType.Peak, 112, -6 - shift, 4),
-                    new(FilterType.Peak, 176, 4 - shift / 2, 6),
-                    new(FilterType.Peak, 300, -3, 3),
-                    new(FilterType.HighShelf, 9000, position.IsHeight() ? -3.5 : -2, 0.7),
-                };
+            double[] shifts = [0, 2.5, -2, 1.5];
+            var shift = shifts[spot % 4];
+            List<EqBand> bands;
+            if (position.IsLfe())
+            {
+                bands =
+                [
+                    new EqBand(FilterType.HighPass, 24, q: 0.8), new EqBand(FilterType.LowPass, 95, q: 0.7),
+                    new EqBand(FilterType.LowPass, 110, q: 0.7),
+                    new EqBand(FilterType.Peak, 42 + spot, 7 + shift, 5), new EqBand(FilterType.Peak, 68, -6 - shift, 4),
+                ];
+            }
+            else
+            {
+                var small = position.Group() != SpeakerGroup.Front;
+                bands =
+                [
+                    new EqBand(FilterType.HighPass, small ? 75 : 40, q: 0.8),
+                    new EqBand(FilterType.Peak, 48 + channel, 6 + shift, 5),
+                    new EqBand(FilterType.Peak, 105 + 9 * channel, -7 - shift, 4),
+                    new EqBand(FilterType.Peak, 170 + 6 * channel, 4 - shift / 2, 6),
+                    new EqBand(FilterType.HighShelf, 9000, position.IsHeight() ? -4 : -2, 0.7),
+                ];
+            }
             var room = ResponseCurve.ResponseDb(bands, grid, 48_000);
+            var seed = (ulong)(channel * 31 + spot * 7 + 3);
+            var level = 82 + levelOffsets[channel % 16];
             var levels = new double[room.Length];
             for (var i = 0; i < room.Length; i++)
             {
                 seed = unchecked(seed * 6364136223846793005UL + 1442695040888963407UL);
-                var wiggle = ((seed >> 33) / (double)(1UL << 31) - 0.5) * (grid[i] > 1000 ? 2.0 : 0.6);
-                levels[i] = level + room[i] + wiggle;
+                levels[i] = level + room[i] + ((seed >> 33) / (double)(1UL << 31) - 0.5) * (grid[i] > 1000 ? 2.0 : 0.6);
             }
             return new FrequencyResponse([.. grid], levels);
         }
-        // Per speaker, in channel order: level (dB) and arrival after the front left (ms).
-        (double Level, double Arrival)[] speakers =
-        [
-            (0, 0), (0.6, 0.12), (1.8, -0.35), (7, 6.4), (-1.2, 2.3), (-0.8, 2.2),
-            (-0.4, 0.9), (-0.6, 1.0), (-2.5, 0.7), (-2.2, 0.75), (-3, 1.4), (-8, 1.5),
-        ];
-        var inverted = layout.ChannelOf(SpeakerPosition.RearRight);
-        // The modes change a little from one position to the next; the third was taken in a noisier moment.
-        (double Shift, double Level, double Snr, double Peak)[] spots = [(0, 0, 52, -14), (3, -0.4, 47, -15), (-2.5, 0.3, 27, -18), (1.5, -0.2, 50, -14)];
-        for (var p = 0; p < spots.Length; p++)
+        // Metres farther than the front left (the subwoofer also lags by its low-pass filter).
+        static double Distance(SpeakerPosition p) => p switch
         {
-            var spot = spots[p];
-            var measured = new List<MeasuredSpeaker>();
-            for (var c = 0; c < layout.ChannelCount; c++)
+            SpeakerPosition.FrontLeft => 0,
+            SpeakerPosition.FrontRight => 0.05,
+            SpeakerPosition.Center => -0.12,
+            SpeakerPosition.Lfe or SpeakerPosition.Lfe2 => 2.4,
+            SpeakerPosition.SurroundLeft or SpeakerPosition.SurroundRight => -0.9,
+            SpeakerPosition.RearLeft or SpeakerPosition.RearRight => -0.4,
+            SpeakerPosition.WideLeft or SpeakerPosition.WideRight => -0.3,
+            _ => p.IsHeight() ? -0.6 : 0,
+        };
+        (double Snr, double Peak)[] spots = [(51, -14), (47, -15), (28, -18), (49, -14)];
+        for (var i = 0; i < spots.Length; i++)
+        {
+            var spot = spots[i];
+            var measured = layout.SpeakerChannels.Select(c =>
             {
-                var position = layout.Positions[c];
-                var lfe = position.IsLfe();
-                var response = Response(position, 82 + speakers[c].Level + spot.Level, (ulong)(p * 101 + c * 7 + 3), spot.Shift);
-                measured.Add(new MeasuredSpeaker(c, position, response, (speakers[c].Arrival + 0.03 * (p - 1.5) * (c % 3 - 1)) / 1000,
-                                                 lfe ? null : (bool?)(c == inverted), spot.Snr - (lfe ? 6 : 0) - c % 4));
-            }
-            speakerMeasurements.Add(new SpeakerMeasurement { Layout = layout, Speakers = measured, PeakDb = spot.Peak, Position = p });
+                var p = layout.Positions[c];
+                return new MeasuredSpeaker(c, p, Response(p, c, i), (Distance(p) + 0.01 * (i % 2)) / SpeakerAlignment.SpeedOfSound,
+                                           p.IsLfe() ? null : p == SpeakerPosition.TopRearRight, spot.Snr - (p.IsLfe() ? 3 : 0));
+            }).ToList();
+            speakerRuns.Add(new SpeakerRun { Date = DateTime.Today.AddHours(20).AddMinutes(10 + 2 * i), Layout = layout, Speakers = measured, PeakDb = spot.Peak, Position = i });
         }
-        SpeakerMeasurementsChanged();
+        Changed?.Invoke();
     }
 
     /// Paul Kellet's economy pink noise filter.

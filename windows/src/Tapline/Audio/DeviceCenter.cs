@@ -165,7 +165,7 @@ sealed class DeviceCenter : IMMNotificationClient, IDisposable
                 var format = d.AudioClient.MixFormat;
                 return (format.Channels, format.SampleRate, ChannelMask(format));
             }, (2, 48000, 0u));
-            var layout = output ? LayoutOf(d, channels, mask) : null;
+            var layout = output ? LayoutOf(d, channels, mask, formFactor) : null;
             return new AudioDevice(d.ID, name, adapter, output, channels, rate, formFactor, layout);
         }
         catch
@@ -193,8 +193,10 @@ sealed class DeviceCenter : IMMNotificationClient, IDisposable
     }
 
     /// The speakers of an output: the mix format's speaker mask (what Equalizer APO's channels follow),
-    /// else the speaker setup when it names as many channels, else Windows' default for the channel count.
-    private static SpeakerLayout LayoutOf(MMDevice d, int channels, uint mask)
+    /// else the speaker setup when it names as many channels. A mask that names no speakers
+    /// (KSAUDIO_SPEAKER_DIRECTOUT, as audio interfaces report) leaves the channels unknown, except on
+    /// a digital output to an AV receiver or a TV, which gets Windows' default for its channel count.
+    private static SpeakerLayout LayoutOf(MMDevice d, int channels, uint mask, FormFactor formFactor)
     {
         if ((mask & SpeakerLayout.SpeakerBits) == 0)
         {
@@ -205,7 +207,7 @@ sealed class DeviceCenter : IMMNotificationClient, IDisposable
             }, 0u);
             if (System.Numerics.BitOperations.PopCount(physical & SpeakerLayout.SpeakerBits) == channels) mask = physical;
         }
-        return SpeakerLayout.FromChannelMask(mask, channels);
+        return SpeakerLayout.FromChannelMask(mask, channels, toReceiver: formFactor is FormFactor.Hdmi or FormFactor.Spdif);
     }
 
     private AudioDevice? Default(DataFlow flow, IReadOnlyList<AudioDevice> list)

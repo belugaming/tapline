@@ -72,8 +72,16 @@ static class ListenAs
         return Ui.Card(L.T("Listen As"),
             L.T("Hear how your music would sound on other headphones, earbuds and speakers, through your own headphones. Your EQ and correction stay as they are, and switching is level-matched."),
             Glyphs.Swap,
-            SwitchRow(model, scope), Shortfall(model, scope), picker, content);
+            SwitchRow(model, scope), Shortfall(model, scope), SpeakersNote(model, scope), picker, content);
     }
+
+    /// On a multichannel speaker output the simulation never plays (see ApoConfig).
+    private static UIElement SpeakersNote(AppModel model, UiScope scope) =>
+        scope.Bind(scope.Dynamic(() => model.IsSurroundOutput ? model.CurrentLayout?.Name : null, _ =>
+            model.IsSurroundOutput && model.CurrentLayout is { } layout
+                ? Ui.HStack(8, Ui.Glyph(Glyphs.Info, 12, Theme.Secondary).Width(16).Top().Margin(0, 1, 0, 0),
+                    Ui.Caption(L.F("Listen As imitates a stereo device, so it stays off on this %@ speaker layout.", layout.Name)).Filling())
+                : null), c => c.Visibility = model.IsSurroundOutput ? Visibility.Visible : Visibility.Collapsed);
 
     // MARK: - Switch
 
