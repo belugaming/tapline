@@ -36,7 +36,7 @@ What makes it different:
 - **An EQ you can see.** Drag bands on the frequency response, watch the spectrum before and after the EQ, compare A/B, undo anything.
 - **Headphone correction that keeps up.** Apply one of 5,000+ AutoEQ presets, or let Tapline fit an EQ from 40,000+ raw measurements on squig.link, including headphones released last week.
 - **Room correction for speakers.** Measure your speakers with a microphone where you sit: Tapline checks balance, distance, polarity and placement, tames the room's bass resonances, and can write the correction into an RME ADI-2 DAC.
-- **Made for listening, safe for production.** Bypass a DAW in the mixer and it plays untouched.
+- **Made for listening, safe for production.** Bypass a DAW in the mixer and it plays untouched, or take your headphone correction into it: Tapline comes with an Audio Unit for Logic Pro, GarageBand and other hosts, like SoundID Reference's plugin.
 - **Free and open source** (GPL-3.0), written in Swift with a realtime core in C; the Windows version is written in C#.
 
 ## Contents
@@ -60,6 +60,7 @@ What makes it different:
   - [8. Menu bar and keyboard shortcuts](#8-menu-bar-and-keyboard-shortcuts)
   - [9. Reading the meters](#9-reading-the-meters)
   - [10. Listen as another device](#10-listen-as-another-device)
+  - [11. Use Tapline in Logic Pro](#11-use-tapline-in-logic-pro)
 - [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [How it works](#how-it-works)
 - [Privacy and network use](#privacy-and-network-use)
@@ -116,6 +117,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
 | Virtual speakers (HRIR/BRIR convolution, HeSuVi import) | ✓ | ✓ (Equalizer APO's convolver) |
 | Listen As: other headphones (squig.link) and everyday speakers through your headphones | ✓, level-matched | ✓, quieter than level-matched where a boost could clip (no limiter) |
+| Audio Unit plugin for Logic Pro, GarageBand and other hosts | ✓ (AUv3) | ✗ |
 | Switch the output or input device | ✓ | ✓ |
 | Change a device's sample rate | ✓ | ✗ (shown only) |
 | Quick panel | Menu bar | Notification area (tray) |
@@ -408,6 +410,39 @@ Switch it on and off on the card, in the menu bar panel or with ⌃⌥⌘L. Tapl
 
 > **On Windows:** the switch is in the tray panel too, and the shortcut is Ctrl+Alt+Shift+L. The simulation's filters follow your EQ in Equalizer APO's configuration, on the current output only. Equalizer APO has no limiter, so where the device would raise a frequency above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.
 
+### 11. Use Tapline in Logic Pro
+
+Tapline includes an Audio Unit, so your headphone correction and listening effects can sit inside a project instead of on the whole system, the way Sonarworks SoundID Reference's plugin does. It plays exactly what the app plays: the same filters, Listen As, Virtual Speakers and linear phase.
+
+**Set it up once**
+
+1. Install Tapline in **Applications** and open it once (the first time with **Open Anyway**, see [Install](#install)). Opening it is what registers the plugin with macOS; Tapline does not have to keep running for the plugin to work.
+2. In Logic Pro, the plugin is under **Audio Units → Tapline → Tapline**. If it isn't there, open **Logic Pro → Settings → Plug-in Manager**, select Tapline and click **Reset & Rescan Selection** (or rescan all). GarageBand and other hosts find it after a restart.
+3. Insert it in the last slot of the **Stereo Out**, after everything else, as monitoring correction.
+4. Don't correct twice: while the plugin corrects Logic, set Logic Pro to **⋯ → Bypass Tapline** in the mixer (see [5. Set the volume of each app](#5-set-the-volume-of-each-app)), or switch Tapline's processing off.
+
+**In the plugin**
+
+- **Preset**: Tapline's built-in presets and your own, the headphone corrections from the Assistant included, as they are in the app now. **Import ParametricEQ.txt…** and **Paste ParametricEQ.txt** take an Equalizer APO / AutoEQ file or an RME ADI-2 preset directly. The project keeps a copy of the curve, so it sounds the same on another Mac or after you change the preset in Tapline (**Saved in project** shows when they differ; choose the preset again to load its current version). Logic's own preset menu lists the same presets.
+- **Strength**: 0–100 %, like a dry/wet control. It scales each band's gain, so part of a correction never comb-filters.
+- **EQ**: the level-matched bypass, as in the app (**Match loudness when bypassing** at the bottom).
+- **Filter Phase**: minimum phase (no latency), or linear phase with low latency (176 ms at 48 kHz) or high precision (704 ms).
+- **Virtual Speakers**: the two built-in SADIE II sets, a studio room and anechoic.
+- **Listen as**: the five built-in speakers, and the headphones or earbuds you last chose in Tapline's Listen As.
+- **Latency**, bottom right: what the plugin reports to Logic, which delays the other tracks by as much (plug-in delay compensation). 1.5 ms for the limiter's look-ahead, 5 ms more with Virtual Speakers, plus linear phase. To record through the plugin, use minimum phase or Logic's **Low Latency Mode**.
+- Strength, EQ, Virtual Speakers, Listen as and Filter Phase are parameters: you can automate them, and they show in Logic's **Controls** view.
+
+Like any monitoring correction, switch it off before you bounce or export a mix.
+
+| | Tapline (Audio Unit) | SoundID Reference plugin |
+|---|---|---|
+| Correction | Your Tapline presets: AutoEQ, squig.link fits, your own measurements, room correction, any ParametricEQ.txt | Sonarworks' headphone profiles and its speaker calibration |
+| Dry/wet | Strength, 0–100 % | Dry/Wet |
+| Hear other devices | Listen As: five speakers, headphones from squig.link | Translation Check |
+| Virtual speakers | Built in (SADIE II) | A separate product (Virtual Monitoring) |
+| Linear phase | Low latency and high precision | Linear-phase mode |
+| Formats, price | AUv3 on macOS; free and open source | VST3, AU, AAX; paid |
+
 ## FAQ and troubleshooting
 
 **I hear nothing after turning Tapline on.**
@@ -437,6 +472,9 @@ Releases before the switch to Tapline's own certificate were ad-hoc signed, so e
 **Windows: the EQ makes no difference.**
 Look at the banner at the top of the window. Tapline says there when Equalizer APO is missing, isn't installed on the current output, or is skipped because Windows' **Audio enhancements** are off for the device. Also check that processing is on, and that the app isn't using exclusive mode or ASIO: those bypass Equalizer APO.
 
+**Logic Pro doesn't list Tapline.**
+Open Tapline from **Applications** once: that is what registers its plugin with macOS. Then, in **Logic Pro → Settings → Plug-in Manager**, select Tapline and click **Reset & Rescan Selection**. The same button validates it again if Logic marked it as failed.
+
 **How do I uninstall Tapline?**
 On Windows, see [Update and uninstall](#update-and-uninstall). On macOS, quit it from the menu bar panel, delete Tapline.app, and optionally remove its settings and caches:
 
@@ -462,6 +500,7 @@ apps ──► process taps of the output device's stream (apps are muted at the
 - Listen As runs in a block of its own after the EQ: up to 16 biquads, a make-up gain and a mid/side width, crossfaded like the EQ when it is switched. A headphone simulation is fitted by the same EQ fitter, with the reference target as the "measurement" and the device as the "target".
 - While the EQ is bypassed, one gain takes the place of preamp, EQ and tone: the loudness change of the whole EQ on pink noise, K-weighted as in ITU-R BS.1770, limited to 0 dB at most. Switching the EQ on or off crossfades the two paths over one audio buffer.
 - The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search. Below 100 % strength it fits the measurement moved that far towards the target, which keeps the result as accurate as a full correction.
+- The Audio Unit is an AUv3 app extension inside Tapline.app (`TaplineAU`), sandboxed and loaded by the host out of process. Its render block calls `tl_kernel_process`, which runs the IOProc's own chain on the host's buffers, so the plugin and the app sound the same; parameters and automation reach it without locks, and it reports the latency the kernel adds. The extension reads the app's presets read-only, through a temporary-exception entitlement for Tapline's preferences domain: an app group would need an Apple team ID, which Tapline's self-signed releases don't have.
 - Only one copy of Tapline runs at a time, a watchdog restarts the engine if the device stops calling it, and a guard switches processing off if it detects a feedback loop. If Tapline quits or crashes, its private taps and aggregate device disappear with it.
 
 On Windows, Tapline writes Equalizer APO's `config.txt`: one `Device:` section per output with its preamp, filters (the same RBJ biquads as on the Mac), left/right sections and effects. In linear phase, the filters give way to a `Convolution:` per channel with an FIR that Tapline writes as a WAV file next to `config.txt`. Equalizer APO reloads the file and processes the audio inside Windows' audio engine. The spectrum and meters read the output with a WASAPI loopback capture, and room measurements play and record in WASAPI shared mode.
@@ -493,6 +532,8 @@ cd Packages/TaplineCore && swift test
 ```
 
 Local builds are ad-hoc signed too. Set your own team in Xcode to keep the audio permission across rebuilds.
+
+The Audio Unit (`TaplineAU`) is built and embedded with the app. `scripts/validate-audio-unit.sh build/Build/Products/Release/Tapline.app` registers it, validates it with `auval`, checks it through the Audio Unit API and unregisters it again, as CI does.
 
 ### Windows
 
@@ -530,6 +571,8 @@ The Windows version is released together with the Mac version, under the same nu
 - Virtual Speakers have no head tracking: the speakers turn with your head.
 - Linear phase cannot resolve the narrowest bells at the very bottom completely (Q 18 at 20 Hz is about 1 dB short at ±6 dB in high precision, 4 dB in low latency). On Windows it has only the high-precision length, and the sound pauses after every change.
 - Listen As's speaker profiles are approximations of typical devices, not measurements of any product, and its headphone simulations assume your own headphones are corrected to their target.
+- The Audio Unit is for macOS only and AUv3 only (no VST3, AAX or CLAP), and stereo, or mono in and stereo out: no surround. It plays presets, not a device's whole setup: the speaker corrections of a surround layout, the other effects and the Virtual Speakers sets you imported into the app are not in it, and its Listen as offers only the headphones last chosen in the app.
+- The plugin applies automation within a few hundredths of a second, not to the sample, so play automation in real time rather than bouncing offline. It is validated with auval and through the Audio Unit API on every build; please report what you find in Logic Pro and other hosts.
 
 ## Credits
 
