@@ -14,6 +14,10 @@ struct EffectsPage: View {
                 Text("Effects apply to everything playing through \(model.currentOutput?.name ?? String(localized: "this device")) and are saved per device.")
                     .foregroundStyle(.secondary)
 
+                if let layout = model.speakerLayout {
+                    speakersCard(layout)
+                }
+
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 16, alignment: .top)], spacing: 16) {
                     Card(title: "Limiter", subtitle: "Catches peaks so boosts never clip. Leave it on unless you are measuring.", systemImage: "waveform.path.badge.minus") {
                         Toggle("Enabled", isOn: binding(\.limiterEnabled, fx.limiterEnabled))
@@ -52,6 +56,7 @@ struct EffectsPage: View {
                     Card(title: "Headphone Crossfeed", subtitle: "Blends a little of each channel into the other, like listening to speakers. Reduces fatigue on hard-panned recordings.", systemImage: "headphones") {
                         Toggle("Enabled", isOn: Binding(get: { fx.crossfeedEnabled }, set: { model.setCrossfeed($0) }))
                             .toggleStyle(.switch)
+                            .disabled(model.speakerLayout != nil)
                         LabeledSlider(title: "Amount", value: binding(\.crossfeed, fx.crossfeed), range: 0...1, format: { Format.percent($0) })
                             .disabled(!fx.crossfeedEnabled)
                     }
@@ -77,6 +82,7 @@ struct EffectsPage: View {
         return Card(title: "Virtual Speakers", subtitle: "Puts the sound in front of you, like a pair of speakers at ±30°, with binaural impulse responses. For headphones; replaces crossfeed.", systemImage: "hifispeaker.2") {
             Toggle("Enabled", isOn: Binding(get: { fx.virtualSpeakersEnabled }, set: { model.setVirtualSpeakers($0) }))
                 .toggleStyle(.switch)
+                .disabled(model.speakerLayout != nil)
             HStack {
                 Picker("Speakers", selection: Binding(get: { current.id }, set: { importMessage = nil; model.chooseVirtualSpeakers($0) })) {
                     Section("Built in") {
@@ -111,6 +117,30 @@ struct EffectsPage: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// A multichannel output: which effects reach which speakers, and the speaker corrections.
+    private func speakersCard(_ layout: SpeakerLayout) -> some View {
+        let setup = model.settings.speakers
+        let corrected = setup.layout == layout && !setup.corrections.isEmpty
+        return Card(title: "Speakers", subtitle: "\(model.currentOutput?.name ?? "") is a \(layout.name) speaker layout. Tapline processes each of its \(layout.speakerChannels.count) speakers.", systemImage: "hifispeaker.2") {
+            Toggle("Play the EQ on every speaker", isOn: Binding(get: { setup.eqOnAllSpeakers }, set: { model.setEQOnAllSpeakers($0) }))
+                .toggleStyle(.switch)
+            Text("Off: the EQ plays on the front left and right only. On the subwoofer (LFE) channel it never boosts above 120 Hz.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Speaker correction", isOn: Binding(get: { corrected && setup.correctionEnabled }, set: { model.setSpeakerCorrection($0) }))
+                .toggleStyle(.switch)
+                .disabled(!corrected)
+            Text(corrected ? "Each speaker's room correction, trim and delay from the Room page." : "Measure the speakers on the Room page to correct each one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Label("Balance, width, mono and swap act on the front left and right speakers. Crossfeed, Virtual Speakers and Listen As are for headphones and stay off on this output.", systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -26,13 +26,14 @@ struct SettingsPage: View {
                 Card(title: "Filter Phase", subtitle: "How the EQ treats phase. Set for each output device; also in the Equalizer's More menu.", systemImage: "waveform.path") {
                     let phase = model.settings.filterPhase
                     // Switching to linear phase starts with low latency.
-                    Picker("Filter Phase", selection: Binding(get: { phase.isLinear }, set: { model.setFilterPhase($0 ? .linearLowLatency : .minimum) })) {
+                    Picker("Filter Phase", selection: Binding(get: { model.playsLinearPhase }, set: { model.setFilterPhase($0 ? .linearLowLatency : .minimum) })) {
                         Text("Minimum phase").tag(false)
                         Text("Linear phase").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .fixedSize()
+                    .disabled(model.speakerLayout != nil)
                     Picker("Length", selection: Binding(get: { phase == .linearHighPrecision ? FilterPhase.linearHighPrecision : .linearLowLatency },
                                                         set: { model.setFilterPhase($0) })) {
                         Text("Low latency · \(model.linearPhaseLatencyMS(.linearLowLatency)) ms").tag(FilterPhase.linearLowLatency)
@@ -41,7 +42,13 @@ struct SettingsPage: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .fixedSize()
-                    .disabled(!phase.isLinear)
+                    .disabled(!phase.isLinear || model.speakerLayout != nil)
+                    if let unavailable = model.linearPhaseUnavailable {
+                        Label(unavailable, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let device = model.currentOutput?.name {
                         Text("For \(device)")
                             .font(.callout)

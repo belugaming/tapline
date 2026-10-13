@@ -25,6 +25,11 @@ public static class EqFitter
         /// <summary>Never boost below this frequency (the speakers' low-frequency limit);
         /// resonances there are still cut.</summary>
         public double? NoBoostBelow { get; set; }
+        /// <summary>Never boost above this frequency (an LFE channel, which carries nothing above about 120 Hz).</summary>
+        public double? NoBoostAbove { get; set; }
+        /// <summary>Where the measurement is level-matched to the target: the lower midrange, or a
+        /// subwoofer's own band.</summary>
+        public (double Min, double Max) LevelMatchRange { get; set; } = (200, 1200);
         /// <summary>Narrowest bell allowed. Room modes need more than headphones.</summary>
         public double MaxQ { get; set; } = 6;
         /// <summary>Smoothing width in octaves below 1 kHz.</summary>
@@ -53,13 +58,15 @@ public static class EqFitter
         public readonly bool Equals(Options other) =>
             MaxFilters == other.MaxFilters && BassAdjustDb.Equals(other.BassAdjustDb) && TiltDbPerOctave.Equals(other.TiltDbPerOctave)
             && KeepBassBelow == other.KeepBassBelow && MaxBoostDb.Equals(other.MaxBoostDb) && MaxCutDb.Equals(other.MaxCutDb)
-            && CorrectOnlyBelow == other.CorrectOnlyBelow && NoBoostBelow == other.NoBoostBelow && MaxQ.Equals(other.MaxQ)
+            && CorrectOnlyBelow == other.CorrectOnlyBelow && NoBoostBelow == other.NoBoostBelow && NoBoostAbove == other.NoBoostAbove
+            && LevelMatchRange.Equals(other.LevelMatchRange) && MaxQ.Equals(other.MaxQ)
             && LowSmoothingOctaves.Equals(other.LowSmoothingOctaves) && GainStepDb == other.GainStepDb && QStep == other.QStep
             && Strength.Equals(other.Strength)
             && (Slots is null ? other.Slots is null : other.Slots is not null && Slots.SequenceEqual(other.Slots));
 
         public override readonly int GetHashCode() =>
-            HashCode.Combine(MaxFilters, MaxBoostDb, MaxCutDb, MaxQ, CorrectOnlyBelow, NoBoostBelow, Slots?.Count);
+            HashCode.Combine(HashCode.Combine(MaxFilters, MaxBoostDb, MaxCutDb, MaxQ, CorrectOnlyBelow, NoBoostBelow, Slots?.Count),
+                             NoBoostAbove, LevelMatchRange);
     }
 
     /// <summary>One band of a hardware parametric EQ.</summary>
@@ -149,11 +156,12 @@ public static class EqFitter
         }
 
         // Level-match on the lower midrange, below the ear-gain region where targets differ most.
+        var band = o.LevelMatchRange;
         double offsetSum = 0;
         int midCount = 0;
         for (int i = 0; i < n; i++)
         {
-            if (f[i] < 200 || f[i] > 1200) continue;
+            if (f[i] < band.Min || f[i] > band.Max) continue;
             offsetSum = offsetSum + t[i] - m[i];
             midCount++;
         }
@@ -203,6 +211,7 @@ public static class EqFitter
                 }
             }
             if (o.NoBoostBelow is { } floor && f[i] < floor) c[i] = Math.Min(c[i], 0);
+            if (o.NoBoostAbove is { } ceiling && f[i] > ceiling) c[i] = Math.Min(c[i], 0);
             c[i] = c[i].Clamp(-o.MaxCutDb, o.MaxBoostDb);
         }
 
@@ -462,8 +471,11 @@ public static class EqFitter
             Refine(maxPasses: 400);
             Quantize();
 
-            // Drop filters that ended up doing nothing.
-            var keep = Enumerable.Range(0, filters.Count).Where(i => Math.Abs(filters[i].Gain) >= 0.25).ToList();
+            // Drop filters that ended up doing nothing, and boosts above the ceiling.
+            var keep = Enumerable.Range(0, filters.Count)
+                .Where(i => Math.Abs(filters[i].Gain) >= 0.25
+                            && !(options.NoBoostAbove is { } ceiling && filters[i].Gain > 0 && filters[i].Kind != Kind.LowShelf && filters[i].Frequency > ceiling))
+                .ToList();
             if (keep.Count != filters.Count)
             {
                 filters = keep.Select(i => filters[i]).ToList();

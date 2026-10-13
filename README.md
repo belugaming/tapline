@@ -108,6 +108,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Spectrum analyzer | Before and after the EQ | After the EQ only |
 | Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
 | Room correction: guided measurement, setup check, separate left/right correction, RME ADI-2 export | ✓ | ✓ |
+| Surround and Dolby Atmos speakers (5.1 … 9.1.6): wiring check, a correction, trim and delay for every speaker | ✓ | ✓ (per-channel Equalizer APO sections) |
 | Quick Tone, Sound Assistant, import and export (Equalizer APO, AutoEQ, RME ADI-2) | ✓ | ✓ |
 | Per-app volume and mute | 0–200 % | 0–100 % (Windows' own app volumes) |
 | Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
@@ -201,6 +202,7 @@ Like an analog EQ, every band shifts the phase a little around its frequency. Th
 - Dragging a band recomputes the filter in the background and crossfades to it, so editing stays smooth. The bypass (⌃⌥⌘B) plays the original just as late, so switching compares the sound without a jump in time.
 - Switching between minimum phase and the two lengths changes the delay, so the music pauses for a moment (or skips ahead) without a click.
 - Room correction keeps its timing: linear phase removes only the EQ's own phase shift, not the room's, and room measurements bypass the EQ.
+- Linear phase applies to stereo outputs. A surround speaker layout (5.1 … 9.1.6) keeps minimum phase, so all speakers stay in time; the setting is greyed out there. On an audio interface with more outputs than the stereo pair, the other outputs are delayed along with it.
 
 > **On Windows:** linear phase has only the high-precision length for now; low latency is macOS only. Equalizer APO plays the filter with its convolver, 683 ms late at 48 kHz. It restarts the convolver whenever its configuration changes, so after each change the sound pauses for that long. Tapline therefore writes a new filter only when you stop adjusting, half a second after the last change.
 
@@ -258,6 +260,32 @@ In a room, the bass of any speaker is shaped by the walls: some notes boom, othe
 Tips: measurements bypass Tapline's own EQ and balance, so measuring again always shows the room as it is. To check a correction loaded into the ADI-2, measure again with its EQ on. Subwoofer crossover settings and time alignment are left to the subwoofer's own controls; if your speakers have a calibration system of their own (such as Genelec GLM for SAM models), use that first.
 
 > **On Windows:** room correction works the same. While a level check or measurement runs, the measured output plays without Tapline's EQ and effects for every app, not only the test signal.
+
+#### Surround and Dolby Atmos speakers
+
+When the output is a multichannel speaker layout (5.1, 7.1, 5.1.4, 7.1.4, up to 9.1.6), the Room page measures and corrects every speaker on its own, and lines them up in level and time at your seat. Tapline reads the layout from macOS: set it in **Audio MIDI Setup › Configure Speakers** (an AV receiver on HDMI usually reports its own).
+
+![Room correction for a 7.1.4 layout](docs/images/en/room-speakers.png)
+
+1. **Speakers**: a map of the layout. **Check Wiring** plays pink noise on each speaker in turn and asks whether it comes from that speaker; click a speaker on the map to hear it alone.
+2. **Measure All Speakers**: one run plays a 6-second sweep on every speaker in turn, then a short click on each for timing (a low rumble on the subwoofer), about a minute and a half per position for 7.1.4. Measure three to five positions, as for stereo.
+3. **Levels, Distances and Polarity**: every speaker against the front left: its level in its own band, how much nearer or farther it is, its polarity, and the trim and delay that align it. Tapline turns the louder speakers down to the quietest and holds back the nearer ones until the farthest arrives (up to 50 ms). The subwoofer's level (30–80 Hz) and distance (which includes the delay of its low-pass filter) come with advice; its level is left to the subwoofer's own gain or the receiver.
+4. **Correct**: a correction for each speaker, with the same targets and limits as for stereo. **Correct below** has two values: the front speakers (500 Hz) and the surrounds and heights (300 Hz, as they are usually small speakers near a wall or the ceiling, which the microphone hears off-axis). The LFE channel is corrected below 120 Hz and never boosted above it. **Apply to …** stores each speaker's filters, trim and delay with the output's settings; **Effects › Speakers** switches them off and on. **Copy Filters as Text** gives an Equalizer APO section per speaker (`Channel: 3`, `Preamp:`, `Delay:` and its filters).
+
+How Tapline plays a multichannel output:
+
+- Your EQ (bands, Quick Tone and preamp) plays on every speaker, or only on the front left and right with **Effects › Speakers › Play the EQ on every speaker** off. On the LFE channel it leaves out boosts above 120 Hz.
+- Balance, stereo width, mono and swap act on the front left and right speakers. Crossfeed, Virtual Speakers and Listen As are for headphones and stay off.
+- **Filter Phase** applies to stereo outputs: a speaker layout keeps minimum phase, as a linear-phase front pair would play late against the other speakers.
+- Each speaker's correction, trim and delay come last, then one limiter for all speakers, so their balance holds.
+
+Good to know:
+
+- Tapline processes PCM only. Apple Music's Dolby Atmos on macOS is rendered to multichannel PCM for the speaker layout you set up, so Tapline processes it like any other sound. A Dolby bitstream passed through to an AV receiver (Dolby Digital or TrueHD over HDMI passthrough, for example on Windows) cannot be processed: let the computer decode it to multichannel PCM instead.
+- Bass management and crossovers stay the receiver's job: set the speakers to Small or Large and the crossover there.
+- Switch off the receiver's own room correction (Audyssey, Dirac Live, YPAO) while measuring, and then use either it or Tapline, not both: two corrections work against each other.
+
+> **On Windows:** the same steps, with the layout from Windows' speaker setup (Sound settings › your output › Speaker setup). The corrections are written into Equalizer APO's configuration, one `Channel:` section per speaker.
 
 ### 4. Quick adjustments without EQ knowledge
 
@@ -493,7 +521,8 @@ The Windows version is released together with the Mac version, under the same nu
 ## Known limitations
 
 - Apps that take exclusive (hog) mode on a device cannot be tapped.
-- Room correction does not set subwoofer crossovers or delays.
+- Room correction does not set subwoofer crossovers; on surround speakers, bass management stays the receiver's job.
+- Dolby bitstreams passed through to an AV receiver cannot be processed; Tapline processes PCM only.
 - The ADI-2 export writes files for the ADI-2 DAC (FS); the ADI-2 Pro and 2/4 Pro use other file types.
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).

@@ -564,6 +564,39 @@ private func worstErrorDB(_ stages: [BiquadCoefficients], gain: Double = 1, samp
         #expect(delayedBy(short, (toShort + short + Self.fade + look + 100)..<count) < 2e-3)
     }
 
+    /// The FIRs cover the stereo pair: on a multichannel speaker layout (7.1.4) the EQ keeps its
+    /// stages, even with a FIR there, so the front pair stays in time with the other speakers.
+    @Test(arguments: phases)
+    func staysOffOnMultichannelLayouts(phase: FilterPhase) {
+        var s = MultichannelKernelTests.settings()
+        s.bands = [EQBand(frequency: 1000, gain: 6, q: 1), EQBand(type: .lowShelf, frequency: 100, gain: 3, q: 0.7)]
+        let minimum = MultichannelKernelTests.makeKernel(s)
+        s.filterPhase = phase
+        let kernel = MultichannelKernelTests.makeKernel(s)
+        kernel.setLinearPhase(settings: s)
+        #expect(kernel.linearPhaseSpec(phase) != nil)
+        let frames = LinearPhaseEQ.latency(sampleRate: Self.rate, phase: phase) + 8000
+        let signal: (Int, Int) -> Float = { c, i in
+            Float(0.2 * sin(2 * Double.pi * (300 + 50 * Double(c)) * Double(i) / Self.rate))
+        }
+        let out = MultichannelKernelTests.run(kernel, frames: frames, signal)
+        let reference = MultichannelKernelTests.run(minimum, frames: frames, signal)
+        for c in 0..<MultichannelKernelTests.channels {
+            #expect(out[c] == reference[c], "channel \(c) plays the stages, without the FIR's delay")
+        }
+        // The same kernel on a stereo layout plays the FIR.
+        kernel.configure(sampleRate: Self.rate, layout: KernelLayout(sourceBufferIndices: [0], leftBuffer: 0, leftChannel: 0, rightBuffer: 0, rightChannel: 1))
+        kernel.setSettings(s, sampleRate: Self.rate)
+        let latency = Self.latency(s), look = Self.lookahead(Self.rate)
+        let x = Self.sine(latency + 8000, frequency: 1000)
+        let stereo = Self.process(kernel, x, x).left
+        let gain = Float(BiquadCoefficients(band: s.bands[0], sampleRate: Self.rate).magnitude(at: 1000, sampleRate: Self.rate)
+                         * BiquadCoefficients(band: s.bands[1], sampleRate: Self.rate).magnitude(at: 1000, sampleRate: Self.rate)
+                         * dbToLinear(s.effectivePreampDB()))
+        let tail = (stereo.count - 2000)..<stereo.count
+        #expect(tail.allSatisfy { abs(stereo[$0] - gain * x[$0 - latency - look]) < 2e-3 })
+    }
+
     /// The other channels of a multichannel stream are delayed with the processed pair.
     @Test func passthroughChannelsKeepTheirTiming() {
         let s = Self.settings([], preampDB: 0)

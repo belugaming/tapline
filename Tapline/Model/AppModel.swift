@@ -330,6 +330,7 @@ final class AppModel {
         guard engine.isRunning else { return }
         engine.kernel.setSettings(settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass,
                                   simulation: simulation, simulating: simulating)
+        engine.kernel.setSpeakers(settings, layout: engine.speakerLayout, firstChannel: engine.speakerFirstChannel, sampleRate: engine.sampleRate)
         pushVirtualSpeakers()
         pushLinearPhase()
     }
@@ -341,7 +342,9 @@ final class AppModel {
     private func pushLinearPhase() {
         let phase = settings.filterPhase
         let lengths = FilterPhase.allCases.filter(\.isLinear)
-        guard phase.isLinear else {
+        // The FIRs cover the stereo pair: a surround output keeps minimum phase (the kernel
+        // would not play them either).
+        guard phase.isLinear, speakerLayout == nil else {
             // The kernel fades back to the stages, then frees the FIRs.
             firWanted = nil
             for length in lengths { engine.kernel.removeLinearPhase(length) }
@@ -642,10 +645,43 @@ final class AppModel {
 
     func setFilterPhase(_ phase: FilterPhase) { mutate { $0.filterPhase = phase } }
 
+    /// Whether the current output plays the linear-phase setting: stereo outputs only.
+    var playsLinearPhase: Bool { settings.filterPhase.isLinear && speakerLayout == nil }
+
+    /// Why linear phase is off on the current output, if it is a surround layout.
+    var linearPhaseUnavailable: String? {
+        speakerLayout.map { String(format: String(localized: "Linear phase plays on stereo outputs only, so this %@ speaker layout keeps minimum phase."), $0.name) }
+    }
+
     /// Milliseconds `phase` delays the sound on the current device.
     func linearPhaseLatencyMS(_ phase: FilterPhase) -> Int {
         let rate = engine.isRunning ? engine.sampleRate : (currentOutput?.sampleRate ?? 48_000)
         return Int(LinearPhaseEQ.latencyMilliseconds(sampleRate: rate, phase: phase).rounded())
+    }
+
+    // MARK: - Multichannel speakers
+
+    /// The current output's 5.1 … 9.1.6 speaker layout, whose speakers Tapline processes one by one.
+    var speakerLayout: SpeakerLayout? { currentOutput?.surroundLayout }
+
+    func setEQOnAllSpeakers(_ on: Bool) { mutate { $0.speakers.eqOnAllSpeakers = on } }
+
+    func setSpeakerCorrection(_ on: Bool) { mutate { $0.speakers.correctionEnabled = on } }
+
+    /// Applies a room correction from the Room page: each speaker's filters, trim and delay.
+    func applySpeakerCorrection(_ corrections: [SpeakerCorrection], layout: SpeakerLayout) {
+        mutate { s in
+            s.speakers.corrections = corrections
+            s.speakers.layout = layout
+            s.speakers.correctionEnabled = true
+        }
+    }
+
+    func removeSpeakerCorrection() {
+        mutate { s in
+            s.speakers.corrections = []
+            s.speakers.layout = nil
+        }
     }
 
     // MARK: - Crossfeed and Virtual Speakers (one or the other)

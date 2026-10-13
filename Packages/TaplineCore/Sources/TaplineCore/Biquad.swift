@@ -225,4 +225,59 @@ extension DSPSettings {
         }
         return p
     }
+
+    /// The EQ stages (in `kernelParams`' slots) that LFE channels leave out: boosts above 120 Hz.
+    public var lfeSkippedStages: UInt32 {
+        var mask: UInt32 = 0
+        for (i, band) in bands.prefix(Self.maxBands).enumerated() where band.isEnabled && SpeakerSetup.skipsOnLFE(band.clamped()) {
+            mask |= 1 << UInt32(i)
+        }
+        let toneBase = Int(TL_MAX_STAGES) - 4
+        for (i, band) in tone.bands.enumerated() where band.isEnabled && SpeakerSetup.skipsOnLFE(band) {
+            mask |= 1 << UInt32(toneBase + i)
+        }
+        return mask
+    }
+
+    /// The kernel's speaker block for a multichannel output with `layout`, whose processed
+    /// stream starts at device channel `firstChannel`: whether the EQ plays on every speaker,
+    /// and each measured speaker's correction, trim and delay (when they match the layout).
+    public func kernelSpeakers(layout: SpeakerLayout?, firstChannel: Int = 0, sampleRate: Double) -> tl_speakers {
+        var out = tl_speakers()
+        tl_speakers_init(&out)
+        out.eq_all = speakers.eqOnAllSpeakers ? 1 : 0
+        out.lfe_skip = lfeSkippedStages
+
+        let corrections = speakers.activeCorrections(for: layout)
+        guard !corrections.isEmpty else { return out }
+        // One headroom for every speaker, so the trims keep them level-matched.
+        let headroom = SpeakerSetup.headroomDB(corrections, sampleRate: sampleRate)
+        var channels = [tl_speaker](repeating: tl_speaker(), count: Int(TL_MAX_CHANNELS))
+        withUnsafeBytes(of: out.channel) { raw in
+            for (i, s) in raw.bindMemory(to: tl_speaker.self).enumerated() { channels[i] = s }
+        }
+        for i in channels.indices { channels[i].gain = Float(dbToLinear(headroom)) }
+        for correction in corrections {
+            let c = correction.channel - firstChannel
+            guard channels.indices.contains(c) else { continue }
+            var speaker = channels[c]
+            let trim = correction.trimDB.isNaN ? 0 : correction.trimDB.clamped(to: SpeakerCorrection.trimRange)
+            speaker.gain = Float(dbToLinear(trim + headroom))
+            let delay = correction.delayMS.isNaN ? 0 : correction.delayMS.clamped(to: SpeakerCorrection.delayRange)
+            speaker.delay = Float(delay / 1000)
+            let bands = correction.bands.filter(\.isEnabled).prefix(SpeakerCorrection.maxBands).map(SpeakerSetup.mono)
+            withUnsafeMutableBytes(of: &speaker.stages) { raw in
+                let stages = raw.bindMemory(to: tl_biquad.self)
+                for (i, band) in bands.enumerated() where i < Int(TL_MAX_SPEAKER_STAGES) {
+                    stages[i] = BiquadCoefficients(band: band, sampleRate: sampleRate).cValue()
+                }
+            }
+            channels[c] = speaker
+        }
+        withUnsafeMutableBytes(of: &out.channel) { raw in
+            let p = raw.bindMemory(to: tl_speaker.self)
+            for i in channels.indices { p[i] = channels[i] }
+        }
+        return out
+    }
 }

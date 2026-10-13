@@ -15,6 +15,13 @@ namespace Tapline.Core;
 /// make-up gain and filters, and its stereo width folded into the width matrix. In linear phase
 /// the EQ (bands, tone controls and preamp) is one FIR per channel for Equalizer APO's convolver,
 /// and the bypassed sound is delayed by as much, so that switching never jumps in time.
+///
+/// A multichannel speaker output (5.1 … 7.1.4, see <see cref="ProcessesPerSpeaker"/>) gets the macOS
+/// kernel's multichannel processing instead, channel by channel: the EQ on every speaker (or the
+/// front pair only), without its boosts above 120 Hz on LFE channels; swap, width and balance on
+/// the front pair; no headphone effects (crossfeed, Virtual Speakers, "Listen as") and no linear
+/// phase; the output gain on every speaker; then each speaker's room correction, trim and delay.
+/// Channels without a known speaker pass through untouched.
 public static class ApoConfig
 {
     /// First line of every configuration Tapline writes, so it can tell its own from the user's.
@@ -33,10 +40,17 @@ public static class ApoConfig
     /// <summary><paramref name="Speakers"/>: the files for Virtual Speakers when the device has
     /// them on and they could be written; without them the effect is left out.
     /// <paramref name="Simulation"/>: the "Listen as" device playing on this output, if any.
+    /// <paramref name="Layout"/>: the output's speakers, one position per channel (null: unknown).
     /// <paramref name="Fir"/>: the linear-phase EQ's files when the device plays in linear phase and
     /// they are ready; until then it plays the biquads.</summary>
     public sealed record Device(string Guid, string Name, int Channels, double SampleRate, DspSettings Settings, SpeakerFiles? Speakers = null,
-                                DeviceSimulation? Simulation = null, FirFiles? Fir = null);
+                                DeviceSimulation? Simulation = null, SpeakerLayout? Layout = null, FirFiles? Fir = null);
+
+    /// <summary>Whether an output with <paramref name="channels"/> and <paramref name="layout"/> gets the
+    /// per-speaker processing: more than two channels, a surround layout (more than a front pair), and
+    /// one speaker position for every channel. Anything else is processed as a stereo pair.</summary>
+    public static bool ProcessesPerSpeaker(int channels, SpeakerLayout? layout) =>
+        channels > 2 && layout is { IsSurround: true } && layout.ChannelCount == channels;
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -56,6 +70,11 @@ public static class ApoConfig
 
     private static void AppendDevice(StringBuilder sb, Device d, bool levelMatchedBypass)
     {
+        if (ProcessesPerSpeaker(d.Channels, d.Layout))
+        {
+            AppendSpeakers(sb, d, d.Layout!, levelMatchedBypass);
+            return;
+        }
         var s = d.Settings;
         var stereo = d.Channels >= 2;
         sb.AppendLine();
@@ -205,6 +224,133 @@ public static class ApoConfig
         {
             sb.AppendLine("Channel: " + string.Join(" ", Enumerable.Range(3, channels - 2).Select(c => c.ToString(Inv))));
             sb.AppendLine($"Convolution: {fir.Others}");
+        }
+        sb.AppendLine("Channel: all");
+    }
+
+    /// <summary>A multichannel speaker output, following the macOS kernel's multichannel path.</summary>
+    private static void AppendSpeakers(StringBuilder sb, Device d, SpeakerLayout layout, bool levelMatchedBypass)
+    {
+        var s = d.Settings;
+        var positions = layout.Positions;
+        int count = positions.Count;
+        sb.AppendLine();
+        sb.AppendLine($"# {d.Name.Replace('\n', ' ')}");
+        sb.AppendLine($"Device: {d.Guid}");
+        sb.AppendLine("Channel: all");
+        sb.AppendLine($"# {layout.Name} speakers: "
+                      + string.Join(", ", Enumerable.Range(0, count).Select(ch => $"{ch + 1} {positions[ch].Abbreviation()}")));
+
+        // The front pair takes the stereo effects; without one, the first two channels (as Windows plays stereo).
+        int left = layout.ChannelOf(SpeakerPosition.FrontLeft) ?? -1, right = layout.ChannelOf(SpeakerPosition.FrontRight) ?? -1;
+        if (left < 0 || right < 0) (left, right) = (0, 1);
+        var speakers = Enumerable.Range(0, count).Where(ch => positions[ch] != SpeakerPosition.Unknown || ch == left || ch == right).ToList();
+        bool IsLfeChannel(int ch) => positions[ch].IsLfe() && ch != left && ch != right;
+
+        // Selects channels (numbered from 1): "all" when that is every channel of the output.
+        void SelectChannels(IReadOnlyCollection<int> channels) =>
+            sb.AppendLine(channels.Distinct().Count() == count
+                ? "Channel: all"
+                : "Channel: " + string.Join(" ", channels.Distinct().Order().Select(ch => (ch + 1).ToString(Inv))));
+
+        // 1. The EQ (or, bypassed, its level-matched gain): on every speaker or on the front pair.
+        //    Left / right bands stay on the front left / right; LFE channels leave out boosts above 120 Hz.
+        var number = 1;
+        List<int> eqChannels = s.Speakers.EqOnAllSpeakers ? speakers : [left, right];
+        if (s.EqEnabled)
+        {
+            var preamp = s.EffectivePreampDb(d.SampleRate);
+            var bands = s.Bands.Take(DspSettings.MaxBands).Where(b => b.IsEnabled).Select(b => b.Clamped())
+                .Concat(s.Tone.Bands.Where(b => b.IsEnabled).Select(b => b.Clamped()))
+                .Where(b => !b.Type.UsesGain() || Math.Abs(b.Gain) >= 0.005)
+                .ToList();
+            var shared = bands.Where(b => b.Channels == EqChannels.Both).ToList();
+            var everywhere = shared.Where(b => !SpeakerSetup.SkipsOnLfe(b)).ToList();
+            var notOnLfe = shared.Where(SpeakerSetup.SkipsOnLfe).ToList();
+            if (Math.Abs(preamp) >= 0.005 || everywhere.Count > 0)
+            {
+                SelectChannels(eqChannels);
+                if (Math.Abs(preamp) >= 0.005) sb.AppendLine($"Preamp: {N(preamp, 2)} dB");
+                foreach (var b in everywhere) sb.AppendLine(Filter(number++, b));
+            }
+            if (notOnLfe.Count > 0)
+            {
+                var mains = eqChannels.Where(ch => !IsLfeChannel(ch)).ToList();
+                if (mains.Count < eqChannels.Count) sb.AppendLine("# Not on the LFE: boosts above 120 Hz");
+                SelectChannels(mains);
+                foreach (var b in notOnLfe) sb.AppendLine(Filter(number++, b));
+            }
+            foreach (var (side, channel) in new[] { (EqChannels.Left, left), (EqChannels.Right, right) })
+            {
+                var only = bands.Where(b => b.Channels == side).ToList();
+                if (only.Count == 0) continue;
+                SelectChannels([channel]);
+                foreach (var b in only) sb.AppendLine(Filter(number++, b));
+            }
+        }
+        else if (levelMatchedBypass)
+        {
+            var gain = s.BypassGainDb(d.SampleRate);
+            if (Math.Abs(gain) >= 0.005)
+            {
+                SelectChannels(eqChannels);
+                sb.AppendLine($"Preamp: {N(gain, 2)} dB");
+            }
+        }
+
+        // 2. Swap, width (0 = mono) and balance on the front pair, as one matrix. The headphone effects
+        //    (crossfeed, Virtual Speakers, "Listen as") stay off on speakers.
+        var fx = s.Effects;
+        var w = fx.Mono ? 0 : fx.Width.Clamp(EffectsSettings.WidthMin, EffectsSettings.WidthMax);
+        double a = 0.5 + 0.5 * w, c = 0.5 - 0.5 * w;
+        var (m11, m12, m21, m22) = fx.SwapChannels ? (c, a, a, c) : (a, c, c, a);
+        var balance = fx.Balance.Clamp(EffectsSettings.BalanceMin, EffectsSettings.BalanceMax);
+        var gainL = balance > 0 ? 1 - balance : 1;
+        var gainR = balance < 0 ? 1 + balance : 1;
+        var (l1, l2, r1, r2) = (gainL * m11, gainL * m12, gainR * m21, gainR * m22);
+        if (!(Near(l1, 1) && Near(l2, 0) && Near(r1, 0) && Near(r2, 1)))
+        {
+            string l = (left + 1).ToString(Inv), r = (right + 1).ToString(Inv);
+            sb.AppendLine("Channel: all");
+            sb.AppendLine($"Copy: {l}={Sum((l1, l), (l2, r))} {r}={Sum((r1, l), (r2, r))}");
+        }
+
+        // 3. The output gain, on every speaker.
+        var outputGainDb = fx.OutputGainDb.Clamp(EffectsSettings.OutputGainMin, EffectsSettings.OutputGainMax);
+        if (Math.Abs(outputGainDb) >= 0.005)
+        {
+            SelectChannels(speakers);
+            sb.AppendLine($"Preamp: {N(outputGainDb, 2)} dB");
+        }
+
+        // 4. Each speaker's room correction, last: the trim plus the headroom all speakers share (so they
+        //    stay level-matched), the filters and the delay. Only on the layout it was measured on.
+        var corrections = s.Speakers.ActiveCorrections(layout);
+        if (corrections.Count > 0)
+        {
+            var headroom = SpeakerSetup.HeadroomDb(corrections, d.SampleRate);
+            var byChannel = new SortedDictionary<int, SpeakerCorrection>();
+            foreach (var correction in corrections)
+                if (speakers.Contains(correction.Channel)) byChannel[correction.Channel] = correction;
+            sb.AppendLine($"# Room correction for the {layout.Name} speakers");
+            var plain = speakers.Where(ch => !byChannel.ContainsKey(ch)).ToList();
+            if (plain.Count > 0 && Math.Abs(headroom) >= 0.005)
+            {
+                SelectChannels(plain);
+                sb.AppendLine($"Preamp: {N(headroom, 2)} dB");
+            }
+            foreach (var (channel, correction) in byChannel)
+            {
+                sb.AppendLine($"# {positions[channel].Abbreviation()}");
+                SelectChannels([channel]);
+                var trim = double.IsNaN(correction.TrimDb) ? 0 : correction.TrimDb.Clamp(SpeakerCorrection.TrimRange);
+                if (Math.Abs(trim + headroom) >= 0.005) sb.AppendLine($"Preamp: {N(trim + headroom, 2)} dB");
+                foreach (var b in correction.Bands.Where(b => b.IsEnabled).Take(SpeakerCorrection.MaxBands).Select(SpeakerSetup.Mono)
+                             .Where(b => !b.Type.UsesGain() || Math.Abs(b.Gain) >= 0.005))
+                    sb.AppendLine(Filter(number++, b));
+                var delay = double.IsNaN(correction.DelayMs) ? 0 : correction.DelayMs.Clamp(SpeakerCorrection.DelayRange);
+                if (delay >= 0.0005) sb.AppendLine($"Delay: {N(delay, 3)} ms");
+            }
         }
         sb.AppendLine("Channel: all");
     }

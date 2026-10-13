@@ -155,6 +155,37 @@ public static class ParametricEqFormat
         return string.Join("\n", lines) + "\n";
     }
 
+    /// <summary>A multichannel room correction, one Equalizer APO section per speaker: its channel
+    /// (numbered from 1 in the output's channel order), preamp (trim plus the headroom all
+    /// speakers share), delay and filters.
+    /// <code>
+    /// # C (channel 3)
+    /// Channel: 3
+    /// Preamp: -4.5 dB
+    /// Delay: 1.25 ms
+    /// Filter 1: ON PK Fc 63 Hz Gain -6.0 dB Q 4.00
+    /// </code></summary>
+    public static string ExportSpeakers(IEnumerable<SpeakerCorrection> corrections, string layoutName, double headroomDb)
+    {
+        var lines = new List<string> { $"# Room correction for {layoutName} speakers, one section per speaker." };
+        double headroom = double.IsFinite(headroomDb) ? headroomDb : 0;
+        foreach (var c in corrections.OrderBy(c => c.Channel))
+        {
+            lines.Add("");
+            lines.Add($"# {c.Position.Abbreviation()} (channel {c.Channel + 1})");
+            lines.Add($"Channel: {c.Channel + 1}");
+            double trim = double.IsFinite(c.TrimDb) ? c.TrimDb.Clamp(SpeakerCorrection.TrimRange) : 0;
+            lines.Add($"Preamp: {Swift.Format(trim + headroom, 1)} dB");
+            double delay = double.IsFinite(c.DelayMs) ? c.DelayMs.Clamp(SpeakerCorrection.DelayRange) : 0;
+            if (delay >= 0.005) lines.Add($"Delay: {Swift.Format(delay, 2)} ms");
+            int number = 0;
+            foreach (var b in c.Bands.Where(b => b.IsEnabled).Take(SpeakerCorrection.MaxBands)) lines.Add(FilterLine(b, ++number));
+        }
+        lines.Add("");
+        lines.Add("Channel: all");
+        return string.Join("\n", lines) + "\n";
+    }
+
     private static string FilterLine(EqBand b, int number)
     {
         string code = b.Type switch

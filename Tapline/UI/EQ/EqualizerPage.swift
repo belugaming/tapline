@@ -479,10 +479,19 @@ struct FilterPhasePicker: View {
     let title: LocalizedStringKey
 
     var body: some View {
-        Picker(title, selection: Binding(get: { model.settings.filterPhase }, set: { model.setFilterPhase($0) })) {
-            Text("Minimum Phase (no latency)").tag(FilterPhase.minimum)
-            Text("Linear Phase · Low Latency (\(model.linearPhaseLatencyMS(.linearLowLatency)) ms)").tag(FilterPhase.linearLowLatency)
-            Text("Linear Phase · High Precision (\(model.linearPhaseLatencyMS(.linearHighPrecision)) ms)").tag(FilterPhase.linearHighPrecision)
+        if let unavailable = model.linearPhaseUnavailable {
+            // A surround output: what it plays, and why, as disabled items.
+            Menu(title) {
+                Text(unavailable)
+                Button("Minimum Phase (no latency)") {}
+                    .disabled(true)
+            }
+        } else {
+            Picker(title, selection: Binding(get: { model.settings.filterPhase }, set: { model.setFilterPhase($0) })) {
+                Text("Minimum Phase (no latency)").tag(FilterPhase.minimum)
+                Text("Linear Phase · Low Latency (\(model.linearPhaseLatencyMS(.linearLowLatency)) ms)").tag(FilterPhase.linearLowLatency)
+                Text("Linear Phase · High Precision (\(model.linearPhaseLatencyMS(.linearHighPrecision)) ms)").tag(FilterPhase.linearHighPrecision)
+            }
         }
     }
 }
@@ -521,7 +530,7 @@ private struct EQStatus: View {
                 .help(Text("Level-matched \(gain)") + Text(verbatim: "\n")
                       + Text("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings."))
             }
-            if s.filterPhase.isLinear {
+            if model.playsLinearPhase {
                 Group {
                     switch detail {
                     case .full: Label("Linear phase · \(ms) ms", systemImage: "timer")
