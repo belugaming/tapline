@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-13
+
 ### Added
 - **Listen As** on the Assistant page: hear how your music would sound on other playback devices, through your own headphones, like Sonarworks SoundID's Translation Check. Pick headphones or earbuds from squig.link (AirPods, EarPods, Galaxy Buds…) and Tapline fits an EQ from the target your headphone correction aims at to that device: the raw difference when both were measured in the same database, else through each database's own target so the measurement rigs cancel. Or pick one of five built-in speakers: phone, laptop, TV, small Bluetooth speaker and car, approximations with their channel handling (mono, narrow stereo). It plays on top of your EQ without changing it, switching is level-matched, and it is never saved in presets. Switch it on the card, in the menu bar panel or with ⌃⌥⌘L; Tapline remembers the last device and starts with it off.
 - **Linear-phase EQ**: **⋯ → Filter Phase** on the Equalizer page, or **Settings → Filter Phase**, for each output device. Minimum phase, the default, plays without latency as before. Linear phase plays the same curve (bands, tone controls and preamp) as a filter without any phase shift, like the linear-phase modes of SoundID Reference, in two lengths: **low latency** (176 ms at 48 kHz, the default), exact for headphone and speaker corrections, and **high precision** (704 ms), which also resolves narrow bass bands below 45 Hz. The latency shows next to the EQ switch; video may lose lip sync. While you drag a band the filter is recomputed in the background and crossfaded in. The bypass plays the original just as late, so switching neither jumps in time nor comb-filters. Room correction and its measurements are unaffected.
@@ -133,7 +135,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/belugaming/tapline/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/belugaming/tapline/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/belugaming/tapline/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/belugaming/tapline/compare/v0.3.0...v0.3.1
