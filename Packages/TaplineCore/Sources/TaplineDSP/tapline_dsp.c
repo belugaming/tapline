@@ -942,6 +942,8 @@ static void run_eq(tl_kernel *k, const tl_params *p, uint32_t frames, uint64_t a
         conv_pick_up(c, k->sample_rate, k->lin_gain > 0.0f);
         want_linear = p->linear_phase && c->cur && !c->removing;
     }
+    // The FIR was removed before its output faded in: nothing of it is audible.
+    if (c->running && !c->cur) conv_reset(c);
     if (want_linear && !c->running) {
         conv_reset(c);
         c->running = 1;

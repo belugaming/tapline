@@ -394,6 +394,27 @@ private func worstErrorDB(_ stages: [BiquadCoefficients], gain: Double = 1, samp
         #expect((2000..<6000).allSatisfy { abs(out[$0] - reference[$0]) < 1e-5 })
     }
 
+    /// Removing the FIR (switching to minimum phase frees it) before it faded in, or while it
+    /// plays: back to the stages, without a click.
+    @Test func removingTheFIRReturnsToTheStages() {
+        let s = Self.settings([EQBand(frequency: 500, gain: 5, q: 1)])
+        let latency = LinearPhaseEQ.latency(sampleRate: Self.rate)
+        let x = Self.sine(latency + 30_000, frequency: 300)
+        let reference = Self.process(Self.makeKernel(Self.settings(s.bands, linear: false)), x, x).left
+        for removeAt in [2000, latency + 8000] {
+            let kernel = Self.makeKernel(s)
+            var out = Self.process(kernel, Array(x[..<removeAt]), Array(x[..<removeAt])).left
+            kernel.setLinearPhase(nil)
+            #expect(kernel.linearPhaseSpec == nil)
+            out += Self.process(kernel, Array(x[removeAt...]), Array(x[removeAt...])).left
+            kernel.collectReleasedSets()
+            let natural = Self.maxStep(reference, in: 0..<reference.count)
+            #expect(Self.maxStep(out, in: 0..<out.count) < natural * 1.2, "removed at \(removeAt)")
+            let after = (removeAt + Self.fade + 3000)..<x.count
+            #expect(after.allSatisfy { abs(out[$0] - reference[$0]) < 1e-3 }, "removed at \(removeAt)")
+        }
+    }
+
     /// The pre-EQ spectrum is taken from the delayed input, so it lines up with the output.
     @Test func inputSpectrumLinesUpWithTheOutput() {
         let kernel = Self.makeKernel(Self.settings([EQBand(frequency: 1000, gain: 3, q: 1)]))
