@@ -117,6 +117,7 @@ public class LinearPhaseTests
     [InlineData(20, -24, 18, 5.5)]
     [InlineData(20, 12, 4.3, 0.15)]
     [InlineData(40, -12, 10, 0.1)]
+    [InlineData(40, 12, 10, 0.2)]
     public void DocumentsTheErrorAtTheBottom(double frequency, double gain, double q, double limit)
     {
         BiquadCoefficients[] stages = [new(new EqBand(FilterType.Peak, frequency, gain, q), Rate)];

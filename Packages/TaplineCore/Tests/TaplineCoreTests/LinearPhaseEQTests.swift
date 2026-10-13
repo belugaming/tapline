@@ -107,8 +107,9 @@ private func worstErrorDB(_ stages: [BiquadCoefficients], gain: Double = 1, samp
     }
 
     /// What 65,536 taps (1.37 s at 48 kHz) resolve, as the largest error from 16 Hz to 20 kHz.
-    /// Measured: Q 4.3 (one octave) at 20 Hz +12 dB 0.09 dB, Q 10 at 40 Hz -12 dB 0.05 dB,
-    /// Q 18 at 100 Hz 0.007 dB. The narrowest bells the app allows at its lowest frequency
+    /// Measured: Q 4.3 (one octave) at 20 Hz +12 dB 0.09 dB, Q 10 at 40 Hz 0.05 dB at -12 dB,
+    /// 0.15 dB at +12 dB and 0.9 dB at +24 dB, Q 18 at 100 Hz 0.007 dB. The narrowest bells the
+    /// app allows at its lowest frequency
     /// lose some of their depth, as they ring longer than the FIR lasts: Q 18 at 20 Hz is
     /// 1.1 dB short at ±6 dB and 5.3 dB at ±24 dB, a resonant Q 18 high-pass at 20 Hz 0.76 dB.
     /// An octave away from the band the error stays below 0.01 dB.
@@ -119,6 +120,8 @@ private func worstErrorDB(_ stages: [BiquadCoefficients], gain: Double = 1, samp
         (EQBand(frequency: 20, gain: -24, q: 18), 5.5),
         (EQBand(frequency: 20, gain: 12, q: 4.3), 0.15),
         (EQBand(frequency: 40, gain: -12, q: 10), 0.1),
+        (EQBand(frequency: 40, gain: 12, q: 10), 0.2),
+        (EQBand(frequency: 40, gain: 24, q: 10), 1.0),
         (EQBand(frequency: 100, gain: -12, q: 18), 0.02),
         (EQBand(type: .highPass, frequency: 20, q: 18), 0.8),
         (EQBand(frequency: 19_000, gain: 12, q: 18), 0.01),

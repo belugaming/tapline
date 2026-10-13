@@ -38,9 +38,9 @@ public sealed class FilterPhaseConverter : JsonConverter<FilterPhase>
 /// <remarks>Design: the magnitude of the biquad cascade is sampled at 4 x taps points, transformed into
 /// its zero-phase impulse response, cut to <c>taps</c> samples around the centre with a Tukey window
 /// (flat over the middle half, cosine tapers at the ends) and delayed by taps / 2. The length,
-/// 1.25 s or more (65,536 taps at 44.1 and 48 kHz), is what resolves narrow bass bands: bells up to
-/// Q 10 from 40 Hz and a one-octave bell at 20 Hz stay within 0.1 dB of the biquads; Q 18 at
-/// 20 Hz is about 1 dB short at ±6 dB and 5 dB short at ±24 dB.</remarks>
+/// 1.25 s or more (65,536 taps at 44.1 and 48 kHz), is what resolves narrow bass bands: a one-octave
+/// bell at 20 Hz stays within 0.1 dB of the biquads, and bells up to Q 10 and ±12 dB from 40 Hz
+/// within 0.15 dB; Q 18 at 20 Hz is about 1 dB short at ±6 dB and 5 dB short at ±24 dB.</remarks>
 public static class LinearPhaseEq
 {
     public const int MinTaps = 4096, MaxTaps = 262_144;

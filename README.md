@@ -193,7 +193,7 @@ Undo and redo (⌘Z / ⇧⌘Z) cover every change.
 Like an analog EQ, every band shifts the phase a little around its frequency. That is minimum phase, and it plays without latency. **⋯ → Filter Phase → Linear Phase** (or **Settings → Filter Phase**) plays the same curve as a linear-phase filter instead, like the linear-phase mode of SoundID Reference: no phase shift at all, so transients keep their shape, but the sound comes later. Each output device has its own setting.
 
 - The latency shows next to the EQ switch: 704 ms at 48 kHz, 766 ms at 44.1 kHz. Video may lose lip sync, and play and pause take that long to be heard, so it is best for music.
-- The graph shows what plays. The filter lasts 1.37 s at 48 kHz (65,536 taps, and as long at higher rates), which keeps bells up to Q 10 from 40 Hz up within 0.1 dB. Only the narrowest bells at the very bottom lose some depth: Q 18 at 20 Hz comes out about 1 dB short at ±6 dB.
+- The graph shows what plays. The filter lasts 1.37 s at 48 kHz (65,536 taps, and as long at higher rates), which keeps bells up to Q 10 and ±12 dB from 40 Hz up within 0.15 dB. Only the narrowest bells at the very bottom lose some depth: Q 18 at 20 Hz comes out about 1 dB short at ±6 dB.
 - Dragging a band recomputes the filter in the background and crossfades to it, so editing stays smooth. The bypass (⌃⌥⌘B) plays the original just as late, so switching compares the sound without a jump in time.
 - Switching between minimum and linear phase changes the delay, so the music pauses for a moment (or skips ahead) without a click.
 - Room correction keeps its timing: linear phase removes only the EQ's own phase shift, not the room's, and room measurements bypass the EQ.

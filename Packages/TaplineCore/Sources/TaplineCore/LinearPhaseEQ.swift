@@ -19,8 +19,9 @@ public enum FilterPhase: String, Codable, CaseIterable, Sendable, Identifiable {
 /// its zero-phase impulse response, cut to `taps` samples around the centre with a Tukey window
 /// (flat over the middle half, cosine tapers at the ends) and delayed by taps / 2. A narrow
 /// bass bell rings for long, and the FIR's length is what resolves it: 1.25 s or more (65,536
-/// taps at 44.1 and 48 kHz) keeps a one-octave bell at 20 Hz and bells up to Q 10 from 40 Hz
-/// within 0.1 dB of the biquads. Only the narrowest bells at the very bottom lose some depth:
+/// taps at 44.1 and 48 kHz) keeps a one-octave bell at 20 Hz within 0.1 dB of the biquads, and
+/// bells up to Q 10 and ±12 dB from 40 Hz within 0.15 dB. Only the narrowest bells at the very
+/// bottom lose some depth:
 /// Q 18 at 20 Hz is about 1 dB short at ±6 dB and 5 dB short at ±24 dB (see
 /// LinearPhaseEQTests). The Tukey window keeps more of that ringing than a Hann or Blackman
 /// window, which miss the bottom octave by up to twice as much, without leaking into the rest
