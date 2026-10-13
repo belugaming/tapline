@@ -11,6 +11,7 @@
 "Drag to move · Scroll for Q · Alt-click to delete · Double-click empty space to add" = "拖动移动 · 滚轮调 Q 值 · Alt 点按删除 · 双击空白处添加";
 "Enhancements off" = "音频增强已关";
 "Equalizer APO" = "Equalizer APO";
+"Equalizer APO has no limiter, so the simulation plays %.1f dB below the loudness of your sound so that it cannot clip." = "Equalizer APO 没有限幅器，所以模拟会比你原本的响度低 %.1f dB，以免削波。";
 "Equalizer APO has no limiter. Keep the preamp on Auto so boosts don't clip, and lower this if the meters reach the top." = "Equalizer APO 没有限幅器。请把预增益保持在“自动”，避免提升频段时破音；电平表顶满时调低这里。";
 "Equalizer APO is not installed on %@" = "%@ 上没有安装 Equalizer APO";
 "Equalizer APO is not installed on this device. Open its Configurator to add it." = "这个设备上没有安装 Equalizer APO。打开它的 Configurator 添加即可。";

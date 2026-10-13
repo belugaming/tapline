@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Listen As** on the Assistant page: hear your music as other headphones and earbuds (fitted from squig.link measurements) or everyday speakers (phone, laptop, TV, small Bluetooth speaker, car; approximations) would play it, through your own headphones. Its filters follow your EQ in Equalizer APO's configuration, on the current output only, and are never saved in presets. Switch it on the card, in the tray panel or with Ctrl+Alt+Shift+L. Equalizer APO has no limiter, so where the device would boost above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.
+
 ## 0.4.0
 
 Tapline for Windows is out of beta. From this release on it comes out together with Tapline for macOS and has the same version number, so it jumps from 0.1.0-beta.3 to 0.4.0. It brings over the correction strength, level-matched bypass and Virtual Speakers of Tapline 0.4.0 for macOS.

@@ -6,19 +6,26 @@ struct AssistantPage: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HeadphoneCorrectionCard()
-                HStack(alignment: .top, spacing: 16) {
-                    QuickToneCard()
-                    SoundAssistantCard()
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HeadphoneCorrectionCard()
+                    ListenAsCard().id("listen")
+                    HStack(alignment: .top, spacing: 16) {
+                        QuickToneCard()
+                        SoundAssistantCard()
+                    }
+                    PresetLibraryCard()
+                    ImportExportCard()
                 }
-                PresetLibraryCard()
-                ImportExportCard()
+                .padding(20)
+                .frame(maxWidth: 980)
+                .frame(maxWidth: .infinity)
             }
-            .padding(20)
-            .frame(maxWidth: 980)
-            .frame(maxWidth: .infinity)
+            .onAppear {
+                guard let anchor = DebugSnapshot.scrollAnchor else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { proxy.scrollTo(anchor, anchor: .top) }
+            }
         }
     }
 }

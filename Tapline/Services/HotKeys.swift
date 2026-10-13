@@ -19,6 +19,7 @@ final class HotKeyCenter {
             case kVK_ANSI_P: key = "P"
             case kVK_ANSI_B: key = "B"
             case kVK_ANSI_K: key = "K"
+            case kVK_ANSI_L: key = "L"
             default: key = "?"
             }
             return "⌃⌥⌘\(key)"

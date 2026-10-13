@@ -67,6 +67,20 @@ struct MenuBarPanel: View {
                     .onTapGesture { AppDelegate.showMainWindow() }
             }
 
+            HStack(spacing: 8) {
+                Toggle("Listen as", isOn: Binding(get: { model.simulating }, set: { model.setSimulating($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(model.simulation == nil)
+                Text(model.simulation?.title ?? String(localized: "Choose a device in Assistant"))
+                    .font(.callout)
+                    .foregroundStyle(model.simulating ? Theme.accent : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(Text(model.simulation?.detail ?? ""))
+                Spacer(minLength: 0)
+            }
+
             let playing = model.processes.apps.filter(\.isPlaying)
             if !playing.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
