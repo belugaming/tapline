@@ -5,8 +5,10 @@
 // into the output device's preferred stereo channels.
 //
 // Threading model:
-//   - tl_kernel_set_params / tl_kernel_set_source_gain: any single non-realtime
-//     thread (the main thread in practice). Lock-free.
+//   - tl_kernel_set_params / tl_kernel_set_source_gain / tl_kernel_set_ir_set /
+//     tl_kernel_collect: any single non-realtime thread (the main thread in practice).
+//     Lock-free.
+//   - tl_ir_set_create / tl_ir_set_destroy: any non-realtime thread.
 //   - tl_kernel_configure / tl_kernel_reset: only while IO is stopped.
 //   - tl_kernel_read_meters / tl_kernel_copy_analyzer: any thread. Lock-free.
 //   - tl_ioproc: the IO thread.
@@ -28,6 +30,11 @@ extern "C" {
 #define TL_MAX_FRAMES 8192
 #define TL_ANALYZER_SIZE 32768
 
+/// Virtual speakers: partition size of the convolution, which is also the latency it adds.
+#define TL_CONV_BLOCK 256
+/// Longest impulse response the convolution uses (at the device rate); longer ones are cut.
+#define TL_CONV_MAX_TAPS 65536
+
 typedef struct {
     double b0, b1, b2, a1, a2;
     int32_t active;
@@ -48,6 +55,9 @@ typedef struct {
     int32_t crossfeed_enabled;
     int32_t limiter_enabled;
     int32_t reserved;
+    /// Convolves with the IR set from tl_kernel_set_ir_set. Takes crossfeed's place.
+    int32_t virtual_speakers_enabled;
+    int32_t reserved2;
 } tl_params;
 
 typedef struct {
@@ -72,6 +82,9 @@ typedef struct {
 
 typedef struct tl_kernel tl_kernel;
 
+/// Impulse responses of a pair of virtual speakers, transformed for the realtime kernel.
+typedef struct tl_ir_set tl_ir_set;
+
 tl_kernel *_Nullable tl_kernel_create(void);
 void tl_kernel_destroy(tl_kernel *kernel);
 
@@ -93,6 +106,24 @@ uint64_t tl_kernel_copy_analyzer(tl_kernel *kernel, int32_t which, float *dst, u
 
 /// Neutral parameter block: EQ stages inactive, unity gains, no effects.
 void tl_params_init(tl_params *params);
+
+/// Prepares the impulse responses of a pair of speakers for the kernel. `irs` holds four
+/// pointers to `length` samples each: front left -> left ear, front left -> right ear,
+/// front right -> left ear, front right -> right ear, at `sample_rate`, which must be the
+/// rate the kernel is configured for (resample first). `gain` scales all four. Only the
+/// first TL_CONV_MAX_TAPS samples are used. Allocates. NULL when the input is unusable.
+tl_ir_set *_Nullable tl_ir_set_create(const float *const *irs, uint32_t length, double sample_rate, float gain);
+
+/// Frees a set that was never handed to a kernel. NULL is ignored.
+void tl_ir_set_destroy(tl_ir_set *_Nullable set);
+
+/// Hands `set` (NULL: none) to the IO thread, which crossfades to it. The kernel owns the
+/// set from now on. A set for another sample rate than the kernel's is ignored.
+void tl_kernel_set_ir_set(tl_kernel *kernel, tl_ir_set *_Nullable set);
+
+/// Frees the sets the IO thread has finished with. Called by tl_kernel_set_ir_set; call it
+/// now and then (e.g. with the meters) so a replaced set does not linger.
+void tl_kernel_collect(tl_kernel *kernel);
 
 /// The IOProc. Pass the kernel as client data. Signature matches AudioDeviceIOProc.
 OSStatus tl_ioproc(AudioObjectID device,

@@ -175,7 +175,9 @@ extension DSPSettings {
         p.width = Float(effects.width.clamped(to: 0...2))
         p.mono = effects.mono ? 1 : 0
         p.swap_channels = effects.swapChannels ? 1 : 0
-        p.crossfeed_enabled = effects.crossfeedEnabled ? 1 : 0
+        // Virtual speakers take crossfeed's place; the UI never switches on both.
+        p.crossfeed_enabled = effects.crossfeedEnabled && !effects.virtualSpeakersEnabled ? 1 : 0
+        p.virtual_speakers_enabled = effects.virtualSpeakersEnabled ? 1 : 0
         p.crossfeed = Float(effects.crossfeed.clamped(to: 0...1))
         p.limiter_enabled = effects.limiterEnabled ? 1 : 0
         p.limiter_ceiling = Float(dbToLinear(effects.limiterCeilingDB.clamped(to: -12...0)))

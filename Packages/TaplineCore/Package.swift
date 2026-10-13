@@ -14,7 +14,7 @@ let package = Package(
         .target(
             name: "TaplineDSP",
             cSettings: [.unsafeFlags(["-O2"])],
-            linkerSettings: [.linkedFramework("CoreAudio")]
+            linkerSettings: [.linkedFramework("CoreAudio"), .linkedFramework("Accelerate")]
         ),
         .target(
             name: "TaplineCore",
