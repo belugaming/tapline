@@ -3,6 +3,8 @@
 ## Unreleased
 
 - **Listen As** on the Assistant page: hear your music as other headphones and earbuds (fitted from squig.link measurements) or everyday speakers (phone, laptop, TV, small Bluetooth speaker, car; approximations) would play it, through your own headphones. Its filters follow your EQ in Equalizer APO's configuration, on the current output only, and are never saved in presets. Switch it on the card, in the tray panel or with Ctrl+Alt+Shift+L. Equalizer APO has no limiter, so where the device would boost above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.
+- **Linear-phase EQ**: **⋯ → Filter Phase** on the Equalizer page, or **Settings → Filter Phase**, for each output device, as on the Mac. Tapline writes the curve as one filter per channel (a WAV file next to Equalizer APO's configuration) and Equalizer APO's convolver plays it instead of the biquads: no phase shift, but 683 ms of latency at 48 kHz, shown next to the EQ switch. Equalizer APO starts its convolver afresh whenever its configuration changes, so in linear phase the sound pauses for that long after each change; Tapline writes a new curve half a second after you stop adjusting. The bypass is delayed just as much, so switching does not jump in time.
+- Tapline no longer rewrites Equalizer APO's configuration when nothing in it changed, which saves Equalizer APO a reload.
 
 ## 0.4.0
 

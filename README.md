@@ -102,6 +102,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Parametric EQ, up to 24 bands: drag on the graph, presets, A/B, undo, Auto preamp | ✓ | ✓ |
 | Bands for the left or right channel only | ✓ | ✓ |
 | Level-matched EQ bypass | ✓, crossfaded | ✓ |
+| Linear-phase EQ | ✓, 704 ms latency at 48 kHz; edits crossfade | ✓ (Equalizer APO's convolver), 683 ms at 48 kHz; the sound pauses after each change |
 | A separate EQ for every output device | ✓ | ✓, and it keeps playing while Tapline is closed |
 | Spectrum analyzer | Before and after the EQ | After the EQ only |
 | Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
@@ -181,11 +182,23 @@ At the top of the page:
 - **Save** (download icon): save the current curve as a preset. Tick **Include effects** to store crossfeed, limiter and the other effects with it.
 - **A / B**: two independent settings to switch between. Make a change on B, then toggle to hear the difference.
 - **Range** (±6 to ±24 dB) and the **input spectrum** toggle.
-- **⋯**: reset to flat, copy A to B, or copy the curve as Equalizer APO text.
+- **⋯**: reset to flat, copy A to B, copy the curve as Equalizer APO text, or choose the **Filter Phase**.
 
 Undo and redo (⌘Z / ⇧⌘Z) cover every change.
 
 > **On Windows:** use Ctrl for ⌘ and Alt for ⌥ (Alt-click deletes a band; Alt or Shift for fine adjustments). Scroll changes Q; there is no pinch. The graph shows the spectrum after the EQ only, so there is no input spectrum toggle. Undo and redo are Ctrl+Z and Ctrl+Y. The level-matched bypass is a `Preamp` line in Equalizer APO's configuration; switching doesn't crossfade.
+
+#### Linear phase
+
+Like an analog EQ, every band shifts the phase a little around its frequency. That is minimum phase, and it plays without latency. **⋯ → Filter Phase → Linear Phase** (or **Settings → Filter Phase**) plays the same curve as a linear-phase filter instead, like the linear-phase mode of SoundID Reference: no phase shift at all, so transients keep their shape, but the sound comes later. Each output device has its own setting.
+
+- The latency shows next to the EQ switch: 704 ms at 48 kHz, 766 ms at 44.1 kHz. Video may lose lip sync, and play and pause take that long to be heard, so it is best for music.
+- The graph shows what plays. The filter lasts 1.37 s at 48 kHz (65,536 taps, and as long at higher rates), which keeps bells up to Q 10 from 40 Hz up within 0.1 dB. Only the narrowest bells at the very bottom lose some depth: Q 18 at 20 Hz comes out about 1 dB short at ±6 dB.
+- Dragging a band recomputes the filter in the background and crossfades to it, so editing stays smooth. The bypass (⌃⌥⌘B) plays the original just as late, so switching compares the sound without a jump in time.
+- Switching between minimum and linear phase changes the delay, so the music pauses for a moment (or skips ahead) without a click.
+- Room correction keeps its timing: linear phase removes only the EQ's own phase shift, not the room's, and room measurements bypass the EQ.
+
+> **On Windows:** Equalizer APO plays the filter with its convolver, 683 ms late at 48 kHz. It restarts the convolver whenever its configuration changes, so after each change the sound pauses for that long. Tapline therefore writes a new filter only when you stop adjusting, half a second after the last change.
 
 ### 2. Correct your headphones
 
@@ -413,12 +426,13 @@ apps ──► process taps of the output device's stream (apps are muted at the
 - Drift compensation is on for devices with their own crystal (USB, built-in) and off for Bluetooth and virtual devices, where it would make the HAL add and drop samples.
 - The realtime path is plain C (`Packages/TaplineCore/Sources/TaplineDSP`): no allocation, locks or Swift runtime on the audio thread. Parameters reach it through a lock-free triple buffer. Filters are RBJ biquads computed in double precision.
 - Virtual Speakers are a uniformly partitioned FFT convolution (overlap-save, 256-sample partitions, Accelerate's real FFT) of up to 65,536 taps per path. The main thread transforms a new set and hands it over through an atomic pointer; the audio thread crossfades to it and hands the old one back to be freed.
+- Linear phase plays preamp, EQ and tone through the same convolution engine: one symmetric FIR per channel, designed on a background queue from the curve's magnitude (its zero-phase impulse response under a Tukey window, at least 1.25 s long) and cut into 64 partitions. The bypassed signal and the other channels of a multichannel stream go through delay lines of the same latency, so switching neither comb-filters nor jumps in time.
 - Listen As runs in a block of its own after the EQ: up to 16 biquads, a make-up gain and a mid/side width, crossfaded like the EQ when it is switched. A headphone simulation is fitted by the same EQ fitter, with the reference target as the "measurement" and the device as the "target".
 - While the EQ is bypassed, one gain takes the place of preamp, EQ and tone: the loudness change of the whole EQ on pink noise, K-weighted as in ITU-R BS.1770, limited to 0 dB at most. Switching the EQ on or off crossfades the two paths over one audio buffer.
 - The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search. Below 100 % strength it fits the measurement moved that far towards the target, which keeps the result as accurate as a full correction.
 - Only one copy of Tapline runs at a time, a watchdog restarts the engine if the device stops calling it, and a guard switches processing off if it detects a feedback loop. If Tapline quits or crashes, its private taps and aggregate device disappear with it.
 
-On Windows, Tapline writes Equalizer APO's `config.txt`: one `Device:` section per output with its preamp, filters (the same RBJ biquads as on the Mac), left/right sections and effects. Equalizer APO reloads the file and processes the audio inside Windows' audio engine. The spectrum and meters read the output with a WASAPI loopback capture, and room measurements play and record in WASAPI shared mode.
+On Windows, Tapline writes Equalizer APO's `config.txt`: one `Device:` section per output with its preamp, filters (the same RBJ biquads as on the Mac), left/right sections and effects. In linear phase, the filters give way to a `Convolution:` per channel with an FIR that Tapline writes as a WAV file next to `config.txt`. Equalizer APO reloads the file and processes the audio inside Windows' audio engine. The spectrum and meters read the output with a WASAPI loopback capture, and room measurements play and record in WASAPI shared mode.
 
 ## Privacy and network use
 
@@ -481,6 +495,7 @@ The Windows version is released together with the Mac version, under the same nu
 - Release builds are not notarized yet (see [Install](#install)).
 - The Windows version is not code-signed yet. Its differences from macOS are listed under [What works on Windows](#what-works-on-windows).
 - Virtual Speakers have no head tracking: the speakers turn with your head.
+- Linear phase cannot resolve the narrowest bells at the very bottom completely (Q 18 at 20 Hz is about 1 dB short at ±6 dB), and on Windows the sound pauses after every change.
 - Listen As's speaker profiles are approximations of typical devices, not measurements of any product, and its headphone simulations assume your own headphones are corrected to their target.
 
 ## Credits

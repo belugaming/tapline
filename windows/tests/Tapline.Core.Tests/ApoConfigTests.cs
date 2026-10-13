@@ -577,7 +577,7 @@ public class ApoConfigTests
     }
 
     private static string BuildLinear(DspSettings s, ApoConfig.FirFiles? fir, int channels = 2, bool levelMatchedBypass = true) =>
-        ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", channels, SampleRate, s, Fir: fir)], levelMatchedBypass);
+        ApoConfig.Build(true, [new ApoConfig.Device("{00000000-1111-2222-3333-444444444444}", "Test", channels, SampleRate, s, Fir: fir)], levelMatchedBypass);
 
     /// <summary>Removes the FIRs' delay: what is left of a linear-phase response is real.</summary>
     private static Complex Undelayed(Complex c, double f, int latency) => c * Complex.Exp(new Complex(0, 2 * Math.PI * f * latency / SampleRate));
@@ -639,12 +639,12 @@ public class ApoConfigTests
         Assert.Contains("Delay: 32768 samples", config);
         Assert.DoesNotContain("Convolution", config);
         // Switching the EQ off keeps the time: the original sound at the bypass gain, exactly as late.
-        var gain = Math.Pow(10, s.BypassGainDb(SampleRate) / 20);
-        Assert.True(gain < 0.95);
+        var gainDb = s.BypassGainDb(SampleRate);
+        Assert.True(gainDb < -0.5);
         foreach (var f in new[] { 100.0, 1000, 8000 })
         {
             var t = Undelayed(Interpret(config, f, files: samples).LL, f, reference.Latency);
-            Assert.True(Close(t, gain), $"{f} Hz: {t}, want {gain}");
+            Assert.True(Math.Abs(Db(t) - gainDb) < 0.006 && Math.Abs(t.Imaginary) < 1e-9 && t.Real > 0, $"{f} Hz: {t}, want {gainDb} dB");
         }
         // Without level matching the delay stays, without a preamp.
         var plain = BuildLinear(s, reference, levelMatchedBypass: false);
