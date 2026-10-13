@@ -78,7 +78,7 @@ struct EffectsPage: View {
             Toggle("Enabled", isOn: Binding(get: { fx.virtualSpeakersEnabled }, set: { model.setVirtualSpeakers($0) }))
                 .toggleStyle(.switch)
             HStack {
-                Picker("Speakers", selection: Binding(get: { current.id }, set: { model.chooseVirtualSpeakers($0) })) {
+                Picker("Speakers", selection: Binding(get: { current.id }, set: { importMessage = nil; model.chooseVirtualSpeakers($0) })) {
                     Section("Built in") {
                         ForEach(VirtualSpeakerLibrary.builtIn) { Text($0.name).tag($0.id) }
                     }
@@ -88,7 +88,8 @@ struct EffectsPage: View {
                         }
                     }
                 }
-                .frame(maxWidth: 300)
+                .frame(maxWidth: 320, alignment: .leading)
+                Spacer()
                 Button("Import…") { importSpeakers() }
                     .help("A HeSuVi or Impulcifer WAV file, a 4-channel file, or two stereo files (one per speaker)")
             }
@@ -104,7 +105,7 @@ struct EffectsPage: View {
                 Link("Where to find HRIR files", destination: URL(string: "https://github.com/belugaming/tapline#virtual-speakers")!)
                     .font(.caption)
             }
-            if let problem = model.virtualSpeakersProblem ?? importMessage {
+            if let problem = importMessage ?? (fx.virtualSpeakersEnabled ? model.virtualSpeakersProblem : nil) {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
