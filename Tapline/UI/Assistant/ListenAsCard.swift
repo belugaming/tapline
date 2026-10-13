@@ -30,6 +30,12 @@ struct ListenAsCard: View {
     var body: some View {
         Card(title: "Listen As", subtitle: "Hear how your music would sound on other headphones, earbuds and speakers, through your own headphones. Your EQ and correction stay as they are, and switching is level-matched.", systemImage: "ear") {
             ListenAsSwitch()
+            if let layout = model.speakerLayout {
+                Label(String(format: String(localized: "Listen As imitates a stereo device, so it stays off on this %@ speaker layout."), layout.name),
+                      systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Picker("Device type", selection: Binding(get: { shown }, set: { section = $0 })) {
                 ForEach(Section.allCases) { Text($0.title).tag($0) }
             }

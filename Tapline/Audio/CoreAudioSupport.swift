@@ -90,6 +90,44 @@ enum CA {
         try check(status, "Set property \(fourCharCode(OSStatus(bitPattern: selector)))")
     }
 
+    /// The channel labels (AudioChannelLabel) of a device's preferred output channel layout,
+    /// one per channel in channel order; empty when it has none. Speaker setups made in Audio
+    /// MIDI Setup (Configure Speakers) and HDMI receivers show up here.
+    static func outputChannelLabels(_ id: AudioObjectID) -> [UInt32] {
+        var a = address(kAudioDevicePropertyPreferredChannelLayout, kAudioObjectPropertyScopeOutput)
+        var size: UInt32 = 0
+        guard AudioObjectHasProperty(id, &a), AudioObjectGetPropertyDataSize(id, &a, 0, nil, &size) == noErr,
+              Int(size) >= MemoryLayout<AudioChannelLayout>.size else { return [] }
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioChannelLayout>.alignment)
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(id, &a, 0, nil, &size, raw) == noErr else { return [] }
+        return labels(of: UnsafePointer(raw.assumingMemoryBound(to: AudioChannelLayout.self)), size: Int(size))
+    }
+
+    /// The labels of a layout given by its descriptions, a layout tag or a channel bitmap.
+    private static func labels(of layout: UnsafePointer<AudioChannelLayout>, size: Int, expand: Bool = true) -> [UInt32] {
+        let tag = layout.pointee.mChannelLayoutTag
+        if tag == kAudioChannelLayoutTag_UseChannelDescriptions {
+            let count = Int(layout.pointee.mNumberChannelDescriptions)
+            guard let offset = MemoryLayout<AudioChannelLayout>.offset(of: \.mChannelDescriptions),
+                  offset + count * MemoryLayout<AudioChannelDescription>.stride <= size else { return [] }
+            let descriptions = UnsafeRawPointer(layout).advanced(by: offset).assumingMemoryBound(to: AudioChannelDescription.self)
+            return (0..<count).map { descriptions[$0].mChannelLabel }
+        }
+        guard expand else { return [] }
+        // A tag or a bitmap: Audio Format Services spells it out as descriptions.
+        let bitmap = tag == kAudioChannelLayoutTag_UseChannelBitmap
+        var specifier: UInt32 = bitmap ? layout.pointee.mChannelBitmap.rawValue : tag
+        let property = bitmap ? kAudioFormatProperty_ChannelLayoutForBitmap : kAudioFormatProperty_ChannelLayoutForTag
+        var expandedSize: UInt32 = 0
+        guard AudioFormatGetPropertyInfo(property, UInt32(MemoryLayout<UInt32>.size), &specifier, &expandedSize) == noErr,
+              Int(expandedSize) >= MemoryLayout<AudioChannelLayout>.size else { return [] }
+        let expanded = UnsafeMutableRawPointer.allocate(byteCount: Int(expandedSize), alignment: MemoryLayout<AudioChannelLayout>.alignment)
+        defer { expanded.deallocate() }
+        guard AudioFormatGetProperty(property, UInt32(MemoryLayout<UInt32>.size), &specifier, &expandedSize, expanded) == noErr else { return [] }
+        return labels(of: UnsafePointer(expanded.assumingMemoryBound(to: AudioChannelLayout.self)), size: Int(expandedSize), expand: false)
+    }
+
     /// Channel counts per stream buffer for one direction of a device.
     static func streamConfiguration(_ id: AudioObjectID, input: Bool) -> [Int] {
         var a = address(kAudioDevicePropertyStreamConfiguration, input ? kAudioObjectPropertyScopeInput : kAudioObjectPropertyScopeOutput)

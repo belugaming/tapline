@@ -398,6 +398,24 @@ import TaplineDSP
         #expect(fr.level(at: 80) - fr.level(at: 1000) > 4)
     }
 
+    @Test func thePlanKnowsWhatPlaysWhen() {
+        let layout = SpeakerLayout.atmos714
+        let speakers = layout.positions.indices.map { SpeakerSweepPlan.Speaker(channel: $0, isLFE: layout.positions[$0].isLFE) }
+        let plan = SpeakerSweepPlan(sampleRate: 8000, speakers: speakers)
+        #expect(abs(SpeakerSweepPlan.duration(speakers: speakers) - plan.duration) < 1e-9)
+        #expect(plan.duration > 90 && plan.duration < 100, "\(plan.duration) s")
+        #expect(plan.playing(at: 0.3) == nil)
+        #expect(plan.playing(at: plan.sweepStart(2) + 1)?.speaker == 2)
+        #expect(plan.playing(at: plan.sweepStart(2) + 1)?.chirps == false)
+        let slots = plan.chirpSlots
+        #expect(slots.count == 14 && slots.first?.speaker == 0 && slots.last?.speaker == 0)
+        #expect(plan.playing(at: slots[4].start + 0.1)?.speaker == 3)
+        #expect(plan.playing(at: slots[4].start + 0.1)?.chirps == true)
+        // Every speaker's signal plays only on it: its sweep and its click.
+        let signals = SpeakerSweepPlan(sampleRate: 8000, speakers: Array(speakers.prefix(3)), sweepSeconds: 1).render()
+        #expect(signals.count == 3 && Set(signals.map(\.count)).count == 1)
+    }
+
     @Test func alignmentTrimsToTheQuietestAndWaitsForTheFarthest() {
         let speakers = [
             SpeakerAlignment.Speaker(position: .frontLeft, levelDB: 80, arrival: 0),

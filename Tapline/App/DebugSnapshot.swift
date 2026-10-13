@@ -33,6 +33,13 @@ enum DebugSnapshot {
     /// TAPLINE_SNAPSHOT_SQUIG="HD 600" pre-fills the squig.link search and selects the first hit.
     static var squigQuery: String? { isActive ? ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SQUIG"] : nil }
 
+    /// TAPLINE_SNAPSHOT_SPEAKERS=7.1.4 makes an AV receiver with that speaker layout the default
+    /// output, with measurements of every speaker on the Room page (5.1, 7.1, 5.1.4, 7.1.4, 9.1.6).
+    static var demoSpeakerLayout: SpeakerLayout? {
+        guard usesDemoData, let name = ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SPEAKERS"] else { return nil }
+        return [SpeakerLayout.surround51, .surround71, .atmos514, .atmos714, .atmos916].first { $0.name == name }
+    }
+
     /// TAPLINE_SNAPSHOT_SCROLL=correct scrolls long pages to that section before capturing.
     static var scrollAnchor: String? { isActive ? ProcessInfo.processInfo.environment["TAPLINE_SNAPSHOT_SCROLL"] : nil }
 

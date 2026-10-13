@@ -68,6 +68,15 @@ public struct SpeakerSweepPlan: Sendable {
         return last.start + (speakers[last.speaker].isLFE ? Self.lowChirpSeconds : Self.chirpSeconds) + Self.tail
     }
 
+    /// `duration` of a plan, without making its signals.
+    public static func duration(speakers: [Speaker], reference: Int = 0, sweepSeconds: Double = defaultSweepSeconds) -> Double {
+        guard !speakers.isEmpty else { return preRoll + tail }
+        let ref = speakers[speakers.indices.contains(reference) ? reference : 0]
+        let spacing = { (s: Speaker) in s.isLFE ? lowChirpSpacing : chirpSpacing }
+        let chirps = spacing(ref) + speakers.reduce(0) { $0 + spacing($1) }
+        return preRoll + Double(speakers.count) * (sweepSeconds + gap) + chirps + (ref.isLFE ? lowChirpSeconds : chirpSeconds) + tail
+    }
+
     /// What happens at `seconds` into the plan: which speaker plays (index into `speakers`),
     /// and whether it is a timing chirp. Nil before the first sweep and in the tail.
     public func playing(at seconds: Double) -> (speaker: Int, chirps: Bool)? {
@@ -106,6 +115,14 @@ public struct SpeakerSweepPlan: Sendable {
         /// for LFE channels, whose low-passed chirp shows no clear polarity.
         public var oppositePolarity: Bool?
         public var snrDB: Double
+
+        public init(channel: Int, response: FrequencyResponse, arrival: Double?, oppositePolarity: Bool?, snrDB: Double) {
+            self.channel = channel
+            self.response = response
+            self.arrival = arrival
+            self.oppositePolarity = oppositePolarity
+            self.snrDB = snrDB
+        }
     }
 
     public struct Analysis: Sendable {

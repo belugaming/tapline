@@ -324,6 +324,7 @@ final class AppModel {
         guard engine.isRunning else { return }
         engine.kernel.setSettings(settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass,
                                   simulation: simulation, simulating: simulating)
+        engine.kernel.setSpeakers(settings, layout: engine.speakerLayout, firstChannel: engine.speakerFirstChannel, sampleRate: engine.sampleRate)
         pushVirtualSpeakers()
     }
 
@@ -567,6 +568,31 @@ final class AppModel {
     }
 
     func setEQEnabled(_ on: Bool) { mutate { $0.eqEnabled = on } }
+
+    // MARK: - Multichannel speakers
+
+    /// The current output's 5.1 … 9.1.6 speaker layout, whose speakers Tapline processes one by one.
+    var speakerLayout: SpeakerLayout? { currentOutput?.surroundLayout }
+
+    func setEQOnAllSpeakers(_ on: Bool) { mutate { $0.speakers.eqOnAllSpeakers = on } }
+
+    func setSpeakerCorrection(_ on: Bool) { mutate { $0.speakers.correctionEnabled = on } }
+
+    /// Applies a room correction from the Room page: each speaker's filters, trim and delay.
+    func applySpeakerCorrection(_ corrections: [SpeakerCorrection], layout: SpeakerLayout) {
+        mutate { s in
+            s.speakers.corrections = corrections
+            s.speakers.layout = layout
+            s.speakers.correctionEnabled = true
+        }
+    }
+
+    func removeSpeakerCorrection() {
+        mutate { s in
+            s.speakers.corrections = []
+            s.speakers.layout = nil
+        }
+    }
 
     // MARK: - Crossfeed and Virtual Speakers (one or the other)
 
