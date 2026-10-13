@@ -34,9 +34,16 @@ struct tl_kernel {
     float width_current;
     int32_t eq_on;          // whether the last buffer went through the EQ
 
+    // Device simulation state: [stage][channel][z1, z2]
+    double sim_z[TL_MAX_SIM_STAGES][2][2];
+    int32_t sim_was_active[TL_MAX_SIM_STAGES];
+    float sim_gain_current;
+    float sim_width_current;
+    int32_t sim_on;         // whether the last buffer went through the simulation
+
     float buf_l[TL_MAX_FRAMES];
     float buf_r[TL_MAX_FRAMES];
-    // The bypassed signal while switching the EQ on or off (crossfaded over one buffer).
+    // The bypassed signal while switching the EQ or the simulation on or off (crossfaded over one buffer).
     float dry_l[TL_MAX_FRAMES];
     float dry_r[TL_MAX_FRAMES];
 
@@ -96,6 +103,11 @@ void tl_params_init(tl_params *p) {
     for (int i = 0; i < TL_MAX_STAGES; i++) {
         p->stages[i].b0 = 1.0;
     }
+    for (int i = 0; i < TL_MAX_SIM_STAGES; i++) {
+        p->simulation.stages[i].b0 = 1.0;
+    }
+    p->simulation.gain = 1.0f;
+    p->simulation.width = 1.0f;
     p->preamp = 1.0f;
     p->output_gain = 1.0f;
     p->width = 1.0f;
@@ -144,6 +156,11 @@ void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layo
     k->balance_current = p->balance;
     k->width_current = p->width;
     k->xf_amount_current = p->crossfeed_enabled ? p->crossfeed : 0.0f;
+    memset(k->sim_z, 0, sizeof(k->sim_z));
+    memset(k->sim_was_active, 0, sizeof(k->sim_was_active));
+    k->sim_gain_current = p->simulation.gain;
+    k->sim_width_current = p->simulation.width;
+    k->sim_on = p->simulation.enabled ? 1 : 0;
     for (int i = 0; i < TL_MAX_SOURCES; i++) {
         k->source_gain_current[i] = atomic_load(&k->source_gain_target[i]);
     }
@@ -176,13 +193,18 @@ void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layo
 
 // Non-finite parameters would latch the gain ramps and filter states: replace them with
 // neutral values here, on the writer's thread, so the IO thread never has to check.
-static void sanitize_params(tl_params *p) {
-    for (int i = 0; i < TL_MAX_STAGES; i++) {
-        tl_biquad *c = &p->stages[i];
+static void sanitize_stages(tl_biquad *stages, int count) {
+    for (int i = 0; i < count; i++) {
+        tl_biquad *c = &stages[i];
         if (!isfinite(c->b0) || !isfinite(c->b1) || !isfinite(c->b2) || !isfinite(c->a1) || !isfinite(c->a2)) {
             c->active = 0;
         }
     }
+}
+
+static void sanitize_params(tl_params *p) {
+    sanitize_stages(p->stages, TL_MAX_STAGES);
+    sanitize_stages(p->simulation.stages, TL_MAX_SIM_STAGES);
     if (!isfinite(p->preamp)) p->preamp = 0.0f;
     if (!isfinite(p->output_gain)) p->output_gain = 0.0f;
     if (!isfinite(p->balance)) p->balance = 0.0f;
@@ -191,6 +213,9 @@ static void sanitize_params(tl_params *p) {
     if (!(p->limiter_ceiling > 0.0f && p->limiter_ceiling <= 1.0f)) p->limiter_ceiling = 1.0f;
     // Bypass never boosts, so it cannot drive the limiter harder than the input does.
     if (!(p->bypass_gain >= 0.0f && p->bypass_gain <= 1.0f)) p->bypass_gain = 1.0f;
+    // The simulation's make-up gain stays within +-12 dB; the width only narrows.
+    if (!(p->simulation.gain >= 0.0f && p->simulation.gain <= 4.0f)) p->simulation.gain = 1.0f;
+    if (!(p->simulation.width >= 0.0f && p->simulation.width <= 1.0f)) p->simulation.width = 1.0f;
 }
 
 void tl_kernel_set_params(tl_kernel *k, const tl_params *params) {
@@ -235,26 +260,28 @@ uint64_t tl_kernel_copy_analyzer(tl_kernel *k, int32_t which, float *dst, uint32
 
 // MARK: - Processing helpers
 
-static void run_biquads(tl_kernel *k, const tl_params *p, uint32_t frames) {
-    for (int s = 0; s < TL_MAX_STAGES; s++) {
-        const tl_biquad *c = &p->stages[s];
+// Runs a block of biquads over `l` and `r`, with `z` and `was_active` holding their state.
+static void run_stages(const tl_biquad *stages, int count, double (*z)[2][2], int32_t *was_active,
+                       float *l, float *r, uint32_t frames) {
+    for (int s = 0; s < count; s++) {
+        const tl_biquad *c = &stages[s];
         if (!c->active) {
-            k->was_active[s] = 0;
+            was_active[s] = 0;
             continue;
         }
-        if (!k->was_active[s]) {
-            memset(k->z[s], 0, sizeof(k->z[s]));
-            k->was_active[s] = 1;
+        if (!was_active[s]) {
+            memset(z[s], 0, sizeof(z[s]));
+            was_active[s] = 1;
         }
         const double b0 = c->b0, b1 = c->b1, b2 = c->b2, a1 = c->a1, a2 = c->a2;
         for (int ch = 0; ch < 2; ch++) {
             if ((c->channels == 1 && ch == 1) || (c->channels == 2 && ch == 0)) {
-                k->z[s][ch][0] = k->z[s][ch][1] = 0;
+                z[s][ch][0] = z[s][ch][1] = 0;
                 continue;
             }
-            float *x = ch == 0 ? k->buf_l : k->buf_r;
-            double z1 = k->z[s][ch][0];
-            double z2 = k->z[s][ch][1];
+            float *x = ch == 0 ? l : r;
+            double z1 = z[s][ch][0];
+            double z2 = z[s][ch][1];
             for (uint32_t i = 0; i < frames; i++) {
                 const double in = x[i];
                 const double out = b0 * in + z1;
@@ -266,10 +293,14 @@ static void run_biquads(tl_kernel *k, const tl_params *p, uint32_t frames) {
             if (!isfinite(z1) || !isfinite(z2)) { z1 = 0; z2 = 0; }
             if (fabs(z1) < 1e-30) z1 = 0;
             if (fabs(z2) < 1e-30) z2 = 0;
-            k->z[s][ch][0] = z1;
-            k->z[s][ch][1] = z2;
+            z[s][ch][0] = z1;
+            z[s][ch][1] = z2;
         }
     }
+}
+
+static void run_biquads(tl_kernel *k, const tl_params *p, uint32_t frames) {
+    run_stages(p->stages, TL_MAX_STAGES, k->z, k->was_active, k->buf_l, k->buf_r, frames);
 }
 
 static inline void apply_gain_ramp(float *x, float *y, uint32_t frames, float *current, float target) {
@@ -288,6 +319,39 @@ static inline void apply_gain_ramp(float *x, float *y, uint32_t frames, float *c
         y[i] *= g;
     }
     *current = target;
+}
+
+// Mid/side width, ramped from `current` to `target`: 0 = mono, 1 = unchanged, 2 = extra wide.
+static void apply_width(float *l, float *r, uint32_t frames, float *current, float target) {
+    if (fabsf(target - 1.0f) > 1e-6f || fabsf(*current - 1.0f) > 1e-6f) {
+        float w = *current;
+        const float step = (target - w) / (float)frames;
+        for (uint32_t i = 0; i < frames; i++) {
+            w += step;
+            const float m = 0.5f * (l[i] + r[i]);
+            const float sd = 0.5f * (l[i] - r[i]) * w;
+            l[i] = m + sd;
+            r[i] = m - sd;
+        }
+    }
+    *current = target;
+}
+
+// Fades over one buffer from `dry` to the processed signal in `l` / `r`, or back with `to_wet` == 0.
+static void crossfade(float *l, float *r, const float *dry_l, const float *dry_r, uint32_t frames, int32_t to_wet) {
+    const float step = 1.0f / (float)frames;
+    for (uint32_t i = 0; i < frames; i++) {
+        const float t = (float)(i + 1) * step;
+        const float wet = to_wet ? t : 1.0f - t;
+        l[i] = dry_l[i] + (l[i] - dry_l[i]) * wet;
+        r[i] = dry_r[i] + (r[i] - dry_r[i]) * wet;
+    }
+}
+
+static void run_simulation(tl_kernel *k, const tl_simulation *sim, float *l, float *r, uint32_t frames) {
+    apply_gain_ramp(l, r, frames, &k->sim_gain_current, sim->gain);
+    run_stages(sim->stages, TL_MAX_SIM_STAGES, k->sim_z, k->sim_was_active, l, r, frames);
+    apply_width(l, r, frames, &k->sim_width_current, sim->width);
 }
 
 // Clamps to +-limit; NaN and infinities become silence.
@@ -396,13 +460,7 @@ OSStatus tl_ioproc(AudioObjectID device,
             apply_gain_ramp(k->dry_l, k->dry_r, frames, &k->bypass_current, p->bypass_gain);
             apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
             run_biquads(k, p, frames);
-            const float step = 1.0f / (float)frames;
-            for (uint32_t i = 0; i < frames; i++) {
-                const float t = (float)(i + 1) * step;
-                const float wet = eq_on ? t : 1.0f - t;
-                l[i] = k->dry_l[i] + (l[i] - k->dry_l[i]) * wet;
-                r[i] = k->dry_r[i] + (r[i] - k->dry_r[i]) * wet;
-            }
+            crossfade(l, r, k->dry_l, k->dry_r, frames, eq_on);
             k->eq_on = eq_on;
         } else if (eq_on) {
             apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
@@ -415,23 +473,31 @@ OSStatus tl_ioproc(AudioObjectID device,
         }
     }
 
+    // 3b. Device simulation ("Listen as"): make-up gain, the device's filters and its stereo
+    //     width, on top of the EQ whether or not that is bypassed. Switching crossfades like the EQ.
+    {
+        const tl_simulation *sim = &p->simulation;
+        const int32_t sim_on = sim->enabled ? 1 : 0;
+        if (sim_on != k->sim_on) {
+            memcpy(k->dry_l, l, frames * sizeof(float));
+            memcpy(k->dry_r, r, frames * sizeof(float));
+            run_simulation(k, sim, l, r, frames);
+            crossfade(l, r, k->dry_l, k->dry_r, frames, sim_on);
+            k->sim_on = sim_on;
+        } else if (sim_on) {
+            run_simulation(k, sim, l, r, frames);
+        } else {
+            k->sim_gain_current = sim->gain;
+            k->sim_width_current = sim->width;
+            for (int s = 0; s < TL_MAX_SIM_STAGES; s++) k->sim_was_active[s] = 0;
+        }
+    }
+
     // 4. Channel utilities
     if (p->swap_channels) {
         for (uint32_t i = 0; i < frames; i++) { float t = l[i]; l[i] = r[i]; r[i] = t; }
     }
-    float width_target = p->mono ? 0.0f : p->width;
-    if (fabsf(width_target - 1.0f) > 1e-6f || fabsf(k->width_current - 1.0f) > 1e-6f) {
-        float w = k->width_current;
-        const float step = (width_target - w) / (float)frames;
-        for (uint32_t i = 0; i < frames; i++) {
-            w += step;
-            const float m = 0.5f * (l[i] + r[i]);
-            const float sd = 0.5f * (l[i] - r[i]) * w;
-            l[i] = m + sd;
-            r[i] = m - sd;
-        }
-    }
-    k->width_current = width_target;
+    apply_width(l, r, frames, &k->width_current, p->mono ? 0.0f : p->width);
 
     // 5. Crossfeed (keeps running while fading out so toggling never clicks)
     float xf_target = p->crossfeed_enabled ? p->crossfeed : 0.0f;

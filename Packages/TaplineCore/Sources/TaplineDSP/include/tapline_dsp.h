@@ -24,6 +24,7 @@ extern "C" {
 #pragma clang assume_nonnull begin
 
 #define TL_MAX_STAGES 32
+#define TL_MAX_SIM_STAGES 16
 #define TL_MAX_SOURCES 32
 #define TL_MAX_FRAMES 8192
 #define TL_ANALYZER_SIZE 32768
@@ -33,6 +34,15 @@ typedef struct {
     int32_t active;
     int32_t channels;       // 0 = both, 1 = left only, 2 = right only
 } tl_biquad;
+
+/// "Listen as": colours the sound like another playback device. A block of its own after the
+/// EQ, so the user's EQ keeps all of its stages, and it plays whether or not the EQ is bypassed.
+typedef struct {
+    tl_biquad stages[TL_MAX_SIM_STAGES];
+    float gain;             // linear make-up gain before the stages, so switching keeps the loudness, 0 ... 4
+    float width;            // the device's stereo width: 0 = mono, 1 = unchanged
+    int32_t enabled;
+} tl_simulation;
 
 typedef struct {
     tl_biquad stages[TL_MAX_STAGES];
@@ -48,6 +58,8 @@ typedef struct {
     int32_t swap_channels;
     int32_t crossfeed_enabled;
     int32_t limiter_enabled;
+    /// Filled in while a device is chosen, also when it is switched off, so that switching fades.
+    tl_simulation simulation;
 } tl_params;
 
 typedef struct {
@@ -91,7 +103,7 @@ void tl_kernel_read_meters(tl_kernel *kernel, tl_meters *out);
 /// Returns the total number of samples written so far.
 uint64_t tl_kernel_copy_analyzer(tl_kernel *kernel, int32_t which, float *dst, uint32_t count);
 
-/// Neutral parameter block: EQ stages inactive, unity gains, no effects.
+/// Neutral parameter block: EQ and simulation stages inactive, unity gains, no effects.
 void tl_params_init(tl_params *params);
 
 /// The IOProc. Pass the kernel as client data. Signature matches AudioDeviceIOProc.

@@ -176,7 +176,9 @@ public enum ResponseCurve {
 extension DSPSettings {
     /// Builds the C parameter block for the realtime kernel. With `levelMatchedBypass`, the
     /// bypassed signal plays at the loudness of the EQ (see `bypassGainDB`), else at unity.
-    public func kernelParams(sampleRate: Double, levelMatchedBypass: Bool = true) -> tl_params {
+    /// `simulation` fills the kernel's "Listen as" block, which plays while `simulating`.
+    public func kernelParams(sampleRate: Double, levelMatchedBypass: Bool = true,
+                             simulation: DeviceSimulation? = nil, simulating: Bool = false) -> tl_params {
         var p = tl_params()
         tl_params_init(&p)
         p.eq_enabled = eqEnabled ? 1 : 0
@@ -210,6 +212,13 @@ extension DSPSettings {
         p.crossfeed = Float(effects.crossfeed.clamped(to: 0...1))
         p.limiter_enabled = effects.limiterEnabled ? 1 : 0
         p.limiter_ceiling = Float(dbToLinear(effects.limiterCeilingDB.clamped(to: -12...0)))
+
+        if let simulation {
+            // The limiter catches what the make-up gain pushes over; without it, keep the headroom.
+            let makeup = effects.limiterEnabled ? simulation.makeupGainDB(sampleRate: sampleRate)
+                : simulation.makeupGainDB(after: self, sampleRate: sampleRate, levelMatchedBypass: levelMatchedBypass)
+            p.simulation = simulation.kernelBlock(sampleRate: sampleRate, makeupDB: makeup, enabled: simulating)
+        }
         return p
     }
 }
