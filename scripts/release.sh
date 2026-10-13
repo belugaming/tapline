@@ -9,6 +9,11 @@
 # .github/workflows/release.yml, which builds Tapline and publishes the release
 # with the matching CHANGELOG section as notes. Versions with a suffix
 # (e.g. 0.3.0-beta.1) are published as pre-releases.
+#
+# Tapline for Windows ships with the same version. When windows/CHANGELOG.md has
+# entries under "## Unreleased", they become "## <version>", Tapline.csproj gets
+# the version and windows-v<version> is tagged on the same commit, which runs
+# .github/workflows/release-windows.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,6 +31,13 @@ fail() { echo "error: $*" >&2; exit 1; }
 [[ "$(git branch --show-current)" == "main" ]] || fail "releases are cut from main"
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null && fail "tag $tag already exists"
 [[ "$version" != "$current" ]] || fail "project.yml is already at $version"
+
+windows_tag=""
+windows_unreleased="$(awk '/^## Unreleased/{f=1;next} /^## /{if(f)exit} f' windows/CHANGELOG.md | grep -c '[^[:space:]]' || true)"
+if [[ "$windows_unreleased" -gt 0 ]]; then
+  windows_tag="windows-$tag"
+  git rev-parse -q --verify "refs/tags/$windows_tag" >/dev/null && fail "tag $windows_tag already exists"
+fi
 
 # Whether version $1 is newer than $2. Compares major.minor.patch first; with the same
 # numbers, a version without a suffix is newer than its pre-releases
@@ -62,13 +74,42 @@ open(path, "w", encoding="utf-8").write(text)
 PY
 
 git add project.yml CHANGELOG.md
+
+if [[ -n "$windows_tag" ]]; then
+  python3 - "$version" <<'PY'
+import re, sys
+version = sys.argv[1]
+path = "windows/CHANGELOG.md"
+text = open(path, encoding="utf-8").read()
+text = re.sub(r"^## Unreleased$", f"## Unreleased\n\n## {version}", text, count=1, flags=re.M)
+open(path, "w", encoding="utf-8").write(text)
+# The csproj version is the default for local and CI builds; it must be numeric.
+path = "windows/src/Tapline/Tapline.csproj"
+text = open(path, encoding="utf-8").read()
+text, n = re.subn(r"(<Version Condition=\"'\$\(Version\)' == ''\">)[^<]*(</Version>)",
+                  rf"\g<1>{version.split('-')[0]}\g<2>", text, count=1)
+if n != 1:
+    sys.exit("error: no default <Version> in Tapline.csproj")
+open(path, "w", encoding="utf-8").write(text)
+PY
+  git add windows/CHANGELOG.md windows/src/Tapline/Tapline.csproj
+fi
+
 git commit -q -m "Release $tag"
 git tag -a "$tag" -m "Tapline $version"
 echo "Tagged $tag ($current -> $version)."
+tags=("$tag")
+if [[ -n "$windows_tag" ]]; then
+  git tag -a "$windows_tag" -m "Tapline for Windows $version"
+  echo "Tagged $windows_tag."
+  tags+=("$windows_tag")
+else
+  echo "windows/CHANGELOG.md has nothing under Unreleased: no Windows release."
+fi
 
 if [[ "$push" == "--push" ]]; then
-  git push origin main "$tag"
+  git push origin main "${tags[@]}"
   echo "Pushed. Follow the build at https://github.com/belugaming/tapline/actions"
 else
-  echo "Push to publish:  git push origin main $tag"
+  echo "Push to publish:  git push origin main ${tags[*]}"
 fi

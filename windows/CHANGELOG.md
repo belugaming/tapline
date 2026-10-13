@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Tapline for Windows is out of beta. From this release on it comes out together with Tapline for macOS and has the same version number, so it jumps from 0.1.0-beta.3 to 0.4.0.
+
 ## 0.1.0-beta.3
 
 Brings over the room-correction changes of Tapline 0.3.0 for macOS.
