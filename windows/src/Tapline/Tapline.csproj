@@ -45,6 +45,8 @@
     <EmbeddedResource Include="..\..\..\Tapline\Resources\zh-Hans.lproj\Localizable.strings" LogicalName="zh-Hans.strings" />
     <!-- Windows-only translations, one file per area. -->
     <EmbeddedResource Include="Assets\zh-Hans.*.strings" LogicalName="%(Filename)%(Extension)" />
+    <!-- Virtual Speakers' built-in impulse responses (SADIE II, Apache-2.0), shared with macOS. -->
+    <EmbeddedResource Include="..\..\..\Tapline\Resources\VirtualSpeakers\*.wav" LogicalName="%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

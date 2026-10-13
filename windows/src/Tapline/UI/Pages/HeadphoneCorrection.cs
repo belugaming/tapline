@@ -89,6 +89,19 @@ static class HeadphoneCorrection
         scope.Check(L.T("Keep my bass (don't correct below 250 Hz)"), get, set,
             L.T("Useful when you use the headphones differently from how they were measured, e.g. a Bose powered off."));
 
+    /// How much of the correction to apply, 0 … 100 %, like the dry/wet control of a plug-in.
+    internal static FrameworkElement StrengthSlider(UiScope scope, Func<double> get, Action<double> set, double titleWidth = 90) =>
+        scope.LabeledSlider(L.T("Strength"), 0, 1, get, (v, _) => set(Format.Round(v, 2)),
+            v => Math.Round(v * 100).ToString(CultureInfo.InvariantCulture) + "%", 0.05, titleWidth: titleWidth)
+            .Tip(L.T("How much of the correction to apply. At full strength the EQ corrects all the way to the target; lower values go part of the way, like a dry/wet control."));
+
+    /// The stored strength, 0 ... 1 (full strength when unset or unreadable).
+    internal static double StoredStrength(AppModel model)
+    {
+        var v = model.Prefs.Get("correctionStrength", 1.0);
+        return double.IsNaN(v) ? 1 : Math.Clamp(v, 0, 1);
+    }
+
     internal static FrameworkElement Tips(params string[] lines) =>
         Ui.VStack(8, [Ui.Headline(L.T("Tips")), .. lines.Select(l => Ui.Text(l, 13, wrap: true))]);
 
@@ -312,6 +325,7 @@ static class HeadphoneCorrection
         private bool failed;
         private bool applied;
         private bool keepBass;
+        private double strength;
 
         public AutoEqSection(AppModel model, UiScope scope, CancellationToken life)
         {
@@ -319,6 +333,7 @@ static class HeadphoneCorrection
             this.scope = scope;
             this.life = life;
             keepBass = model.Prefs.Get("correctionKeepBass", false);
+            strength = HeadphoneCorrection.StoredStrength(model);
 
             var intro = Ui.Secondary(L.T("Ready-made correction curves for 5,000+ headphones, computed by the AutoEQ project. The database was last updated in July 2025."));
             var search = new SearchBox(L.T("Headphone model, e.g. Bose 700, Sony WH-1000XM5"), q =>
@@ -348,10 +363,12 @@ static class HeadphoneCorrection
 
         private static string Subtitle(AutoEqService.Entry e) => e.Rig is { } rig ? $"{e.Source} · {rig}" : e.Source;
 
+        /// A ready-made curve can only be scaled: each band's gain times the strength.
         private IReadOnlyList<EqBand> PreviewBands()
         {
             if (parsed == null) return [];
-            return keepBass ? parsed.Bands.Where(b => b.Frequency >= 250).ToList() : parsed.Bands;
+            var bands = keepBass ? parsed.Bands.Where(b => b.Frequency >= 250) : parsed.Bands;
+            return bands.Select(b => b.Scaled(strength)).ToList();
         }
 
         private async void Search()
@@ -413,11 +430,11 @@ static class HeadphoneCorrection
             if (parsed is { } p)
             {
                 var thumb = new CurveThumbnail { Height = 100 };
-                bool? shownKeepBass = null;
+                (bool KeepBass, double Strength)? shown = null;
                 inner.Bind(thumb, t =>
                 {
-                    if (shownKeepBass == keepBass) return;
-                    shownKeepBass = keepBass;
+                    if (shown is { } s && s == (keepBass, strength)) return;
+                    shown = (keepBass, strength);
                     t.Set(PreviewBands(), new ToneSettings());
                 });
                 children.Add(Ui.Instrument(thumb, 8, 6));
@@ -433,6 +450,13 @@ static class HeadphoneCorrection
             {
                 children.Add(Ui.Text(L.T("No parametric EQ available for this entry."), 11.5, null, Theme.Danger, wrap: true));
             }
+            children.Add(HeadphoneCorrection.StrengthSlider(inner, () => strength, v =>
+            {
+                strength = v;
+                model.Prefs.Set("correctionStrength", v);
+                applied = false;
+                scope.Refresh();
+            }));
             children.Add(HeadphoneCorrection.KeepBassToggle(inner, () => keepBass, v =>
             {
                 keepBass = v;
@@ -719,6 +743,7 @@ static class HeadphoneCorrection
         private double tilt;
         private int filters;
         private bool keepBass;
+        private double strength;
 
         private FrequencyResponse? measurement;
         /// Where the targets come from: the measurement's own database, or a fallback of the same kind.
@@ -732,7 +757,7 @@ static class HeadphoneCorrection
         private FitKey lastKey;
         private CancellationTokenSource? fitCancellation;
 
-        private readonly record struct FitKey(string? Target, double Bass, double Tilt, int Filters, bool KeepBass, bool Ready);
+        private readonly record struct FitKey(string? Target, double Bass, double Tilt, int Filters, bool KeepBass, double Strength, bool Ready);
 
         public CorrectionWorkbench(AppModel model, UiScope scope, CancellationToken life, string title, string? credit, Uri? creditUrl,
                                    SquigService.Database database, string presetName, Func<CancellationToken, Task<FrequencyResponse>> loadMeasurement)
@@ -748,6 +773,7 @@ static class HeadphoneCorrection
             tilt = Math.Clamp(model.Prefs.Get("fitTilt", 0.0), -1, 1);
             filters = Math.Clamp(model.Prefs.Get("fitFilters", 10), 3, 16);
             keepBass = model.Prefs.Get("correctionKeepBass", false);
+            strength = HeadphoneCorrection.StoredStrength(model);
 
             var header = Ui.VStack(2,
                 HeadphoneCorrection.Title(title),
@@ -772,6 +798,12 @@ static class HeadphoneCorrection
 
             var preview = scope.Dynamic(() => result != null ? "result" : error is { } e ? "error|" + e : "loading", BuildPreview);
 
+            var strengthSlider = HeadphoneCorrection.StrengthSlider(scope, () => strength, v =>
+            {
+                strength = v;
+                model.Prefs.Set("correctionStrength", v);
+                Refresh();
+            }, titleWidth: 70);
             var bassSlider = scope.LabeledSlider(L.T("Bass"), -6, 10, () => bass, (v, _) =>
             {
                 bass = Format.Round(v, 1);
@@ -809,7 +841,7 @@ static class HeadphoneCorrection
             });
             scope.Bind(apply, a => a.Update(applied, result != null && !computing));
 
-            View = Ui.VStack(10, header, targetRow, fallback, preview, Ui.VStack(6, bassSlider, tiltSlider, filtersRow), keep, apply.Button);
+            View = Ui.VStack(10, header, targetRow, fallback, preview, Ui.VStack(6, strengthSlider, bassSlider, tiltSlider, filtersRow), keep, apply.Button);
 
             scope.OnRefresh(CheckFitKey);
             CheckFitKey();
@@ -902,7 +934,7 @@ static class HeadphoneCorrection
 
         private void CheckFitKey()
         {
-            var key = new FitKey(targetName, bass, tilt, filters, keepBass, measurement != null);
+            var key = new FitKey(targetName, bass, tilt, filters, keepBass, strength, measurement != null);
             if (key == lastKey) return;
             lastKey = key;
             Refit();
@@ -927,7 +959,10 @@ static class HeadphoneCorrection
                 var squig = model.Squig;
                 var targetDb = targetDatabase ?? database;
                 var target = await Task.Run(() => squig.TargetAsync(name, targetDb, token), token);
-                var options = new EqFitter.Options(maxFilters: filters, bassAdjustDb: bass, tiltDbPerOctave: tilt, keepBassBelow: keepBass ? 250.0 : (double?)null);
+                var options = new EqFitter.Options(maxFilters: filters, bassAdjustDb: bass, tiltDbPerOctave: tilt, keepBassBelow: keepBass ? 250.0 : (double?)null)
+                {
+                    Strength = strength,
+                };
                 var fitted = await Task.Run(() => EqFitter.Fit(m, target, options), token);
                 if (token.IsCancellationRequested) return;
                 result = fitted;

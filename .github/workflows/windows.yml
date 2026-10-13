@@ -3,9 +3,9 @@ name: Windows
 on:
   push:
     branches: [main]
-    paths: ["windows/**", "Tapline/Resources/zh-Hans.lproj/**", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "Tapline/Resources/zh-Hans.lproj/**", "Tapline/Resources/VirtualSpeakers/**", ".github/workflows/windows.yml"]
   pull_request:
-    paths: ["windows/**", "Tapline/Resources/zh-Hans.lproj/**", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "Tapline/Resources/zh-Hans.lproj/**", "Tapline/Resources/VirtualSpeakers/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
 
 concurrency:

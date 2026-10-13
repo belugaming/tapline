@@ -24,6 +24,7 @@ final class AppModel {
     let devices = AudioDeviceCenter()
     let processes = AudioProcessCenter()
     let meters = LiveMeters()
+    let speakers = VirtualSpeakerLibrary()
     @ObservationIgnored let engine = TapEngine()
 
     private(set) var status: Status = .off
@@ -52,10 +53,20 @@ final class AppModel {
     var lastError: String?
     /// Set when the runaway guard switched processing off.
     var safetyMessage: String?
+    /// Why the chosen Virtual Speakers set could not be loaded.
+    private(set) var virtualSpeakersProblem: String?
     var globalShortcutsEnabled: Bool {
         didSet {
             defaults.set(globalShortcutsEnabled, forKey: Keys.shortcuts)
             updateShortcuts()
+        }
+    }
+    /// Plays the bypassed sound at the loudness of the EQ, so that switching the EQ off
+    /// compares the sound and not the level (a correction's preamp makes it quieter).
+    var levelMatchedBypass: Bool {
+        didSet {
+            defaults.set(levelMatchedBypass, forKey: Keys.levelMatchedBypass)
+            pushSettings()
         }
     }
 
@@ -94,6 +105,7 @@ final class AppModel {
         static let showPre = "showPreSpectrum"
         static let tilt = "analyzerTilt"
         static let shortcuts = "globalShortcuts"
+        static let levelMatchedBypass = "levelMatchedBypass"
     }
 
     init() {
@@ -101,6 +113,7 @@ final class AppModel {
         showPreSpectrum = defaults.object(forKey: Keys.showPre) as? Bool ?? true
         analyzerTilt = defaults.object(forKey: Keys.tilt) as? Double ?? 3
         globalShortcutsEnabled = defaults.object(forKey: Keys.shortcuts) as? Bool ?? true
+        levelMatchedBypass = defaults.object(forKey: Keys.levelMatchedBypass) as? Bool ?? true
         loadStoredSettings()
         postAnalyzer.tiltDBPerOctave = analyzerTilt
         preAnalyzer.tiltDBPerOctave = analyzerTilt
@@ -298,7 +311,28 @@ final class AppModel {
 
     private func pushSettings() {
         guard engine.isRunning else { return }
-        engine.kernel.setSettings(settings, sampleRate: engine.sampleRate)
+        engine.kernel.setSettings(settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass)
+        pushVirtualSpeakers()
+    }
+
+    /// Hands the chosen impulse responses to the kernel when the set or the sample rate
+    /// changed. Loaded the first time the effect is switched on, then kept while it is off
+    /// so switching it on again is instant.
+    private func pushVirtualSpeakers() {
+        let fx = settings.effects
+        guard fx.virtualSpeakersEnabled || engine.kernel.virtualSpeakersKey != nil else { return }
+        let set = speakers.resolve(fx.virtualSpeakers)
+        let key = VirtualSpeakerLibrary.key(set.id, sampleRate: engine.sampleRate)
+        guard key != engine.kernel.virtualSpeakersKey else { return }
+        do {
+            let prepared = try speakers.prepared(set, sampleRate: engine.sampleRate)
+            engine.kernel.setVirtualSpeakers(prepared.irs, gain: prepared.gain, key: prepared.key)
+            virtualSpeakersProblem = nil
+        } catch {
+            // Remembered under the same key, so it is not retried on every settings change.
+            engine.kernel.setVirtualSpeakers(nil, gain: 1, key: key)
+            virtualSpeakersProblem = String(localized: "Could not load \(set.name): \(VirtualSpeakerLibrary.message(for: error))")
+        }
     }
 
     private func pushGains() {
@@ -358,6 +392,7 @@ final class AppModel {
         // a slower tick misses nothing.
         let keys = engine.sources.map(\.key)
         let reading = engine.kernel.readMeters(sourceCount: keys.count)
+        engine.kernel.collectReleasedSets()
         meters.ingest(reading, sourceKeys: keys, dt: dt)
         // At most half a second per tick: a main thread that hung must not add up to a
         // runaway or a stall all at once.
@@ -490,6 +525,48 @@ final class AppModel {
     }
 
     func setEQEnabled(_ on: Bool) { mutate { $0.eqEnabled = on } }
+
+    // MARK: - Crossfeed and Virtual Speakers (one or the other)
+
+    func setCrossfeed(_ on: Bool) {
+        mutate {
+            $0.effects.crossfeedEnabled = on
+            if on { $0.effects.virtualSpeakersEnabled = false }
+        }
+    }
+
+    func setVirtualSpeakers(_ on: Bool) {
+        mutate {
+            $0.effects.virtualSpeakersEnabled = on
+            if on { $0.effects.crossfeedEnabled = false }
+        }
+    }
+
+    func chooseVirtualSpeakers(_ id: String) {
+        mutate { $0.effects.virtualSpeakers = id }
+    }
+
+    /// The set in use on the current device (the default when an imported one was removed).
+    var currentVirtualSpeakers: VirtualSpeakerSet { speakers.resolve(settings.effects.virtualSpeakers) }
+
+    /// Imports HeSuVi / Impulcifer files and switches Virtual Speakers on with them.
+    func importVirtualSpeakers(from urls: [URL]) throws {
+        let set = try speakers.importFiles(urls)
+        mutate {
+            $0.effects.virtualSpeakers = set.id
+            $0.effects.virtualSpeakersEnabled = true
+            $0.effects.crossfeedEnabled = false
+        }
+    }
+
+    func removeVirtualSpeakers(_ id: String) {
+        speakers.remove(id)
+        if settings.effects.virtualSpeakers == id {
+            mutate { $0.effects.virtualSpeakers = EffectsSettings.defaultVirtualSpeakers }
+        } else {
+            pushSettings()
+        }
+    }
 
     func toggleCompare() {
         let uid = currentDeviceUID

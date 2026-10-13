@@ -100,6 +100,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 |---|---|---|
 | Parametric EQ, up to 24 bands: drag on the graph, presets, A/B, undo, Auto preamp | ✓ | ✓ |
 | Bands for the left or right channel only | ✓ | ✓ |
+| Level-matched EQ bypass | ✓, crossfaded | ✓ |
 | A separate EQ for every output device | ✓ | ✓, and it keeps playing while Tapline is closed |
 | Spectrum analyzer | Before and after the EQ | After the EQ only |
 | Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
@@ -109,6 +110,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
 | Limiter | ✓ | ✗ (keep the preamp on **Auto**) |
 | Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
+| Virtual speakers (HRIR/BRIR convolution, HeSuVi import) | ✓ | ✓ (Equalizer APO's convolver) |
 | Switch the output or input device | ✓ | ✓ |
 | Change a device's sample rate | ✓ | ✗ (shown only) |
 | Quick panel | Menu bar | Notification area (tray) |
@@ -172,7 +174,7 @@ Below the graph:
 
 At the top of the page:
 
-- **EQ** switch: turn the EQ off for this device. Press **⌃⌥⌘B** anywhere to compare with the original sound.
+- **EQ** switch: turn the EQ off for this device. Press **⌃⌥⌘B** anywhere to compare with the original sound. The comparison is fair: a correction's preamp makes it a few dB quieter than the original, and louder almost always sounds better, so while the EQ is off Tapline plays the original at the loudness of the EQ. The gain shows next to the switch (*Level-matched −4.6 dB*, for example). It is the EQ's loudness change on pink noise, weighted like a LUFS meter (ITU-R BS.1770), and never a boost. To hear the original at its own level, turn off **Settings → EQ Bypass → Match loudness when bypassing**. Switching crossfades over a few milliseconds, so it doesn't click.
 - **Preset menu**: built-in presets (Bass Boost, Vocal Clarity, Loudness and more) and your own. **Delete Preset** is at the bottom of the menu.
 - **Save** (download icon): save the current curve as a preset. Tick **Include effects** to store crossfeed, limiter and the other effects with it.
 - **A / B**: two independent settings to switch between. Make a change on B, then toggle to hear the difference.
@@ -181,7 +183,7 @@ At the top of the page:
 
 Undo and redo (⌘Z / ⇧⌘Z) cover every change.
 
-> **On Windows:** use Ctrl for ⌘ and Alt for ⌥ (Alt-click deletes a band; Alt or Shift for fine adjustments). Scroll changes Q; there is no pinch. The graph shows the spectrum after the EQ only, so there is no input spectrum toggle. Undo and redo are Ctrl+Z and Ctrl+Y.
+> **On Windows:** use Ctrl for ⌘ and Alt for ⌥ (Alt-click deletes a band; Alt or Shift for fine adjustments). Scroll changes Q; there is no pinch. The graph shows the spectrum after the EQ only, so there is no input spectrum toggle. Undo and redo are Ctrl+Z and Ctrl+Y. The level-matched bypass is a `Preamp` line in Equalizer APO's configuration; switching doesn't crossfade.
 
 ### 2. Correct your headphones
 
@@ -189,23 +191,24 @@ Every headphone colours the sound. Correction curves bring it closer to a neutra
 
 ![Headphone correction](docs/images/en/headphone-correction.png)
 
-**AutoEQ presets**: ready-made curves for 5,000+ headphones. Search your model, pick a result and click **Apply Correction**. Results from oratory1990 and crinacle are listed first. The AutoEQ database was last updated in July 2025, so newer headphones may be missing.
+**AutoEQ presets**: ready-made curves for 5,000+ headphones. Search your model, pick a result and click **Apply Correction**. Results from oratory1990 and crinacle are listed first. The AutoEQ database was last updated in July 2025, so newer headphones may be missing. **Strength** applies part of the curve: at 50 % every band has half its gain.
 
 **squig.link measurements**: raw measurements from 130+ reviewer databases, updated continuously. Tapline computes the EQ itself:
 
 1. Search your model. Each result shows who measured it and with which rig. The name usually says in which mode it was measured (ANC on/off, wired, passive, a volume step…). **Pick the mode you actually use.**
 2. Choose a **Target**. Each database offers targets that match its rig; a Harman target is a good start.
 3. Read the chart: **grey** is the headphone as measured, **dashed** is the target, **green** is the result with Tapline's EQ. The closer green follows dashed, the better. *Deviation* shows the average difference before → after.
-4. Adjust to taste: **Bass** adds a low shelf on top of the target, **Tilt** makes the balance brighter (right) or warmer (left), **Filters** sets how many bands are used (10 is plenty).
+4. Adjust to taste: **Strength** sets how much of the correction to apply, like a Dry/Wet control: at 50 % the EQ is fitted to a curve halfway between your headphones and the target, so the green line lands halfway and *Deviation* shows how much is left. **Bass** adds a low shelf on top of the target, **Tilt** makes the balance brighter (right) or warmer (left), **Filters** sets how many bands are used (10 is plenty).
 5. Click **Apply Correction**. The curve is applied to the current output and saved as a preset you can keep editing.
 
-**My measurement**: import a frequency response you measured yourself (REW, miniDSP EARS, CSV) and fit it to a target from any database.
+**My measurement**: import a frequency response you measured yourself (REW, miniDSP EARS, CSV) and fit it to a target from any database. **Strength**, **Bass**, **Tilt** and **Filters** work as for squig.link.
 
 Tips:
 
 - **Keep my bass** leaves everything below 250 Hz alone. Use it when you listen differently from how the headphones were measured, for example noise-cancelling headphones used passively (powered off) on a cable: their bass changes a lot when the electronics are off, so the measured bass correction would be wrong.
 - Treble above 8 kHz is only corrected broadly, because measurement rigs disagree a lot up there.
 - AirPods and other adaptive headphones change their own EQ with volume and fit. Corrections for them are approximate; compare with ⌃⌥⌘B and keep what sounds better.
+- A full correction can sound odd at first, because your ears are used to your headphones. Try a lower **Strength**, such as 70 %, and raise it later if you like. Compare with ⌃⌥⌘B: the bypass is level-matched, so you hear the difference in sound, not in level.
 
 ### 3. Correct your speakers and room
 
@@ -271,8 +274,30 @@ The **Effects** page works on everything that plays through the current device:
 - **Output Gain**: overall level after the EQ.
 - **Balance**, **Stereo Width** (0% is mono), **Mono** and **Swap left and right**.
 - **Headphone Crossfeed**: blends a little of each channel into the other, like listening to speakers. It makes hard-panned recordings less tiring on headphones.
+- **Virtual Speakers**: puts the music in front of you, as if it played from a pair of speakers, instead of inside your head. See below. It replaces crossfeed: switching one on switches the other off.
 
-> **On Windows:** there is no limiter, because Equalizer APO has none. Keep the preamp on **Auto** so boosts can't clip, and lower **Output Gain** if the meters reach the top.
+> **On Windows:** there is no limiter, because Equalizer APO has none. Keep the preamp on **Auto** so boosts can't clip, and lower **Output Gain** if the meters reach the top. **Virtual Speakers** use Equalizer APO's own convolver, as HeSuVi does: Tapline writes the impulse responses at the device's sample rate into Equalizer APO's `config\Tapline\VirtualSpeakers` folder.
+
+#### Virtual speakers
+
+On headphones, the left channel only reaches your left ear. From speakers, each ear hears both speakers, a little later and duller from the far one, shaped by your head, your ears and the room. Virtual Speakers recreate that with binaural impulse responses (HRIRs, or BRIRs with a room): measurements of a pair of speakers at ±30° made with microphones in the ears of a dummy head, or in your own. It is the same idea as Sonarworks SoundID Virtual Monitoring, for free.
+
+- **Studio room (KU100)** (the default): the Neumann KU100 dummy head from the [SADIE II](https://www.york.ac.uk/sadie-project/database.html) database, with the early reflections of a treated studio room. The reflections help the sound leave your head; they are kept out of the bass and lower mids, which stay clean.
+- **Anechoic (KU100)**: the same head without any room. The cleanest sound, but it tends to sit closer to your head.
+- **Import…** your own: a HeSuVi file (7 or 14 channels), Impulcifer's `hesuvi.wav` or `hrir.wav`, a 4-channel file (front left → left ear, front left → right ear, front right → left ear, front right → right ear), or two stereo files, one per speaker (Tapline works out which is left). Tapline uses only the front left and right speakers and resamples them to the device's rate. Imported sets are listed under **Imported**; **Remove** deletes one.
+
+Tips:
+
+- Use it with headphone correction (see [2. Correct your headphones](#2-correct-your-headphones)). The built-in sets are diffuse-field equalised, so they expect headphones corrected to a neutral (Harman or diffuse-field) target.
+- The level is matched when you switch it on, so compare by ear with the switch. The limiter still protects the output.
+- It adds 256 samples of latency (5.3 ms at 48 kHz) while it is on. Switch it off for speakers.
+- Generic heads fit some people better than others: if voices seem to come from behind or above, try another set.
+
+Where to find more sets:
+
+- [HeSuVi](https://sourceforge.net/projects/hesuvi/): its download has an `hrir` folder with many dummy-head and room sets in its 14-channel format. Where a set comes in several sample rates, pick your device's to avoid resampling.
+- [ASH Listening Set](https://github.com/ShanonPearce/ASH-Listening-Set): BRIRs of many rooms, as HeSuVi files or as one stereo file per direction (import the 30° and 330° files together). Licensed for non-commercial use.
+- **Your own head**: [Impulcifer](https://github.com/jaakkopasanen/Impulcifer) measures your ears in your room with a pair of binaural in-ear microphones, your speakers and your headphones, and writes `hesuvi.wav`. Import that: it is the closest thing to a personal calibration, like the one SoundID Virtual Monitoring PRO makes with its microphones.
 
 ### 7. Several outputs and setups
 
@@ -297,7 +322,7 @@ Global shortcuts work in every app (turn them off in **Settings**):
 | Shortcut | Action |
 |---|---|
 | ⌃⌥⌘P | Turn processing on or off |
-| ⌃⌥⌘B | Bypass the EQ (compare with the original) |
+| ⌃⌥⌘B | Bypass the EQ (compare with the original, at the same loudness) |
 | ⌃⌥⌘K | Switch between A and B |
 
 Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compares A/B, ⌘Q hides Tapline to the menu bar, ⌥⌘Q quits.
@@ -358,14 +383,16 @@ rm -rf ~/Library/Caches/io.github.belugaming.Tapline
 ```
 apps ──► process taps of the output device's stream (apps are muted at the source while Tapline reads them)
      ──► private aggregate device = [taps + the output device as clock]
-     ──► C IOProc: mix apps → preamp → EQ → tone → effects → limiter
+     ──► C IOProc: mix apps → preamp → EQ → tone → effects (incl. virtual speakers) → limiter
      ──► output device
 ```
 
 - One tap captures everything headed for the current output except Tapline itself, bypassed apps and apps with their own mixer settings; each of those gets its own tap. Taps of the device's own stream follow its clock.
 - Drift compensation is on for devices with their own crystal (USB, built-in) and off for Bluetooth and virtual devices, where it would make the HAL add and drop samples.
 - The realtime path is plain C (`Packages/TaplineCore/Sources/TaplineDSP`): no allocation, locks or Swift runtime on the audio thread. Parameters reach it through a lock-free triple buffer. Filters are RBJ biquads computed in double precision.
-- The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search.
+- Virtual Speakers are a uniformly partitioned FFT convolution (overlap-save, 256-sample partitions, Accelerate's real FFT) of up to 65,536 taps per path. The main thread transforms a new set and hands it over through an atomic pointer; the audio thread crossfades to it and hands the old one back to be freed.
+- While the EQ is bypassed, one gain takes the place of preamp, EQ and tone: the loudness change of the whole EQ on pink noise, K-weighted as in ITU-R BS.1770, limited to 0 dB at most. Switching the EQ on or off crossfades the two paths over one audio buffer.
+- The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search. Below 100 % strength it fits the measurement moved that far towards the target, which keeps the result as accurate as a full correction.
 - Only one copy of Tapline runs at a time, a watchdog restarts the engine if the device stops calling it, and a guard switches processing off if it detects a feedback loop. If Tapline quits or crashes, its private taps and aggregate device disappear with it.
 
 On Windows, Tapline writes Equalizer APO's `config.txt`: one `Device:` section per output with its preamp, filters (the same RBJ biquads as on the Mac), left/right sections and effects. Equalizer APO reloads the file and processes the audio inside Windows' audio engine. The spectrum and meters read the output with a WASAPI loopback capture, and room measurements play and record in WASAPI shared mode.
@@ -430,12 +457,15 @@ The Windows version is released together with the Mac version, under the same nu
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).
 - The Windows version is not code-signed yet. Its differences from macOS are listed under [What works on Windows](#what-works-on-windows).
+- Virtual Speakers have no head tracking: the speakers turn with your head.
 
 ## Credits
 
 - Headphone correction curves: [AutoEQ](https://github.com/jaakkopasanen/AutoEq) by Jaakko Pasanen and contributors (oratory1990, crinacle, Rtings and others)
 - Frequency response measurements: the reviewers publishing on [squig.link](https://squig.link). The data belongs to them; please visit and support their sites.
 - Filter designs: Robert Bristow-Johnson's *Audio EQ Cookbook*
+- Virtual Speakers' built-in sets: the [SADIE II database](https://www.york.ac.uk/sadie-project/database.html), © 2018 University of York, Apache License 2.0 (C. Armstrong, L. Thresh, D. Murphy, G. Kearney, [doi:10.3390/app8112029](https://doi.org/10.3390/app8112029)). Tapline ships the KU100's 30° and 330° responses, rearranged and combined as described in [`Tapline/Resources/VirtualSpeakers/LICENSE-SADIE-II.txt`](Tapline/Resources/VirtualSpeakers/LICENSE-SADIE-II.txt) and made by [`scripts/make-virtual-speakers.py`](scripts/make-virtual-speakers.py).
+- HeSuVi's channel layout: [HeSuVi](https://sourceforge.net/projects/hesuvi/) and [Impulcifer](https://github.com/jaakkopasanen/Impulcifer)
 
 ## License
 

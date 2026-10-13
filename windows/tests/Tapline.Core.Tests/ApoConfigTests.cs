@@ -23,7 +23,8 @@ public class ApoConfigTests
 
     private static double Parse(string s) => double.Parse(s, CultureInfo.InvariantCulture);
 
-    private static Transfer Interpret(string config, double f, int channels = 2)
+    /// <summary><paramref name="files"/>: impulse responses for Convolution commands, by the path in the configuration.</summary>
+    private static Transfer Interpret(string config, double f, int channels = 2, IReadOnlyDictionary<string, float[]>? files = null)
     {
         var all = new List<string> { "L", "R" };
         for (var i = 3; i <= channels; i++) all.Add("C" + i);
@@ -61,6 +62,18 @@ public class ApoConfigTests
                 {
                     var g = Math.Pow(10, Parse(Regex.Match(parameters, @"[-+0-9.]+").Value) / 20);
                     foreach (var c in selected) state[c] = (state[c].L * g, state[c].R * g);
+                    break;
+                }
+                case "Convolution":
+                {
+                    // As ConvolutionFilter: a mono file is applied to each selected channel.
+                    var path = parameters.Trim();
+                    Assert.True(files != null && files.TryGetValue(path, out _), path);
+                    var h = files![path];
+                    Complex response = 0;
+                    for (var n = 0; n < h.Length; n++)
+                        response += h[n] * Complex.Exp(new Complex(0, -2 * Math.PI * f * n / SampleRate));
+                    foreach (var c in selected) state[c] = (state[c].L * response, state[c].R * response);
                     break;
                 }
                 case "Delay":
@@ -216,6 +229,113 @@ public class ApoConfigTests
         Assert.True(Interpret(config, 300).LR.Phase < -0.5);
     }
 
+    /// <summary>A small, deterministic set of four different decaying responses.</summary>
+    private static BinauralIrs TestSpeakers(int length = 600)
+    {
+        var random = new Random(23);
+        float[] Ir(double scale) => Enumerable.Range(0, length)
+            .Select(i => (float)((random.NextDouble() * 2 - 1) * scale * Math.Exp(-i / (length / 5.0)))).ToArray();
+        return new BinauralIrs(SampleRate, [Ir(1), Ir(0.3), Ir(0.3), Ir(1)]);
+    }
+
+    /// <summary>The files Tapline writes for a set, and their samples as Equalizer APO reads them.</summary>
+    private static (ApoConfig.SpeakerFiles Reference, Dictionary<string, float[]> Samples) SpeakerFiles(BinauralIrs irs, string id = "test")
+    {
+        var files = VirtualSpeakerFiles.Build(irs, id, SampleRate);
+        var reference = VirtualSpeakerFiles.Reference(files);
+        var samples = files.ToDictionary(f => VirtualSpeakerFiles.Folder + @"\" + f.Name, f =>
+        {
+            var wav = WavFile.Parse(f.Data);
+            Assert.Equal(SampleRate, wav.SampleRate);
+            Assert.Single(wav.Channels);
+            return wav.Channels[0];
+        });
+        return (reference, samples);
+    }
+
+    /// <summary>Equal up to the file's float samples and the configuration's six decimals.</summary>
+    private static bool Close(Complex actual, Complex expected) => (actual - expected).Magnitude <= 2e-5 * (1 + expected.Magnitude);
+
+    private static Complex Dft(float[] h, double f)
+    {
+        Complex sum = 0;
+        for (var n = 0; n < h.Length; n++) sum += h[n] * Complex.Exp(new Complex(0, -2 * Math.PI * f * n / SampleRate));
+        return sum;
+    }
+
+    [Fact]
+    public void VirtualSpeakersConvolveEachEarWithBothSpeakers()
+    {
+        var irs = TestSpeakers();
+        var (reference, samples) = SpeakerFiles(irs);
+        var s = DspSettings.Flat;
+        // Crossfeed stays off whatever its own switch says.
+        s.Effects = new EffectsSettings { VirtualSpeakersEnabled = true, CrossfeedEnabled = true, Balance = 0.25, OutputGainDb = -2 };
+        var config = ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 2, SampleRate, s, reference)]);
+        Assert.Contains(@"Convolution: Tapline\VirtualSpeakers\test-48000-FL-L.wav", config);
+        Assert.DoesNotContain("Delay:", config);
+
+        var prepared = irs.Prepared(SampleRate);
+        var gain = prepared.LoudnessGain;
+        var output = Math.Pow(10, -2 / 20.0);
+        foreach (var f in new[] { 60.0, 440, 1000, 3000, 9000 })
+        {
+            var t = Interpret(config, f, files: samples);
+            Complex Expected(int i) => Dft(prepared.Responses[i], f) * gain * output;
+            // Left ear: both speakers' paths to it, with the balance cut on the left.
+            Assert.True(Close(t.LL, Expected(BinauralIrs.FrontLeftToLeft) * 0.75), $"{f} Hz");
+            Assert.True(Close(t.LR, Expected(BinauralIrs.FrontRightToLeft) * 0.75), $"{f} Hz");
+            Assert.True(Close(t.RL, Expected(BinauralIrs.FrontLeftToRight)), $"{f} Hz");
+            Assert.True(Close(t.RR, Expected(BinauralIrs.FrontRightToRight)), $"{f} Hz");
+        }
+    }
+
+    [Fact]
+    public void VirtualSpeakersFollowSwapAndWidth()
+    {
+        var irs = TestSpeakers(300);
+        var (reference, samples) = SpeakerFiles(irs);
+        var s = DspSettings.Flat;
+        s.Effects = new EffectsSettings { VirtualSpeakersEnabled = true, SwapChannels = true };
+        var config = ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 2, SampleRate, s, reference)]);
+        var prepared = irs.Prepared(SampleRate);
+        var gain = prepared.LoudnessGain;
+        var t = Interpret(config, 1000, files: samples);
+        // Swapped: the left input plays from the right speaker.
+        Assert.True(Close(t.LL, Dft(prepared.Responses[BinauralIrs.FrontRightToLeft], 1000) * gain));
+        Assert.True(Close(t.RR, Dft(prepared.Responses[BinauralIrs.FrontLeftToRight], 1000) * gain));
+    }
+
+    [Fact]
+    public void VirtualSpeakersNeedTheirFiles()
+    {
+        var s = DspSettings.Flat;
+        s.Effects = new EffectsSettings { VirtualSpeakersEnabled = true, CrossfeedEnabled = true };
+        // The files could not be written: the device plays without the effect (and without crossfeed).
+        var config = Build(s);
+        Assert.DoesNotContain("Convolution", config);
+        Assert.DoesNotContain("Copy:", config);
+        // Mono devices never get it.
+        var (reference, _) = SpeakerFiles(TestSpeakers(100));
+        var mono = ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 1, SampleRate, s, reference)]);
+        Assert.DoesNotContain("Convolution", mono);
+        // Switched off: the files are ignored.
+        s.Effects = new EffectsSettings { VirtualSpeakersEnabled = false };
+        Assert.DoesNotContain("Convolution", ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 2, SampleRate, s, reference)]));
+    }
+
+    [Fact]
+    public void VirtualSpeakersKeepSurroundChannels()
+    {
+        var (reference, samples) = SpeakerFiles(TestSpeakers(100));
+        var s = DspSettings.Flat;
+        s.Effects = new EffectsSettings { VirtualSpeakersEnabled = true };
+        var config = ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 6, SampleRate, s, reference)]);
+        Assert.Contains("3=1.0*3", config);
+        Assert.Contains("6=1.0*6", config);
+        Interpret(config, 1000, channels: 6, files: samples);
+    }
+
     [Fact]
     public void SurroundDevicesKeepTheirOtherChannels()
     {
@@ -267,10 +387,35 @@ public class ApoConfigTests
         s.EqEnabled = false;
         s.Bands = [new EqBand(FilterType.Peak, 1000, 6, 1)];
         s.Effects = new EffectsSettings { Mono = true };
-        var config = Build(s);
+        var config = ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", 2, SampleRate, s)], levelMatchedBypass: false);
         Assert.DoesNotContain("Filter", config);
         Assert.DoesNotContain("Preamp", config);
         Assert.Contains("Copy:", config);
+    }
+
+    [Fact]
+    public void EqOffIsLevelMatched()
+    {
+        var s = DspSettings.Flat;
+        s.EqEnabled = false;
+        s.Bands = [new EqBand(FilterType.LowShelf, 105, 6, 0.7), new EqBand(FilterType.Peak, 1000, 6, 1)];
+        s.Effects = new EffectsSettings { Width = 1.3 };
+        var config = Build(s);
+        Assert.DoesNotContain("Filter", config);
+        Assert.Contains("Copy:", config);
+        var expected = s.BypassGainDb(SampleRate);
+        Assert.InRange(expected, -6, -2);
+        // No curve, just the EQ's loudness change at every frequency (for a centred sound, L and R in phase).
+        foreach (var f in new[] { 50.0, 1000, 10_000 })
+        {
+            var t = Interpret(config, f);
+            Assert.True(Math.Abs(Db(t.LL + t.LR) - expected) < 0.006, $"{f} Hz: {Db(t.LL + t.LR)} dB, want {expected}");
+        }
+
+        // A bypass that would have to boost plays at the original level.
+        s.AutoPreamp = false;
+        s.PreampDb = 6;
+        Assert.DoesNotContain("Preamp", Build(s));
     }
 
     [Fact]
