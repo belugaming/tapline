@@ -114,12 +114,13 @@ final class AppModel {
         static let power = "powerOn"
         static let profiles = "deviceProfiles"
         static let apps = "appSettings"
-        static let presets = "userPresets"
+        /// Read by the Audio Unit too (see SharedPresets).
+        static let presets = SharedPresets.userPresetsKey
         static let showPre = "showPreSpectrum"
         static let tilt = "analyzerTilt"
         static let shortcuts = "globalShortcuts"
         static let levelMatchedBypass = "levelMatchedBypass"
-        static let listenAs = "listenAs"
+        static let listenAs = SharedPresets.listenAsKey
         static let correctionReferences = "correctionReferences"
     }
 
