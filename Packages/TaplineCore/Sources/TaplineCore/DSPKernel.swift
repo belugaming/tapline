@@ -47,6 +47,9 @@ public final class DSPKernel: @unchecked Sendable {
     /// Samples of delay Virtual Speakers add while they are on.
     public static let virtualSpeakerLatency = Int(TL_CONV_BLOCK)
 
+    /// Samples of delay the linear-phase EQ adds while it is on.
+    public static func linearPhaseLatency(sampleRate: Double) -> Int { LinearPhaseEQ.latency(sampleRate: sampleRate) }
+
     public let pointer: OpaquePointer
 
     /// The rate of the last `configure`.
@@ -54,6 +57,9 @@ public final class DSPKernel: @unchecked Sendable {
     /// Identifies the virtual-speaker set last handed to the kernel; nil when there is none
     /// or a reconfigure for another sample rate dropped it.
     public private(set) var virtualSpeakersKey: String?
+    /// What the linear-phase FIR last handed to the kernel was made from; nil when there is
+    /// none or a reconfigure for another sample rate dropped it.
+    public private(set) var linearPhaseSpec: LinearPhaseEQ.Spec?
 
     public init() {
         guard let k = tl_kernel_create() else { fatalError("Unable to allocate DSP kernel") }
@@ -89,7 +95,10 @@ public final class DSPKernel: @unchecked Sendable {
         tl_kernel_configure(pointer, sampleRate, &l)
         // The kernel drops a set made for another rate.
         let rate = sampleRate < 8000 ? 48_000 : sampleRate
-        if rate != self.sampleRate { virtualSpeakersKey = nil }
+        if rate != self.sampleRate {
+            virtualSpeakersKey = nil
+            linearPhaseSpec = nil
+        }
         self.sampleRate = rate
     }
 
@@ -119,6 +128,25 @@ public final class DSPKernel: @unchecked Sendable {
             }
         }
         tl_kernel_set_ir_set(pointer, set)
+    }
+
+    /// Hands the linear-phase EQ's FIRs (nil: none) to the IO thread, which crossfades to them.
+    /// FIRs for another rate than the configured one are dropped.
+    public func setLinearPhase(_ fir: PreparedFIR?) {
+        guard let fir else {
+            guard linearPhaseSpec != nil else { return }
+            linearPhaseSpec = nil
+            tl_kernel_set_fir(pointer, nil)
+            return
+        }
+        guard fir.spec.sampleRate == sampleRate, let set = fir.take() else { return }
+        linearPhaseSpec = fir.spec
+        tl_kernel_set_fir(pointer, set)
+    }
+
+    /// Designs the FIRs for `settings` and hands them over, on the calling thread (tests).
+    public func setLinearPhase(settings: DSPSettings) {
+        setLinearPhase(LinearPhaseEQ.prepare(LinearPhaseEQ.Spec(settings: settings, sampleRate: sampleRate)))
     }
 
     /// Frees sets the IO thread is done with.

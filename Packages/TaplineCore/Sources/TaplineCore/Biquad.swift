@@ -214,6 +214,8 @@ extension DSPSettings {
         p.crossfeed = Float(effects.crossfeed.clamped(to: 0...1))
         p.limiter_enabled = effects.limiterEnabled ? 1 : 0
         p.limiter_ceiling = Float(dbToLinear(effects.limiterCeilingDB.clamped(to: -12...0)))
+        // The FIR comes separately (DSPKernel.setLinearPhase); the stages play until it is there.
+        p.linear_phase = filterPhase == .linear ? 1 : 0
 
         if let simulation {
             // The limiter catches what the make-up gain pushes over; without it, keep the headroom.
