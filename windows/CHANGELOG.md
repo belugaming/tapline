@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 Tapline for Windows is out of beta. From this release on it comes out together with Tapline for macOS and has the same version number, so it jumps from 0.1.0-beta.3 to 0.4.0. It brings over the correction strength, level-matched bypass and Virtual Speakers of Tapline 0.4.0 for macOS.
 
 - **Virtual Speakers** on the Effects page: on headphones, the music plays from a pair of speakers in front of you instead of inside your head. Two built-in sets from the SADIE II database (Neumann KU100 dummy head): a treated studio room, and anechoic. Import your own: HeSuVi files, Impulcifer's measurements of your own ears, 4-channel files or two stereo files. It uses Equalizer APO's own convolver, like HeSuVi, and replaces crossfeed. Saved per device and in presets with **Include effects**.

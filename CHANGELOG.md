@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-13
+
 ### Added
 - **Virtual Speakers** on the Effects page: on headphones, the music plays from a pair of speakers in front of you instead of inside your head, like Sonarworks SoundID Virtual Monitoring. Two built-in sets from the SADIE II database (Neumann KU100 dummy head): a treated studio room, and anechoic. Import your own: HeSuVi files, Impulcifer's measurements of your own ears, 4-channel files or two stereo files. Saved per device and in presets with **Include effects**. It replaces crossfeed and adds 5 ms of latency while it is on.
 - **Strength** in Assistant → Headphone Correction, 0–100 %, like a Dry/Wet control: apply only part of a correction. For squig.link measurements and your own measurement, the EQ is fitted to a curve that far between the headphones and the target, so it stays accurate; the green line and *Deviation* show the result. AutoEQ presets scale each band's gain.
@@ -123,7 +125,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/belugaming/tapline/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/belugaming/tapline/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/belugaming/tapline/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/belugaming/tapline/compare/v0.2.3...v0.3.0
