@@ -53,19 +53,19 @@ done
 pluginkit -m -v -i io.github.belugaming.Tapline.AudioUnit
 
 # The component registry follows PlugInKit after a moment: retry while auval cannot find the
-# component at all (a validation that fails is not retried).
+# component or its name yet (a validation that fails otherwise is not retried).
 log="$(mktemp)"
 for attempt in $(seq 1 10); do
+  sleep 3
   if auval -v aufx Tpln Tpln > "$log" 2>&1; then
     cat "$log"
     break
   fi
-  if grep -q "AU VALIDATION" "$log" || [[ "$attempt" -eq 10 ]]; then
+  if { grep -q "AU VALIDATION" "$log" && ! grep -q "Cannot get Component's Name strings" "$log"; } || [[ "$attempt" -eq 10 ]]; then
     cat "$log"
     echo "::error::auval failed"
     exit 1
   fi
-  sleep 3
 done
 rm -f "$log"
 

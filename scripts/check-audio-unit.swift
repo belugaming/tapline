@@ -1,7 +1,7 @@
 // Checks the registered Tapline Audio Unit the way a host uses it: it loads out of process, lists
 // Tapline's presets (the built-in ones, then the user's, read from the app's preferences through
-// the extension's sandbox exception), keeps its whole state in a project and reports the latency
-// of linear phase and Virtual Speakers. auval checks the rest.
+// the extension's sandbox exception), keeps its whole state in a project, loads Virtual Speakers
+// and reports the latency of linear phase and Virtual Speakers. auval checks the rest.
 //
 //   swift scripts/check-audio-unit.swift [--expect-preset NAME]
 //
@@ -62,6 +62,18 @@ func settle() async { try? await Task.sleep(for: .milliseconds(600)) }
     print(String(format: "Latency: %.2f ms; with linear phase (low latency) and Virtual Speakers %.2f ms", base * 1000, linear * 1000))
     guard base > 0, base < 0.005 else { fail("latency \(base) s without linear phase") }
     guard linear > 0.17, linear < 0.2 else { fail("latency \(linear) s with linear phase") }
+
+    // Render resources (no audio is processed): Virtual Speakers load their room, which shows
+    // in the tail, the room's length on top of the FIR's second half.
+    do {
+        try unit.allocateRenderResources()
+    } catch {
+        fail("could not allocate render resources: \(error)")
+    }
+    await settle()
+    print(String(format: "Tail: %.2f s", unit.tailTime))
+    guard unit.tailTime > 0.25 else { fail("tail \(unit.tailTime) s: the Virtual Speakers' impulse responses did not load") }
+    unit.deallocateRenderResources()
 
     // State: a preset, Strength and Listen as, saved and restored into another instance.
     unit.currentPreset = presets[1]

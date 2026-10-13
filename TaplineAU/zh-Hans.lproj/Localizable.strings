@@ -25,6 +25,7 @@
 "No filters found. Choose or paste an Equalizer APO / AutoEQ ParametricEQ.txt, or an RME ADI-2 preset." = "没有找到滤波器。请选择或粘贴 Equalizer APO / AutoEQ 的 ParametricEQ.txt，或 RME ADI-2 预设。";
 "Could not read %@." = "无法读取 %@。";
 "The clipboard holds no text." = "剪贴板里没有文字。";
+"Saved in project" = "已存入工程";
 "This project keeps its own copy of the curve, so it sounds the same on any Mac. Choose a preset again to load its current version from Tapline." = "这个工程保存了曲线的副本，所以在任何一台 Mac 上听起来都一样。重新选择预设，即可载入它在 Tapline 中的最新版本。";
 
 /* EQ and Strength */

@@ -41,10 +41,16 @@ struct AudioUnitView: View {
                 Circle().fill(Theme.accent).frame(width: 8, height: 8)
                 Text(verbatim: "Tapline").font(.system(size: 13, weight: .semibold))
             }
+            .fixedSize()
             presetMenu
             if model.playsSavedCopy {
-                Image(systemName: "externaldrive.badge.checkmark")
+                Text("Saved in project")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .overlay(Capsule().strokeBorder(Theme.panelStroke))
+                    .fixedSize()
                     .help("This project keeps its own copy of the curve, so it sounds the same on any Mac. Choose a preset again to load its current version from Tapline.")
             }
             Spacer(minLength: 8)
@@ -53,10 +59,13 @@ struct AudioUnitView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize()
             }
             Toggle("EQ", isOn: Binding(get: { model.state.eqEnabled }, set: { model.setEQ($0) }))
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .fixedSize()
                 .help("Bypass EQ (compare with the original sound)")
         }
     }
@@ -79,8 +88,7 @@ struct AudioUnitView: View {
         } label: {
             Text(verbatim: model.state.preset.name).lineLimit(1).truncationMode(.middle)
         }
-        .frame(maxWidth: 280)
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(minWidth: 120, maxWidth: 280)
         .help("Presets")
     }
 
@@ -243,7 +251,8 @@ struct AudioUnitCurve: View {
             full = response(whole.settings.activeBands.map { $0.clamped() }, split ? .left : nil)
         }
         let device = state.playingDevice.map { response($0.bands.filter(\.isEnabled).map { $0.clamped() }, nil) }
-        let peak = [left, right ?? [], full ?? [], device ?? []].joined().map(abs).max() ?? 0
+        // The scale follows the EQ; the device's curve is only a reference and may run off it.
+        let peak = [left, right ?? [], full ?? []].joined().map(abs).max() ?? 0
         return Curves(left: left, right: right, full: full, device: device, range: peak <= 11 ? 12 : (peak <= 17 ? 18 : 24))
     }
 
