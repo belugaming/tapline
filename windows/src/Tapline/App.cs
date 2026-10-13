@@ -69,6 +69,15 @@ sealed class App : Application
         {
             if (!Audio.EqualizerApo.ConfigIsManaged) return;
             if (!Audio.EqualizerApo.RestoreBackup()) Audio.EqualizerApo.Write(Core.ApoConfig.Build(false, []));
+            // Virtual Speakers' impulse responses next to the configuration.
+            if (Audio.EqualizerApo.ConfigPath is string config)
+            {
+                var folder = System.IO.Path.Combine(config, Core.VirtualSpeakerFiles.Folder);
+                if (System.IO.Directory.Exists(folder)) System.IO.Directory.Delete(folder, recursive: true);
+                var parent = System.IO.Path.GetDirectoryName(folder);
+                if (parent != null && System.IO.Directory.Exists(parent) && !System.IO.Directory.EnumerateFileSystemEntries(parent).Any())
+                    System.IO.Directory.Delete(parent);
+            }
         }
         catch (Exception e)
         {

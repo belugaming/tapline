@@ -15,6 +15,8 @@ sealed class PersistedState
     public Dictionary<string, string> DeviceNames { get; set; } = [];
     public Dictionary<string, int> DeviceChannels { get; set; } = [];
     public List<EqPreset> UserPresets { get; set; } = [];
+    /// Imported Virtual Speakers sets (the files are in %APPDATA%\Tapline\VirtualSpeakers).
+    public List<VirtualSpeakerSet> VirtualSpeakerSets { get; set; } = [];
     public bool GlobalShortcuts { get; set; } = true;
     public double AnalyzerTilt { get; set; } = 3;
     public bool CloseToTray { get; set; } = true;

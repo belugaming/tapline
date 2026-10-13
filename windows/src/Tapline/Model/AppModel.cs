@@ -51,12 +51,16 @@ sealed class AppModel
     private string? bypassDeviceGuid;
     private long lastWritten;
     private int staleTicks;
+    // Virtual Speakers' impulse-response files written this session, by set and rate (null: failed).
+    private readonly Dictionary<string, ApoConfig.SpeakerFiles?> speakerFiles = [];
+    private bool speakerFilesTidied;
 
     public AppModel(Dispatcher dispatcher)
     {
         this.dispatcher = dispatcher;
         state = StateStore.Load();
         Prefs = new Prefs(state, ScheduleSave);
+        Speakers = new VirtualSpeakerLibrary(state.VirtualSpeakerSets, ScheduleSave);
         Devices = new DeviceCenter(dispatcher);
         AutoEq = new AutoEqService(Path.Combine(AppPaths.Cache, "autoeq"));
         Squig = new SquigService(Path.Combine(AppPaths.Cache, "squig"));
@@ -96,6 +100,9 @@ sealed class AppModel
     public AutoEqService AutoEq { get; }
     public SquigService Squig { get; }
     public Prefs Prefs { get; }
+    public VirtualSpeakerLibrary Speakers { get; }
+    /// Why the chosen Virtual Speakers set could not be loaded or written.
+    public string? VirtualSpeakersProblem { get; private set; }
 
     public EngineStatus Status { get; private set; } = EngineStatus.Off;
     public string? LastError { get; private set; }
@@ -154,6 +161,7 @@ sealed class AppModel
     public void Recheck()
     {
         Devices.Refresh();
+        speakerFiles.Clear();
         WriteConfig();
         NotifyChanged();
     }
@@ -207,13 +215,16 @@ sealed class AppModel
                 {
                     var known = Devices.Outputs.FirstOrDefault(d => d.Id == p.Key);
                     var guid = known?.Guid ?? GuidOf(p.Key);
+                    var channels = known?.Channels ?? state.DeviceChannels.GetValueOrDefault(p.Key, 2);
+                    var rate = known?.SampleRate ?? 48000;
                     return new ApoConfig.Device(guid, known?.Name ?? state.DeviceNames.GetValueOrDefault(p.Key, guid),
-                                                known?.Channels ?? state.DeviceChannels.GetValueOrDefault(p.Key, 2),
-                                                known?.SampleRate ?? 48000, p.Value, p.Key == current?.Id ? simulated : null);
+                                                channels, rate, p.Value, SpeakerFilesFor(p.Value, channels, rate),
+                                                p.Key == current?.Id ? simulated : null);
                 })
                 .Where(d => !string.Equals(d.Guid, bypassDeviceGuid, StringComparison.OrdinalIgnoreCase))
                 .ToList();
             EqualizerApo.Write(ApoConfig.Build(state.PowerOn, devices, state.LevelMatchedBypass));
+            TidySpeakerFiles(devices);
             LastError = null;
             Status = ComputeStatus();
         }
@@ -262,6 +273,53 @@ sealed class AppModel
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { LastError = e.Message; }
         WriteConfig();
         return ok;
+    }
+
+    /// The impulse-response files of a device's Virtual Speakers, written to Equalizer APO's config
+    /// folder the first time a set is used at a sample rate in this session. Null when the effect is
+    /// off, the device is mono, or the files could not be made.
+    private ApoConfig.SpeakerFiles? SpeakerFilesFor(DspSettings settings, int channels, double sampleRate)
+    {
+        var fx = settings.Effects;
+        if (!state.PowerOn || !fx.VirtualSpeakersEnabled || channels < 2 || EqualizerApo.ConfigPath is not string config) return null;
+        var set = Speakers.Resolve(fx.VirtualSpeakers);
+        var key = VirtualSpeakerFiles.Stem(set.Id, sampleRate);
+        if (speakerFiles.TryGetValue(key, out var known)) return known;
+        try
+        {
+            var files = VirtualSpeakerFiles.Build(Speakers.Load(set), set.Id, sampleRate);
+            var folder = Path.Combine(config, VirtualSpeakerFiles.Folder);
+            Directory.CreateDirectory(folder);
+            foreach (var f in files) File.WriteAllBytes(Path.Combine(folder, f.Name), f.Data);
+            speakerFiles[key] = VirtualSpeakerFiles.Reference(files);
+            VirtualSpeakersProblem = null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or WavFormatException or BinauralImportException)
+        {
+            // Remembered, so it is not retried on every configuration write (Recheck retries).
+            speakerFiles[key] = null;
+            VirtualSpeakersProblem = L.F("Could not load %@: %@", set.Name, VirtualSpeakerLibrary.Message(e));
+        }
+        return speakerFiles[key];
+    }
+
+    /// Once per session, after the first write: deletes impulse-response files no device uses any more.
+    private void TidySpeakerFiles(IEnumerable<ApoConfig.Device> devices)
+    {
+        if (speakerFilesTidied || EqualizerApo.ConfigPath is not string config) return;
+        speakerFilesTidied = true;
+        var folder = Path.Combine(config, VirtualSpeakerFiles.Folder);
+        if (!Directory.Exists(folder)) return;
+        var used = devices.Select(d => d.Speakers).OfType<ApoConfig.SpeakerFiles>()
+            .SelectMany(f => new[] { f.FrontLeftToLeft, f.FrontLeftToRight, f.FrontRightToLeft, f.FrontRightToRight })
+            .Select(f => Path.GetFileName(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.EnumerateFiles(folder, "*.wav"))
+        {
+            if (used.Contains(Path.GetFileName(file))) continue;
+            try { File.Delete(file); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        foreach (var key in speakerFiles.Where(p => p.Value is { } f && !used.Contains(Path.GetFileName(f.FrontLeftToLeft))).Select(p => p.Key).ToList())
+            speakerFiles.Remove(key);
     }
 
     private EngineStatus ComputeStatus()
@@ -568,6 +626,36 @@ sealed class AppModel
     }
 
     public void SetEqEnabled(bool on) => Mutate(s => s.EqEnabled = on);
+
+    // MARK: - Crossfeed and Virtual Speakers (one or the other)
+
+    public void SetCrossfeed(bool on) =>
+        Mutate(s => s.Effects = s.Effects with { CrossfeedEnabled = on, VirtualSpeakersEnabled = on ? false : s.Effects.VirtualSpeakersEnabled });
+
+    public void SetVirtualSpeakers(bool on) =>
+        Mutate(s => s.Effects = s.Effects with { VirtualSpeakersEnabled = on, CrossfeedEnabled = on ? false : s.Effects.CrossfeedEnabled });
+
+    public void ChooseVirtualSpeakers(string id) => Mutate(s => s.Effects = s.Effects with { VirtualSpeakers = id });
+
+    /// The set in use on the current device (the default when an imported one was removed).
+    public VirtualSpeakerSet CurrentVirtualSpeakers => Speakers.Resolve(Settings.Effects.VirtualSpeakers);
+
+    /// Imports HeSuVi / Impulcifer files and switches Virtual Speakers on with them.
+    public void ImportVirtualSpeakers(IReadOnlyList<string> paths)
+    {
+        var set = Speakers.Import(paths);
+        Mutate(s => s.Effects = s.Effects with { VirtualSpeakers = set.Id, VirtualSpeakersEnabled = true, CrossfeedEnabled = false });
+    }
+
+    public void RemoveVirtualSpeakers(string id)
+    {
+        Speakers.Remove(id);
+        if (Settings.Effects.VirtualSpeakers == id)
+            Mutate(s => s.Effects = s.Effects with { VirtualSpeakers = EffectsSettings.DefaultVirtualSpeakers });
+        else
+            ScheduleConfig();
+        NotifyChanged();
+    }
 
     public void ToggleCompare()
     {

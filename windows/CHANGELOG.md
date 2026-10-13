@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-Brings over the correction strength, level-matched bypass and Listen As of Tapline for macOS.
+Brings over the correction strength, level-matched bypass, Virtual Speakers and Listen As of Tapline for macOS.
 
+- **Virtual Speakers** on the Effects page: on headphones, the music plays from a pair of speakers in front of you instead of inside your head. Two built-in sets from the SADIE II database (Neumann KU100 dummy head): a treated studio room, and anechoic. Import your own: HeSuVi files, Impulcifer's measurements of your own ears, 4-channel files or two stereo files. It uses Equalizer APO's own convolver, like HeSuVi, and replaces crossfeed. Saved per device and in presets with **Include effects**.
 - **Strength** in Assistant → Headphone Correction, 0–100 %, like a Dry/Wet control: apply only part of a correction. squig.link and your own measurements are fitted to a curve that far between the headphones and the target; AutoEQ presets scale each band's gain.
 - Switching the EQ off is level-matched: the original plays at the loudness of the EQ (a `Preamp` line in Equalizer APO's configuration) instead of a few dB louder. Turn this off in **Settings → EQ Bypass**.
 - **Listen As** on the Assistant page: hear your music as other headphones and earbuds (fitted from squig.link measurements) or everyday speakers (phone, laptop, TV, small Bluetooth speaker, car; approximations) would play it, through your own headphones. Its filters follow your EQ in Equalizer APO's configuration, on the current output only, and are never saved in presets. Switch it on the card, in the tray panel or with Ctrl+Alt+Shift+L. Equalizer APO has no limiter, so where the device would boost above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.

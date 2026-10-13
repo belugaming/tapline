@@ -1,3 +1,4 @@
+using System.Windows;
 using Tapline.Core;
 using Tapline.Infrastructure;
 using Tapline.Model;
@@ -32,16 +33,84 @@ sealed class EffectsPage : PageBase
         var amount = Scope.LabeledSlider(L.T("Amount"), 0, 1, () => Fx().Crossfeed, (v, d) => Set(f => f with { Crossfeed = v }, d), Format.Percent, 0, Model.Checkpoint);
         Scope.Bind(amount, a => a.IsEnabled = Fx().CrossfeedEnabled);
         var crossfeed = Ui.Card(L.T("Headphone Crossfeed"), L.T("Blends a little of each channel into the other, like listening to speakers. Reduces fatigue on hard-panned recordings."), Glyphs.Headphones,
-            Scope.LabeledSwitch(L.T("Enabled"), () => Fx().CrossfeedEnabled, v => Set(f => f with { CrossfeedEnabled = v })),
+            Scope.LabeledSwitch(L.T("Enabled"), () => Fx().CrossfeedEnabled, Model.SetCrossfeed),
             amount);
+
+        var speakers = VirtualSpeakersCard();
 
         var grid = new AdaptiveGrid { MinItemWidth = 380, Spacing = 16 };
         grid.Children.Add(output);
         grid.Children.Add(balance);
         grid.Children.Add(width);
         grid.Children.Add(crossfeed);
+        grid.Children.Add(speakers);
 
         var reset = Ui.Button(L.T("Reset Effects"), () => Model.Mutate(s => s.Effects = new EffectsSettings())).Right();
         Content = Ui.Page(Ui.VStack(16, intro, grid, reset));
+    }
+
+    private string? importMessage;
+
+    private FrameworkElement VirtualSpeakersCard()
+    {
+        var picker = Scope.Combo(() => Model.Speakers.All, s => s.Name, () => Model.CurrentVirtualSpeakers, s =>
+        {
+            importMessage = null;
+            Model.ChooseVirtualSpeakers(s.Id);
+        }, 240);
+        var import = Ui.Button(L.T("Import…"), Import, Glyphs.Import,
+            tip: L.T("A HeSuVi or Impulcifer WAV file, a 4-channel file, or two stereo files (one per speaker)"));
+        var remove = Scope.Dynamic(() => Model.CurrentVirtualSpeakers, _ =>
+        {
+            var current = Model.CurrentVirtualSpeakers;
+            return current.IsBuiltIn ? null : Ui.Button(L.F("Remove “%@”", current.Name), () => Model.RemoveVirtualSpeakers(current.Id));
+        });
+        var problem = Scope.Bind(Ui.Caption(""), t =>
+        {
+            var text = importMessage ?? (Model.Settings.Effects.VirtualSpeakersEnabled ? Model.VirtualSpeakersProblem : null);
+            t.Text = text ?? "";
+            t.Foreground = Theme.Warning;
+            t.Visibility = text == null ? Visibility.Collapsed : Visibility.Visible;
+        });
+        return Ui.Card(L.T("Virtual Speakers"), L.T("Puts the sound in front of you, like a pair of speakers at ±30°, with binaural impulse responses. For headphones; replaces crossfeed."), Glyphs.Speakers,
+            Scope.LabeledSwitch(L.T("Enabled"), () => Model.Settings.Effects.VirtualSpeakersEnabled, Model.SetVirtualSpeakers),
+            Ui.HStack(10, Ui.Text(L.T("Speakers")), picker, Ui.Spacer(), import),
+            Scope.Text(() => Detail(Model.CurrentVirtualSpeakers), 11.5, null, Theme.Secondary, wrap: true),
+            Ui.HStack(10, remove, Ui.Spacer(), Ui.Link(L.T("Where to find HRIR files"), "https://github.com/belugaming/tapline#virtual-speakers")),
+            problem);
+    }
+
+    private static string Detail(VirtualSpeakerSet set)
+    {
+        if (set.Id == EffectsSettings.DefaultVirtualSpeakers)
+            return L.T("Neumann KU100 dummy head from the SADIE II database, with the reflections of a treated studio room. Bass and lower mids stay dry.");
+        if (set.Id == "sadie-ku100")
+            return L.T("Neumann KU100 dummy head from the SADIE II database, anechoic: the speakers without a room. The cleanest sound, but it may seem closer to your head.");
+        var layout = L.T(set.Layout switch
+        {
+            BinauralLayout.Hesuvi14 => "HeSuVi, 14 channels",
+            BinauralLayout.Hesuvi7 => "HeSuVi, 7 channels",
+            BinauralLayout.Impulcifer16 => "Impulcifer hrir.wav",
+            BinauralLayout.FourChannel => "4 channels",
+            BinauralLayout.StereoPair => "Two stereo files",
+            _ => "One speaker, mirrored",
+        });
+        return $"{layout} · {Printf.Format("%g kHz", [set.SampleRate / 1000])} · {Printf.Format("%.0f ms", [set.Duration * 1000])}";
+    }
+
+    private void Import()
+    {
+        var paths = Dialogs.OpenFiles(L.T("WAV files") + " (*.wav)|*.wav");
+        if (paths.Count == 0) return;
+        try
+        {
+            Model.ImportVirtualSpeakers(paths);
+            importMessage = null;
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException or WavFormatException or BinauralImportException)
+        {
+            importMessage = VirtualSpeakerLibrary.Message(e);
+        }
+        Scope.Refresh();
     }
 }

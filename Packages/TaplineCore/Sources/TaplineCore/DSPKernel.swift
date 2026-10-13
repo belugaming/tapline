@@ -44,8 +44,16 @@ public struct KernelLayout: Sendable, Equatable {
 public final class DSPKernel: @unchecked Sendable {
     public static let maxSources = Int(TL_MAX_SOURCES)
     public static let analyzerCapacity = Int(TL_ANALYZER_SIZE)
+    /// Samples of delay Virtual Speakers add while they are on.
+    public static let virtualSpeakerLatency = Int(TL_CONV_BLOCK)
 
     public let pointer: OpaquePointer
+
+    /// The rate of the last `configure`.
+    public private(set) var sampleRate: Double = 48_000
+    /// Identifies the virtual-speaker set last handed to the kernel; nil when there is none
+    /// or a reconfigure for another sample rate dropped it.
+    public private(set) var virtualSpeakersKey: String?
 
     public init() {
         guard let k = tl_kernel_create() else { fatalError("Unable to allocate DSP kernel") }
@@ -79,6 +87,43 @@ public final class DSPKernel: @unchecked Sendable {
         l.out_buffer_r = Int32(layout.rightBuffer)
         l.out_channel_r = Int32(layout.rightChannel)
         tl_kernel_configure(pointer, sampleRate, &l)
+        // The kernel drops a set made for another rate.
+        let rate = sampleRate < 8000 ? 48_000 : sampleRate
+        if rate != self.sampleRate { virtualSpeakersKey = nil }
+        self.sampleRate = rate
+    }
+
+    /// Hands a set of virtual-speaker impulse responses (nil: none) to the IO thread, which
+    /// crossfades to it. `key` identifies the set and its preparation: handing over the same
+    /// key again does nothing. Resamples first if `irs` is not at the configured rate.
+    public func setVirtualSpeakers(_ irs: BinauralIRs?, gain: Float, key: String?) {
+        guard key != virtualSpeakersKey else { return }
+        virtualSpeakersKey = key
+        guard var irs, irs.length > 0 else {
+            tl_kernel_set_ir_set(pointer, nil)
+            return
+        }
+        if irs.sampleRate != sampleRate { irs = irs.resampled(to: sampleRate) }
+        let r = irs.responses
+        let length = UInt32(min(irs.length, Int(TL_CONV_MAX_TAPS)))
+        let rate = sampleRate
+        let set = r[0].withUnsafeBufferPointer { a in
+            r[1].withUnsafeBufferPointer { b in
+                r[2].withUnsafeBufferPointer { c in
+                    r[3].withUnsafeBufferPointer { d in
+                        [a.baseAddress!, b.baseAddress!, c.baseAddress!, d.baseAddress!].withUnsafeBufferPointer {
+                            tl_ir_set_create($0.baseAddress!, length, rate, gain)
+                        }
+                    }
+                }
+            }
+        }
+        tl_kernel_set_ir_set(pointer, set)
+    }
+
+    /// Frees sets the IO thread is done with.
+    public func collectReleasedSets() {
+        tl_kernel_collect(pointer)
     }
 
     public func setSettings(_ settings: DSPSettings, sampleRate: Double, levelMatchedBypass: Bool = true,
