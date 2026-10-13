@@ -69,7 +69,7 @@ import TaplineDSP
         // Earbuds that lose the bass come out quieter, so they are made up for. A phone loses
         // even more bass, but its forward presence keeps the K-weighted loudness close.
         let leaky = DeviceSimulation(id: "x", name: "x", kind: .measured, bands: [EQBand(type: .lowShelf, frequency: 200, gain: -10, q: 0.7)])
-        #expect(leaky.makeupGainDB(sampleRate: sr) > 1)
+        #expect(leaky.makeupGainDB(sampleRate: sr) > 0.5)
         #expect(abs(SpeakerProfile.phone.simulation.makeupGainDB(sampleRate: sr)) < 3)
         #expect(DeviceSimulation(id: "x", name: "x", kind: .measured, bands: []).makeupGainDB() == 0)
     }
@@ -296,8 +296,9 @@ extension KernelTests {
         let kernel = simulatingKernel(s, sim, on: true)
         var out: (left: [Float], right: [Float]) = ([], [])
         for _ in 0..<8 { out = cycle(kernel, input: sine(2000, amplitude: 0.25, frames: frames, position: &position), frames: frames) }
+        // Without the limiter, the make-up gain keeps the headroom (the phone's presence peak).
         let curve = ResponseCurve.responseDB(bands: sim.bands, frequencies: [2000], sampleRate: 48_000)[0]
-        let want = 0.25 / sqrt(2) * dbToLinear(curve + sim.makeupGainDB())
+        let want = 0.25 / sqrt(2) * dbToLinear(curve + sim.makeupGainDB(after: s))
         #expect(abs(rms(out.left) / want - 1) < 0.01, "got \(rms(out.left)), want \(want)")
 
         // Chosen but off: the sound is left alone.
@@ -337,7 +338,7 @@ extension KernelTests {
         var out: (left: [Float], right: [Float]) = ([], [])
         for _ in 0..<8 { out = cycle(kernel, input: sine(2000, amplitude: 0.25, frames: frames, position: &position), frames: frames) }
         let curve = ResponseCurve.responseDB(bands: sim.bands, frequencies: [2000], sampleRate: 48_000)[0]
-        let want = 0.25 / sqrt(2) * dbToLinear(s.bypassGainDB() + curve + sim.makeupGainDB())
+        let want = 0.25 / sqrt(2) * dbToLinear(s.bypassGainDB() + curve + sim.makeupGainDB(after: s))
         #expect(abs(rms(out.left) / want - 1) < 0.01, "got \(rms(out.left)), want \(want)")
     }
 

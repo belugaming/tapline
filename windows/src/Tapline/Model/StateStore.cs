@@ -22,6 +22,10 @@ sealed class PersistedState
     public bool LevelMatchedBypass { get; set; } = true;
     /// The user agreed that Tapline replaces Equalizer APO's configuration.
     public bool TookOverApoConfig { get; set; }
+    /// "Listen as": the device chosen last. Whether it plays is not remembered (off at every start).
+    public DeviceSimulation? ListenAs { get; set; }
+    /// Per device: what its headphone correction was fitted to, for "Listen as".
+    public Dictionary<string, CorrectionReference> CorrectionReferences { get; set; } = [];
     /// Small per-view preferences (like @AppStorage on macOS).
     public Dictionary<string, JsonNode?> Ui { get; set; } = [];
 }

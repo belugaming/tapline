@@ -128,8 +128,8 @@ public class ApoConfigTests
         return new Transfer(state["L"].L, state["L"].R, state["R"].L, state["R"].R);
     }
 
-    private static string Build(DspSettings s, int channels = 2) =>
-        ApoConfig.Build(true, [new ApoConfig.Device("{00000000-1111-2222-3333-444444444444}", "Test", channels, SampleRate, s)]);
+    private static string Build(DspSettings s, int channels = 2, DeviceSimulation? simulation = null, bool levelMatchedBypass = true) =>
+        ApoConfig.Build(true, [new ApoConfig.Device("{00000000-1111-2222-3333-444444444444}", "Test", channels, SampleRate, s, simulation)], levelMatchedBypass);
 
     private static double Db(Complex c) => 20 * Math.Log10(Math.Max(c.Magnitude, 1e-15));
 
@@ -296,6 +296,124 @@ public class ApoConfigTests
         s.AutoPreamp = false;
         s.PreampDb = 6;
         Assert.DoesNotContain("Preamp", Build(s));
+    }
+
+    // MARK: - Listen as
+
+    [Fact]
+    public void SimulationFollowsTheEq()
+    {
+        var s = DspSettings.Flat;
+        s.Bands = [new EqBand(FilterType.LowShelf, 105, 6, 0.7), new EqBand(FilterType.Peak, 3000, -2, 2)];
+        var sim = SpeakerProfile.Tv.Simulation();
+        var config = Build(s, simulation: sim);
+        Assert.Contains("# Listen as TV speakers", config);
+        // After the EQ's filters, with numbers of their own.
+        Assert.True(config.IndexOf("# Listen as", StringComparison.Ordinal) > config.IndexOf("Filter 2:", StringComparison.Ordinal));
+        Assert.Contains($"Filter {2 + sim.Bands.Count}:", config);
+
+        var frequencies = ResponseCurve.LogFrequencies(60);
+        var eq = ResponseCurve.ResponseDb(s.ActiveBands, frequencies, SampleRate);
+        var device = ResponseCurve.ResponseDb(sim.Bands, frequencies, SampleRate);
+        var gain = s.EffectivePreampDb(SampleRate) + sim.MakeupGainDb(s, SampleRate);
+        for (var i = 0; i < frequencies.Length; i++)
+        {
+            // A centred sound: L and R in phase, so the TV's narrower width leaves it as it is.
+            var t = Interpret(config, frequencies[i]);
+            var centred = Db(t.LL + t.LR);
+            Assert.True(Math.Abs(centred - (eq[i] + device[i] + gain)) < 0.03, $"{frequencies[i]} Hz: {centred} dB, want {eq[i] + device[i] + gain}");
+        }
+    }
+
+    [Fact]
+    public void SimulationIsLevelMatchedWhereTheHeadroomAllows()
+    {
+        // A correction's preamp leaves room: the make-up gain is the full level match.
+        var corrected = DspSettings.Flat;
+        corrected.Bands = [new EqBand(FilterType.LowShelf, 105, 6, 0.7)];
+        var phone = SpeakerProfile.Phone.Simulation();
+        Assert.Equal(phone.MakeupGainDb(SampleRate), phone.MakeupGainDb(corrected, SampleRate), 9);
+
+        // Without a correction there is no limiter to catch the phone's presence peak: no frequency
+        // may come out louder than the input.
+        var config = Build(DspSettings.Flat, simulation: phone);
+        foreach (var f in ResponseCurve.LogFrequencies(120))
+        {
+            var t = Interpret(config, f);
+            Assert.True(Db(t.LL + t.LR) < 0.02, $"{f} Hz: {Db(t.LL + t.LR)} dB");
+        }
+    }
+
+    [Theory]
+    [InlineData(SpeakerProfile.Phone, 1.0, false)]
+    [InlineData(SpeakerProfile.Laptop, 1.0, false)]
+    [InlineData(SpeakerProfile.Laptop, 1.5, true)]
+    [InlineData(SpeakerProfile.Car, 0.5, false)]
+    public void SimulationNarrowsTheStereoLikeTheDevice(SpeakerProfile profile, double width, bool swap)
+    {
+        var s = DspSettings.Flat;
+        s.Effects = new EffectsSettings { Width = width, SwapChannels = swap };
+        var sim = profile.Simulation();
+        var t = Interpret(Build(s, simulation: sim), 1000);
+
+        // The kernel: make-up gain, the device's filters and width, then swap and the user's width.
+        static (double L, double R) Width(double l, double r, double w)
+        {
+            var m = 0.5 * (l + r);
+            var side = 0.5 * (l - r) * w;
+            return (m + side, m - side);
+        }
+        var makeup = Math.Pow(10, sim.MakeupGainDb(s, SampleRate) / 20);
+        (double L, double R) Kernel(double l, double r)
+        {
+            (l, r) = Width(l, r, sim.Width);
+            if (swap) (l, r) = (r, l);
+            (l, r) = Width(l, r, width);
+            return (l * makeup, r * makeup);
+        }
+        var fromL = Kernel(1, 0);
+        var fromR = Kernel(0, 1);
+        // The filters act on both channels alike: a centred sound passes every width, so it shows their response.
+        var h = (t.LL + t.LR) / (fromL.L + fromR.L);
+        Assert.InRange(Db(h) - ResponseCurve.ResponseDb(sim.Bands, [1000.0], SampleRate)[0], -0.01, 0.01);
+        Assert.InRange((t.LL / h).Real - fromL.L, -1e-4, 1e-4);
+        Assert.InRange((t.RL / h).Real - fromL.R, -1e-4, 1e-4);
+        Assert.InRange((t.LR / h).Real - fromR.L, -1e-4, 1e-4);
+        Assert.InRange((t.RR / h).Real - fromR.R, -1e-4, 1e-4);
+        if (sim.Width == 0) Assert.True((t.LL - t.RL).Magnitude < 1e-9);
+    }
+
+    [Fact]
+    public void SimulationPlaysWhileTheEqIsBypassed()
+    {
+        var s = DspSettings.Flat;
+        s.EqEnabled = false;
+        s.Bands = [new EqBand(FilterType.LowShelf, 105, 6, 0.7)];
+        var sim = SpeakerProfile.BluetoothSpeaker.Simulation();
+        var config = Build(s, simulation: sim);
+        var expected = s.BypassGainDb(SampleRate) + sim.MakeupGainDb(s, SampleRate)
+                       + ResponseCurve.ResponseDb(sim.Bands, [1000.0], SampleRate)[0];
+        var t = Interpret(config, 1000);
+        Assert.True(Math.Abs(Db(t.LL + t.LR) - expected) < 0.02);
+        Assert.Contains("# Listen as", Build(s, simulation: sim, levelMatchedBypass: false));
+    }
+
+    [Fact]
+    public void SimulationOnAMonoDeviceHasNoStereoCommands()
+    {
+        var config = Build(DspSettings.Flat, channels: 1, simulation: SpeakerProfile.Laptop.Simulation());
+        Assert.Contains("# Listen as", config);
+        Assert.Contains("HPQ Fc 280 Hz", config);
+        Assert.DoesNotContain("Copy:", config);
+    }
+
+    [Fact]
+    public void NoSimulationNoTrace()
+    {
+        var s = DspSettings.Flat;
+        s.Bands = [new EqBand(FilterType.Peak, 1000, 3, 1)];
+        Assert.DoesNotContain("Listen as", Build(s));
+        Assert.Equal(Build(s), Build(s, simulation: null));
     }
 
     [Fact]
