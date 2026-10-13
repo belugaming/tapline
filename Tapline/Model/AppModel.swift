@@ -66,6 +66,11 @@ final class AppModel {
             pushSettings()
         }
     }
+    /// "Listen as": the device last chosen (remembered across launches) and whether it plays
+    /// now (off at every launch). Never part of `DSPSettings`, so presets, A/B and undo never
+    /// see it; it plays on top of whatever the current output's EQ does.
+    private(set) var simulation: DeviceSimulation?
+    private(set) var simulating = false
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var alternate: [String: DSPSettings] = [:]
@@ -75,6 +80,8 @@ final class AppModel {
     @ObservationIgnored private var storedProfiles = TolerantJSON()
     @ObservationIgnored private var storedApps = TolerantJSON()
     @ObservationIgnored private var storedPresets = TolerantJSON()
+    /// Per device: what its headphone correction was fitted to, for "Listen as".
+    @ObservationIgnored private var correctionReferences: [String: CorrectionReference] = [:]
     @ObservationIgnored private var reconcileScheduled = false
     @ObservationIgnored private var meterTimer: Timer?
     @ObservationIgnored private var meterInterval: TimeInterval = 0
@@ -103,6 +110,8 @@ final class AppModel {
         static let tilt = "analyzerTilt"
         static let shortcuts = "globalShortcuts"
         static let levelMatchedBypass = "levelMatchedBypass"
+        static let listenAs = "listenAs"
+        static let correctionReferences = "correctionReferences"
     }
 
     init() {
@@ -158,6 +167,8 @@ final class AppModel {
             ]
             profiles[currentDeviceUID] = demo
             selectedBandID = demo.bands[4].id
+            simulation = SpeakerProfile.phone.simulation
+            simulating = true
             meters.fillDemo(frequencies: postAnalyzer.displayFrequencies, settings: demo)
             status = .running
             return
@@ -308,7 +319,8 @@ final class AppModel {
 
     private func pushSettings() {
         guard engine.isRunning else { return }
-        engine.kernel.setSettings(settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass)
+        engine.kernel.setSettings(settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass,
+                                  simulation: simulation, simulating: simulating)
     }
 
     private func pushGains() {
@@ -445,8 +457,38 @@ final class AppModel {
                 self.setEQEnabled(!self.settings.eqEnabled)
             },
             .init(id: 3, keyCode: UInt32(kVK_ANSI_K), title: "Compare A/B") { [weak self] in self?.toggleCompare() },
+            .init(id: 4, keyCode: UInt32(kVK_ANSI_L), title: "Listen as") { [weak self] in self?.toggleSimulation() },
         ])
     }
+
+    // MARK: - Listen as
+
+    /// Plays `simulation` from now on (or only chooses it, with `play` false) and remembers it.
+    func chooseSimulation(_ simulation: DeviceSimulation, play: Bool = true) {
+        self.simulation = simulation
+        if play { simulating = true }
+        if !DebugSnapshot.isActive, let data = try? JSONEncoder().encode(simulation) {
+            defaults.set(data, forKey: Keys.listenAs)
+        }
+        pushSettings()
+    }
+
+    func setSimulating(_ on: Bool) {
+        simulating = on && simulation != nil
+        pushSettings()
+    }
+
+    func toggleSimulation() { setSimulating(!simulating) }
+
+    /// How much quieter than level-matched the simulation plays because the limiter is off and
+    /// the make-up gain must leave headroom (see `DeviceSimulation.makeupGainDB(after:)`).
+    var simulationLevelShortfallDB: Double {
+        guard let simulation, !settings.effects.limiterEnabled else { return 0 }
+        return simulation.levelShortfallDB(after: settings, sampleRate: engine.sampleRate, levelMatchedBypass: levelMatchedBypass)
+    }
+
+    /// What the current output's headphone correction was fitted to, if Tapline fitted it.
+    var correctionReference: CorrectionReference? { correctionReferences[currentDeviceUID] }
 
     // MARK: - Device settings
 
@@ -603,8 +645,11 @@ final class AppModel {
     }
 
     /// Applies a generated correction (AutoEQ, squig.link fit…) and saves it as a preset.
+    /// `reference` records what a squig.link or own-measurement fit aimed at, for "Listen as".
     @discardableResult
-    func applyCorrection(bands: [EQBand], preampDB: Double? = nil, name: String, source: String?) -> EQPreset {
+    func applyCorrection(bands: [EQBand], preampDB: Double? = nil, name: String, source: String?, reference: CorrectionReference? = nil) -> EQPreset {
+        correctionReferences[currentDeviceUID] = reference
+        saveCorrectionReferences()
         mutate { s in
             s.bands = Array(bands.prefix(DSPSettings.maxBands))
             s.tone = ToneSettings()
@@ -709,6 +754,11 @@ final class AppModel {
         redoStack = []
         updateUndoFlags()
         selectedBandID = nil
+        correctionReferences = [:]
+        saveCorrectionReferences()
+        simulation = nil
+        simulating = false
+        defaults.removeObject(forKey: Keys.listenAs)
         saveNow()
         reconcileEngine(forceRebuild: true)
     }
@@ -724,6 +774,11 @@ final class AppModel {
                 self?.saveNow()
             }
         }
+    }
+
+    private func saveCorrectionReferences() {
+        guard !DebugSnapshot.isActive, let data = try? JSONEncoder().encode(correctionReferences) else { return }
+        defaults.set(data, forKey: Keys.correctionReferences)
     }
 
     func saveNow() {
@@ -748,6 +803,10 @@ final class AppModel {
         profiles = load(Keys.profiles) { storedProfiles.decode([String: DSPSettings].self, from: $0) } ?? [:]
         appSettings = load(Keys.apps) { storedApps.decode([String: AppAudioSettings].self, from: $0) } ?? [:]
         userPresets = load(Keys.presets) { storedPresets.decode([EQPreset].self, from: $0) } ?? []
+        // Conveniences: unreadable ones are simply forgotten.
+        correctionReferences = defaults.data(forKey: Keys.correctionReferences)
+            .flatMap { try? JSONDecoder().decode([String: CorrectionReference].self, from: $0) } ?? [:]
+        simulation = defaults.data(forKey: Keys.listenAs).flatMap { try? JSONDecoder().decode(DeviceSimulation.self, from: $0) }
         let unreadable = storedProfiles.unreadableCount + storedApps.unreadableCount + storedPresets.unreadableCount
         if unreadable > 0 { settingsLog.error("kept \(unreadable) stored entries this version cannot read") }
     }

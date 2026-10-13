@@ -216,6 +216,7 @@ private struct SquigSection: View {
                         credit: selected.database.siteName,
                         creditURL: selected.database.baseURL,
                         database: selected.database,
+                        measuredIn: selected.database,
                         presetName: "\(selected.file) · \(selected.database.siteName)",
                         loadMeasurement: { try await squig.measurement(for: selected) }
                     )
@@ -296,6 +297,7 @@ private struct FileMeasurementSection: View {
                     credit: nil,
                     creditURL: nil,
                     database: db,
+                    measuredIn: nil,
                     presetName: fileName,
                     loadMeasurement: { measurement }
                 )
@@ -331,6 +333,8 @@ private struct CorrectionWorkbench: View {
     let credit: String?
     let creditURL: URL?
     let database: SquigService.Database
+    /// The squig.link database of the measurement; nil for the user's own.
+    let measuredIn: SquigService.Database?
     let presetName: String
     let loadMeasurement: @MainActor () async throws -> FrequencyResponse
 
@@ -438,8 +442,11 @@ private struct CorrectionWorkbench: View {
             KeepBassToggle(isOn: $keepBass)
 
             Button {
-                guard let result else { return }
-                model.applyCorrection(bands: result.bands, name: presetName, source: credit ?? String(localized: "My measurement"))
+                guard let result, let targetName else { return }
+                let targets = targetDatabase ?? database
+                let reference = CorrectionReference(measurementDatabase: measuredIn?.id, targetDatabase: targets.id,
+                                                    targetSite: targets.siteName, targetName: targetName)
+                model.applyCorrection(bands: result.bands, name: presetName, source: credit ?? String(localized: "My measurement"), reference: reference)
                 applied = true
             } label: {
                 Label(applied ? "Applied" : "Apply Correction", systemImage: applied ? "checkmark" : "wand.and.stars")
@@ -530,7 +537,7 @@ private struct KeepBassToggle: View {
     }
 }
 
-private struct SearchField: View {
+struct SearchField: View {
     @Binding var text: String
     let prompt: LocalizedStringKey
     var busy = false
@@ -547,7 +554,7 @@ private struct SearchField: View {
     }
 }
 
-private struct ResultRow: View {
+struct ResultRow: View {
     let symbol: String
     let title: String
     let subtitle: String
@@ -568,7 +575,7 @@ private struct ResultRow: View {
     }
 }
 
-private struct EmptyHint: View {
+struct EmptyHint: View {
     let query: String
 
     var body: some View {

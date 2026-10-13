@@ -66,8 +66,11 @@ import TaplineDSP
             let total = ResponseCurve.loudnessChangeDB(bands: sim.bands + [EQBand(type: .highShelf, frequency: 1, gain: makeup, q: 0.71)], sampleRate: sr)
             #expect(abs(total) < 0.05, "\(profile): \(total)")
         }
-        // The phone loses the bass, so it is made up for.
-        #expect(SpeakerProfile.phone.simulation.makeupGainDB(sampleRate: sr) > 0.3)
+        // Earbuds that lose the bass come out quieter, so they are made up for. A phone loses
+        // even more bass, but its forward presence keeps the K-weighted loudness close.
+        let leaky = DeviceSimulation(id: "x", name: "x", kind: .measured, bands: [EQBand(type: .lowShelf, frequency: 200, gain: -10, q: 0.7)])
+        #expect(leaky.makeupGainDB(sampleRate: sr) > 1)
+        #expect(abs(SpeakerProfile.phone.simulation.makeupGainDB(sampleRate: sr)) < 3)
         #expect(DeviceSimulation(id: "x", name: "x", kind: .measured, bands: []).makeupGainDB() == 0)
     }
 
@@ -89,11 +92,13 @@ import TaplineDSP
         let safe = sim.makeupGainDB(after: flat, sampleRate: sr)
         #expect(safe < sim.makeupGainDB(sampleRate: sr))
         #expect((device.max() ?? 0) + safe <= 1e-6)
+        #expect(abs(sim.levelShortfallDB(after: flat, sampleRate: sr) - (sim.makeupGainDB(sampleRate: sr) - safe)) < 1e-9)
 
         // A correction's preamp leaves room in the midrange: the full make-up gain fits.
         var corrected = DSPSettings(bands: [EQBand(type: .lowShelf, frequency: 105, gain: 6, q: 0.7)])
         corrected.effects.limiterEnabled = false
         #expect(abs(sim.makeupGainDB(after: corrected, sampleRate: sr) - sim.makeupGainDB(sampleRate: sr)) < 1e-9)
+        #expect(sim.levelShortfallDB(after: corrected, sampleRate: sr) == 0)
 
         // With the limiter on, the kernel gets the exact level match.
         flat.effects.limiterEnabled = true
@@ -146,6 +151,8 @@ import TaplineDSP
         #expect(decoded.bands.count == DeviceSimulation.maxStages)
         #expect(decoded.width == 0)
         #expect(try JSONDecoder().decode(DeviceSimulation.self, from: JSONEncoder().encode(sim)) == sim)
+        let measured = DeviceSimulation(id: "db|AirPods", name: "AirPods", kind: .measured, bands: many, source: "Rig A")
+        #expect(try JSONDecoder().decode(DeviceSimulation.self, from: JSONEncoder().encode(measured)).source == "Rig A")
     }
 
     @Test func aFittedSimulationFitsTheBudget() {
@@ -203,9 +210,15 @@ import TaplineDSP
 
     @Test func sameRigUsesTheRawDifference() throws {
         let correction = CorrectionReference(measurementDatabase: "A", targetDatabase: "A", targetSite: "Rig A", targetName: "Harman")
-        let plan = try #require(DeviceSimulation.plan(deviceDatabase: "A", targetDatabase: "A", targets: ["Harman", "Diffuse field"], correction: correction))
+        let plan = try #require(DeviceSimulation.plan(deviceDatabase: "A", targetDatabase: "A", targets: ["Diffuse field", "Harman"], correction: correction))
         #expect(plan.comparison == .sameRig)
         #expect(plan.referenceDatabase == "A" && plan.referenceTarget == "Harman")
+        #expect(DeviceSimulation.comparison(deviceDatabase: "A", correction: correction) == .sameRig)
+        #expect(DeviceSimulation.comparison(deviceDatabase: "B", correction: correction) == .crossRig)
+        #expect(DeviceSimulation.comparison(deviceDatabase: "A", correction: nil) == .crossRig)
+        // The user can compare with another target of the same database.
+        #expect(DeviceSimulation.plan(deviceDatabase: "A", targetDatabase: "A", targets: ["Diffuse field", "Harman"], correction: correction,
+                                      preferredTarget: "Diffuse field")?.referenceTarget == "Diffuse field")
         // The device and the user's target, both as rig A measures them.
         let r = DeviceSimulation.fit(device: curve(neutral, device, rigA), reference: curve(neutral, rigA))
         #expect(deviation(simulatedChange(r), truth, frequencies: r.frequencies) < 0.8)

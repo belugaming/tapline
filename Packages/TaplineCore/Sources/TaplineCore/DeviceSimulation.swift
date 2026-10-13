@@ -28,14 +28,17 @@ public struct DeviceSimulation: Codable, Hashable, Sendable, Identifiable {
     public var bands: [EQBand]
     /// 0 = mono, 1 = unchanged.
     public var width: Double
+    /// Who measured a headphone (the squig.link database's site name).
+    public var source: String?
 
-    public init(id: String, name: String, kind: Kind, bands: [EQBand], width: Double = 1) {
+    public init(id: String, name: String, kind: Kind, bands: [EQBand], width: Double = 1, source: String? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
         // The kernel's block has a fixed number of stages: more would be dropped there.
         self.bands = Array(bands.prefix(Self.maxStages))
         self.width = width.isNaN ? 1 : width.clamped(to: 0...1)
+        self.source = source
     }
 
     public init(from decoder: Decoder) throws {
@@ -44,7 +47,8 @@ public struct DeviceSimulation: Codable, Hashable, Sendable, Identifiable {
                   name: try c.decode(String.self, forKey: .name),
                   kind: try c.decode(Kind.self, forKey: .kind),
                   bands: try c.decodeIfPresent([EQBand].self, forKey: .bands) ?? [],
-                  width: try c.decodeIfPresent(Double.self, forKey: .width) ?? 1)
+                  width: try c.decodeIfPresent(Double.self, forKey: .width) ?? 1,
+                  source: try c.decodeIfPresent(String.self, forKey: .source))
     }
 
     /// The built-in profile this simulation plays, if it is one.
@@ -53,7 +57,7 @@ public struct DeviceSimulation: Codable, Hashable, Sendable, Identifiable {
     private var playedBands: [EQBand] { bands.filter(\.isEnabled).map { $0.clamped() } }
 
     /// How much the device's curve changes the loudness of pink noise, in dB (LU, K-weighted
-    /// like the EQ bypass). A phone speaker loses the bass and comes out quieter.
+    /// like the EQ bypass). Earbuds that lose the bass come out quieter.
     public func loudnessChangeDB(sampleRate: Double = 48_000) -> Double {
         let played = playedBands
         guard !played.isEmpty else { return 0 }
@@ -71,7 +75,7 @@ public struct DeviceSimulation: Codable, Hashable, Sendable, Identifiable {
     /// The make-up gain for a chain without a limiter behind it (the limiter switched off, or
     /// Equalizer APO): lowered where the simulation would raise some frequency above the level
     /// `settings`' EQ reaches by itself (0 dB with the automatic preamp), so it cannot clip what
-    /// the EQ does not. Switching is then a little less than level-matched.
+    /// the EQ does not. Switching is then less than level-matched, by `levelShortfallDB`.
     public func makeupGainDB(after settings: DSPSettings, sampleRate: Double = 48_000, levelMatchedBypass: Bool = true) -> Double {
         let gain = makeupGainDB(sampleRate: sampleRate)
         let own = playedBands
@@ -89,6 +93,11 @@ public struct DeviceSimulation: Codable, Hashable, Sendable, Identifiable {
             allowed = min(allowed, ceiling - peak)
         }
         return allowed.isFinite ? allowed.clamped(to: Self.gainRange) : 0
+    }
+
+    /// How much quieter than level-matched the simulation plays with `makeupGainDB(after:)`, in dB.
+    public func levelShortfallDB(after settings: DSPSettings, sampleRate: Double = 48_000, levelMatchedBypass: Bool = true) -> Double {
+        max(0, makeupGainDB(sampleRate: sampleRate) - makeupGainDB(after: settings, sampleRate: sampleRate, levelMatchedBypass: levelMatchedBypass))
     }
 
     private static let probe = ResponseCurve.logFrequencies(count: 480)
@@ -154,8 +163,8 @@ public enum SpeakerProfile: String, CaseIterable, Codable, Sendable, Identifiabl
             [
                 EQBand(type: .highPass, frequency: 750, q: 1.0),
                 EQBand(type: .highPass, frequency: 400, q: 0.7),
-                EQBand(type: .peak, frequency: 1100, gain: 2.5, q: 1.2),
-                EQBand(type: .peak, frequency: 3200, gain: 3, q: 1.4),
+                EQBand(type: .peak, frequency: 1100, gain: 2, q: 1.4),
+                EQBand(type: .peak, frequency: 3500, gain: 4, q: 1.6),
                 EQBand(type: .peak, frequency: 6500, gain: -3, q: 2.5),
                 EQBand(type: .lowPass, frequency: 12_000, q: 0.8),
             ]
@@ -251,18 +260,23 @@ extension DeviceSimulation {
         public var referenceTarget: String
     }
 
-    /// The comparison for a device measured in `deviceDatabase`. On a cross-rig comparison the
-    /// reference is a target of the device's own database (or its fallback, `targetDatabase`):
-    /// `preferredTarget` if given, else the one named like the user's target, else a Harman
-    /// target, else the first. Nil when no target is available.
+    /// Same rig when the device was measured in the database the user's headphones were.
+    public static func comparison(deviceDatabase: String, correction: CorrectionReference?) -> Comparison {
+        correction?.measurementDatabase == deviceDatabase ? .sameRig : .crossRig
+    }
+
+    /// The reference for a device measured in `deviceDatabase`, among the `targets` of
+    /// `targetDatabase`: on a same-rig comparison the database the correction's target came
+    /// from, else the device's own database (or its fallback when it has no targets).
+    /// `preferredTarget` if the database has it, else the one named like the user's target (on
+    /// the same rig: the very target the correction aims at), else a Harman target, else the
+    /// first. Nil when no target is available.
     public static func plan(deviceDatabase: String, targetDatabase: String, targets: [String],
                             correction: CorrectionReference?, preferredTarget: String? = nil) -> Plan? {
-        if let correction, correction.measurementDatabase == deviceDatabase {
-            return Plan(comparison: .sameRig, referenceDatabase: correction.targetDatabase, referenceTarget: correction.targetName)
-        }
         guard let name = preferredTarget.flatMap({ targets.contains($0) ? $0 : nil })
                 ?? referenceTarget(among: targets, userTarget: correction?.targetName) else { return nil }
-        return Plan(comparison: .crossRig, referenceDatabase: targetDatabase, referenceTarget: name)
+        return Plan(comparison: comparison(deviceDatabase: deviceDatabase, correction: correction),
+                    referenceDatabase: targetDatabase, referenceTarget: name)
     }
 
     /// The target of a database that best matches the user's target: the same name, else a
