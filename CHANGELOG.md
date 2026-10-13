@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Added
+- **Virtual Speakers** on the Effects page: on headphones, the music plays from a pair of speakers in front of you instead of inside your head, like Sonarworks SoundID Virtual Monitoring. Two built-in sets from the SADIE II database (Neumann KU100 dummy head): a treated studio room, and anechoic. Import your own: HeSuVi files, Impulcifer's measurements of your own ears, 4-channel files or two stereo files. Saved per device and in presets with **Include effects**. It replaces crossfeed and adds 5 ms of latency while it is on.
+
 ## [0.3.2] - 2026-10-12
 
 ### Changed
