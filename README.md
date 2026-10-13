@@ -94,7 +94,7 @@ To update, quit Tapline and replace the app with the new one. Releases are signe
 
 Tapline also runs on 64-bit Windows 10 and 11. The Windows version has the same pages as on the Mac (Equalizer, Assistant with headphone correction, Room, Mixer, Effects, Devices) and keeps a separate EQ for every output device.
 
-Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine: Tapline is the editor, and Equalizer APO applies the EQ inside Windows' audio engine. Windows releases are titled "Tapline for Windows" and use the Mac's version numbers; what changed on Windows is in [windows/CHANGELOG.md](windows/CHANGELOG.md). Windows releases are paused after **0.4.0** for now: the features marked *not released yet* below are written for Windows but not in a Windows release. Please report problems in [Issues](https://github.com/belugaming/tapline/issues).
+Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) (free, open source) as its audio engine: Tapline is the editor, and Equalizer APO applies the EQ inside Windows' audio engine. Windows releases are titled "Tapline for Windows" and use the Mac's version numbers; what changed on Windows is in [windows/CHANGELOG.md](windows/CHANGELOG.md). Please report problems in [Issues](https://github.com/belugaming/tapline/issues).
 
 ### What works on Windows
 
@@ -103,20 +103,20 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Parametric EQ, up to 24 bands: drag on the graph, presets, A/B, undo, Auto preamp | ✓ | ✓ |
 | Bands for the left or right channel only | ✓ | ✓ |
 | Level-matched EQ bypass | ✓, crossfaded | ✓ |
-| Linear-phase EQ, high precision | ✓, 704 ms latency at 48 kHz; edits crossfade | ✓ (Equalizer APO's convolver), 683 ms at 48 kHz; the sound pauses after each change — *not released yet* |
+| Linear-phase EQ, high precision | ✓, 704 ms latency at 48 kHz; edits crossfade | ✓ (Equalizer APO's convolver), 683 ms at 48 kHz; the sound pauses after each change |
 | Linear-phase EQ, low latency | ✓, 176 ms latency at 48 kHz | ✗ (macOS only for now) |
 | A separate EQ for every output device | ✓ | ✓, and it keeps playing while Tapline is closed |
 | Spectrum analyzer | Before and after the EQ | After the EQ only |
 | Headphone correction: AutoEQ, squig.link, your own measurement | ✓ | ✓ |
 | Room correction: guided measurement, setup check, separate left/right correction, RME ADI-2 export | ✓ | ✓ |
-| Surround and Dolby Atmos speakers (5.1 … 9.1.6): wiring check, a correction, trim and delay for every speaker | ✓ | ✓ (per-channel Equalizer APO sections) — *not released yet* |
+| Surround and Dolby Atmos speakers (5.1 … 9.1.6): wiring check, a correction, trim and delay for every speaker | ✓ | ✓ (per-channel Equalizer APO sections) |
 | Quick Tone, Sound Assistant, import and export (Equalizer APO, AutoEQ, RME ADI-2) | ✓ | ✓ |
 | Per-app volume and mute | 0–200 % | 0–100 % (Windows' own app volumes) |
 | Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
 | Limiter | ✓ | ✗ (keep the preamp on **Auto**) |
 | Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
 | Virtual speakers (HRIR/BRIR convolution, HeSuVi import) | ✓ | ✓ (Equalizer APO's convolver) |
-| Listen As: other headphones (squig.link) and everyday speakers through your headphones | ✓, level-matched | ✓, quieter than level-matched where a boost could clip (no limiter) — *not released yet* |
+| Listen As: other headphones (squig.link) and everyday speakers through your headphones | ✓, level-matched | ✓, quieter than level-matched where a boost could clip (no limiter) |
 | Audio Unit plugin for Logic Pro, GarageBand and other hosts | ✓ (AUv3) | ✗ |
 | Switch the output or input device | ✓ | ✓ |
 | Change a device's sample rate | ✓ | ✗ (shown only) |
