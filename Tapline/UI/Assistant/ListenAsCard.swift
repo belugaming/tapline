@@ -35,7 +35,7 @@ struct ListenAsCard: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 420)
+            .fixedSize()
 
             switch shown {
             case .headphones: SimulatedHeadphonesSection()
