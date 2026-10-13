@@ -59,6 +59,7 @@ What makes it different:
   - [7. Several outputs and setups](#7-several-outputs-and-setups)
   - [8. Menu bar and keyboard shortcuts](#8-menu-bar-and-keyboard-shortcuts)
   - [9. Reading the meters](#9-reading-the-meters)
+  - [10. Listen as another device](#10-listen-as-another-device)
 - [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [How it works](#how-it-works)
 - [Privacy and network use](#privacy-and-network-use)
@@ -113,10 +114,11 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
 | Limiter | ✓ | ✗ (keep the preamp on **Auto**) |
 | Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
+| Listen As: other headphones (squig.link) and everyday speakers through your headphones | ✓, level-matched | ✓, quieter than level-matched where a boost could clip (no limiter) |
 | Switch the output or input device | ✓ | ✓ |
 | Change a device's sample rate | ✓ | ✗ (shown only) |
 | Quick panel | Menu bar | Notification area (tray) |
-| Global shortcuts | ⌃⌥⌘P / B / K | Ctrl+Alt+Shift+P / B / K |
+| Global shortcuts | ⌃⌥⌘P / B / K / L | Ctrl+Alt+Shift+P / B / K / L |
 | Open at login | ✓ | ✓ |
 
 ### Install on Windows
@@ -130,9 +132,9 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 
 The tutorials show the Mac version. The Windows pages work the same way, and a note under each tutorial says where Windows differs. In short:
 
-- **Keys**: read ⌘ as Ctrl and ⌥ as Alt. In the window: Ctrl+Z undo, Ctrl+Y redo, Ctrl+B bypass the EQ, Ctrl+K compare A/B. Global shortcuts (turn them off in **Settings**): Ctrl+Alt+Shift+P turns processing on or off, Ctrl+Alt+Shift+B bypasses the EQ, Ctrl+Alt+Shift+K switches between A and B.
+- **Keys**: read ⌘ as Ctrl and ⌥ as Alt. In the window: Ctrl+Z undo, Ctrl+Y redo, Ctrl+B bypass the EQ, Ctrl+K compare A/B. Global shortcuts (turn them off in **Settings**): Ctrl+Alt+Shift+P turns processing on or off, Ctrl+Alt+Shift+B bypasses the EQ, Ctrl+Alt+Shift+K switches between A and B, Ctrl+Alt+Shift+L switches Listen As on or off.
 - **The EQ keeps playing when Tapline is closed**, because Equalizer APO applies it, even after a restart. To hear the original sound, switch processing off: the power button, the tray panel, Ctrl+Alt+Shift+P or **Settings → Process audio**.
-- **Notification area**: click Tapline's icon for a quick panel (processing, output device, volume, EQ and preset, the apps playing); right-click it to quit. Closing the window keeps Tapline running there; turn this off in **Settings** to quit when the window closes.
+- **Notification area**: click Tapline's icon for a quick panel (processing, output device, volume, EQ and preset, Listen As, the apps playing); right-click it to quit. Closing the window keeps Tapline running there; turn this off in **Settings** to quit when the window closes.
 - **Only devices with Equalizer APO are processed.** The Devices page marks the others with **No Equalizer APO**: tick them in Equalizer APO's Configurator (**Open Configurator** on the banner) and restart. If Windows' **Audio enhancements** are off for a device, Equalizer APO is skipped too, and Tapline shows a banner that opens the Sound settings. An output whose EQ you have never changed plays unprocessed.
 - **Room measurements** take the measured output out of Equalizer APO's configuration for the length of the measurement, so everything playing on it is briefly unprocessed. If the microphone records only silence, allow microphone access in Windows' privacy settings (**Open Microphone Settings**).
 - The interface is in English or Simplified Chinese, following the Windows display language.
@@ -295,7 +297,7 @@ Tapline follows the output selected in macOS and keeps **a separate EQ and effec
 
 <img src="docs/images/en/menubar.png" width="340" align="right" alt="Menu bar panel">
 
-Click the Tapline icon in the menu bar for a compact panel: power switch, output device, system volume, EQ on/off with the current curve, preset menu and the apps playing right now. Click the curve to open the main window.
+Click the Tapline icon in the menu bar for a compact panel: power switch, output device, system volume, EQ on/off with the current curve, preset menu, the **Listen as** switch and the apps playing right now. Click the curve to open the main window.
 
 Global shortcuts work in every app (turn them off in **Settings**):
 
@@ -304,10 +306,11 @@ Global shortcuts work in every app (turn them off in **Settings**):
 | ⌃⌥⌘P | Turn processing on or off |
 | ⌃⌥⌘B | Bypass the EQ (compare with the original, at the same loudness) |
 | ⌃⌥⌘K | Switch between A and B |
+| ⌃⌥⌘L | Switch Listen As on or off (see [10. Listen as another device](#10-listen-as-another-device)) |
 
 Inside the app: ⌘Z / ⇧⌘Z undo and redo, ⌘B bypasses the EQ, ⌘K compares A/B, ⌘Q hides Tapline to the menu bar, ⌥⌘Q quits.
 
-> **On Windows:** the panel opens from Tapline's icon in the notification area; right-click the icon to quit. The global shortcuts are Ctrl+Alt+Shift+P / B / K; inside the app Ctrl+Z / Ctrl+Y undo and redo, Ctrl+B bypasses the EQ and Ctrl+K compares A/B. Closing the window keeps Tapline in the notification area.
+> **On Windows:** the panel opens from Tapline's icon in the notification area; right-click the icon to quit. The global shortcuts are Ctrl+Alt+Shift+P / B / K / L; inside the app Ctrl+Z / Ctrl+Y undo and redo, Ctrl+B bypasses the EQ and Ctrl+K compares A/B. Closing the window keeps Tapline in the notification area.
 
 <br clear="right">
 
@@ -320,6 +323,25 @@ The column next to the graph shows the output level of the left and right channe
 - **GR** (gain reduction) shows how much the limiter is turning peaks down. Empty is ideal. If it is often busy, lower the preamp or turn on **Auto**.
 
 > **On Windows:** there is no limiter, so there is no GR meter. If the clip light turns red, lower the preamp or turn on **Auto**.
+
+### 10. Listen as another device
+
+Practising or mixing on good headphones, you may wonder how it sounds where most people listen: earbuds, a phone, a laptop, a car. **Assistant → Listen As** plays the music as such a device would, through your own headphones, like Sonarworks SoundID's Translation Check. It sits on top of your EQ and headphone correction without changing them, and it is never saved in presets.
+
+**Headphones & earbuds** (accurate): search the squig.link measurements for a device, for example *AirPods Pro 2*, *Apple EarPods* or *Galaxy Buds*, and pick one. Tapline fits an EQ that turns the sound your headphone correction aims at into the sound of that device: the chart shows your sound (grey), the device (dashed) and the result (green). Click **Listen as This Device**.
+
+- If the device was measured in the same database as your headphones (the one you picked under **squig.link measurements**), Tapline uses the raw difference between the device and your target.
+- Otherwise it compares the device with its own database's target (the one named like yours, or a Harman target; change it under **Compared with**), so the two measurement rigs' differences cancel. A note says which case applies.
+- Above 10 kHz only the broad trend is simulated, as in headphone correction.
+- Correct your own headphones first (see [2. Correct your headphones](#2-correct-your-headphones)): the simulation starts from the target your correction aims at.
+
+**Speakers in devices** (approximate): click **Phone speaker**, **Laptop speakers**, **TV speakers**, **Small Bluetooth speaker** or **Car**. Each is a response curve (where the bass ends, typical resonances, the treble) and a channel handling: a phone and a Bluetooth speaker are mono, a laptop is narrow stereo. They are approximations written from general knowledge of how such speakers behave, not measurements of any product. Click the tile again to stop.
+
+Switching is **level-matched**: a make-up gain cancels the device curve's loudness change on pink noise (weighted like a LUFS meter), so you compare sound, not level. With the limiter off, Tapline keeps the headroom instead and the card says how much quieter the simulation plays.
+
+Switch it on and off on the card, in the menu bar panel or with ⌃⌥⌘L. Tapline remembers the last device; the simulation itself starts off every time Tapline starts.
+
+> **On Windows:** the switch is in the tray panel too, and the shortcut is Ctrl+Alt+Shift+L. The simulation's filters follow your EQ in Equalizer APO's configuration, on the current output only. Equalizer APO has no limiter, so where the device would raise a frequency above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.
 
 ## FAQ and troubleshooting
 
@@ -370,6 +392,7 @@ apps ──► process taps of the output device's stream (apps are muted at the
 - One tap captures everything headed for the current output except Tapline itself, bypassed apps and apps with their own mixer settings; each of those gets its own tap. Taps of the device's own stream follow its clock.
 - Drift compensation is on for devices with their own crystal (USB, built-in) and off for Bluetooth and virtual devices, where it would make the HAL add and drop samples.
 - The realtime path is plain C (`Packages/TaplineCore/Sources/TaplineDSP`): no allocation, locks or Swift runtime on the audio thread. Parameters reach it through a lock-free triple buffer. Filters are RBJ biquads computed in double precision.
+- Listen As runs in a block of its own after the EQ: up to 16 biquads, a make-up gain and a mid/side width, crossfaded like the EQ when it is switched. A headphone simulation is fitted by the same EQ fitter, with the reference target as the "measurement" and the device as the "target".
 - While the EQ is bypassed, one gain takes the place of preamp, EQ and tone: the loudness change of the whole EQ on pink noise, K-weighted as in ITU-R BS.1770, limited to 0 dB at most. Switching the EQ on or off crossfades the two paths over one audio buffer.
 - The EQ fitter (`EQFitter.swift`) follows AutoEQ's approach: level-match, smooth the required correction (two-octave smoothing above 8 kHz), add shelves and bells where the error is largest and refine all parameters with a pattern search. Below 100 % strength it fits the measurement moved that far towards the target, which keeps the result as accurate as a full correction.
 - Only one copy of Tapline runs at a time, a watchdog restarts the engine if the device stops calling it, and a guard switches processing off if it detects a feedback loop. If Tapline quits or crashes, its private taps and aggregate device disappear with it.
@@ -442,6 +465,7 @@ The [Windows release workflow](.github/workflows/release-windows.yml) tests and 
 - The first volume change for an app causes a short gap while its audio path is rebuilt.
 - Release builds are not notarized yet (see [Install](#install)).
 - The Windows version is a beta and is not code-signed yet. Its differences from macOS are listed under [What works on Windows](#what-works-on-windows).
+- Listen As's speaker profiles are approximations of typical devices, not measurements of any product, and its headphone simulations assume your own headphones are corrected to their target.
 
 ## Credits
 

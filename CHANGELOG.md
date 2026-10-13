@@ -10,6 +10,7 @@ GitHub release notes, so write entries for users.
 ## [Unreleased]
 
 ### Added
+- **Listen As** on the Assistant page: hear how your music would sound on other playback devices, through your own headphones, like Sonarworks SoundID's Translation Check. Pick headphones or earbuds from squig.link (AirPods, EarPods, Galaxy Buds…) and Tapline fits an EQ from the target your headphone correction aims at to that device: the raw difference when both were measured in the same database, else through each database's own target so the measurement rigs cancel. Or pick one of five built-in speakers: phone, laptop, TV, small Bluetooth speaker and car, approximations with their channel handling (mono, narrow stereo). It plays on top of your EQ without changing it, switching is level-matched, and it is never saved in presets. Switch it on the card, in the menu bar panel or with ⌃⌥⌘L; Tapline remembers the last device and starts with it off.
 - **Strength** in Assistant → Headphone Correction, 0–100 %, like a Dry/Wet control: apply only part of a correction. For squig.link measurements and your own measurement, the EQ is fitted to a curve that far between the headphones and the target, so it stays accurate; the green line and *Deviation* show the result. AutoEQ presets scale each band's gain.
 - **Settings → EQ Bypass → Match loudness when bypassing** (on by default).
 

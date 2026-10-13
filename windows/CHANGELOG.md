@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-Brings over the correction strength and level-matched bypass of Tapline for macOS.
+Brings over the correction strength, level-matched bypass and Listen As of Tapline for macOS.
 
 - **Strength** in Assistant → Headphone Correction, 0–100 %, like a Dry/Wet control: apply only part of a correction. squig.link and your own measurements are fitted to a curve that far between the headphones and the target; AutoEQ presets scale each band's gain.
 - Switching the EQ off is level-matched: the original plays at the loudness of the EQ (a `Preamp` line in Equalizer APO's configuration) instead of a few dB louder. Turn this off in **Settings → EQ Bypass**.
+- **Listen As** on the Assistant page: hear your music as other headphones and earbuds (fitted from squig.link measurements) or everyday speakers (phone, laptop, TV, small Bluetooth speaker, car; approximations) would play it, through your own headphones. Its filters follow your EQ in Equalizer APO's configuration, on the current output only, and are never saved in presets. Switch it on the card, in the tray panel or with Ctrl+Alt+Shift+L. Equalizer APO has no limiter, so where the device would boost above what your EQ reaches, the simulation plays that much quieter than level-matched; the card says by how much.
 
 ## 0.1.0-beta.3
 
