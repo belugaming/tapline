@@ -54,6 +54,12 @@ sealed class AppModel
     // Virtual Speakers' impulse-response files written this session, by set and rate (null: failed).
     private readonly Dictionary<string, ApoConfig.SpeakerFiles?> speakerFiles = [];
     private bool speakerFilesTidied;
+    // Linear phase: by device, the FIR files the configuration refers to (null: they could not be
+    // written) and the curve they were made for; the curves still to be made; their debounce.
+    private readonly Dictionary<string, (LinearPhaseFiles.Spec Spec, ApoConfig.FirFiles? Files)> firFiles = [];
+    private readonly Dictionary<string, LinearPhaseFiles.Spec> firWanted = [];
+    private readonly DispatcherTimer firTimer;
+    private bool firBusy;
 
     public AppModel(Dispatcher dispatcher)
     {
@@ -73,6 +79,7 @@ sealed class AppModel
         configTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(40), DispatcherPriority.Normal, (_, _) => { configTimer!.Stop(); WriteConfig(); }, dispatcher) { IsEnabled = false };
         meterTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (_, _) => MeterTick(), dispatcher) { IsEnabled = false };
         sessionTimer = new DispatcherTimer(TimeSpan.FromSeconds(1.5), DispatcherPriority.Background, (_, _) => RefreshSessions(), dispatcher) { IsEnabled = false };
+        firTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Normal, (_, _) => MakeFirFiles(), dispatcher) { IsEnabled = false };
 
         Devices.Changed += () =>
         {
@@ -103,6 +110,8 @@ sealed class AppModel
     public VirtualSpeakerLibrary Speakers { get; }
     /// Why the chosen Virtual Speakers set could not be loaded or written.
     public string? VirtualSpeakersProblem { get; private set; }
+    /// Why the linear-phase EQ's files could not be written.
+    public string? LinearPhaseProblem { get; private set; }
 
     public EngineStatus Status { get; private set; } = EngineStatus.Off;
     public string? LastError { get; private set; }
@@ -162,6 +171,7 @@ sealed class AppModel
     {
         Devices.Refresh();
         speakerFiles.Clear();
+        firFiles.Clear();
         WriteConfig();
         NotifyChanged();
     }
@@ -219,7 +229,7 @@ sealed class AppModel
                     var rate = known?.SampleRate ?? 48000;
                     return new ApoConfig.Device(guid, known?.Name ?? state.DeviceNames.GetValueOrDefault(p.Key, guid),
                                                 channels, rate, p.Value, SpeakerFilesFor(p.Value, channels, rate),
-                                                p.Key == current?.Id ? simulated : null);
+                                                p.Key == current?.Id ? simulated : null, FirFilesFor(p.Key, p.Value, channels, rate));
                 })
                 .Where(d => !string.Equals(d.Guid, bypassDeviceGuid, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -304,6 +314,85 @@ sealed class AppModel
     }
 
     /// Once per session, after the first write: deletes impulse-response files no device uses any more.
+    /// The linear-phase EQ's FIR files for a device (null: it plays the biquads). They are made off
+    /// the UI thread half a second after the curve stopped changing: every new file name makes
+    /// Equalizer APO reload, and a reload starts its convolver empty, which pauses the sound for
+    /// the FIR's latency. Until then the device keeps the files of the curve before.
+    private ApoConfig.FirFiles? FirFilesFor(string deviceId, DspSettings settings, int channels, double sampleRate)
+    {
+        if (!state.PowerOn || settings.FilterPhase != FilterPhase.Linear || EqualizerApo.ConfigPath == null)
+        {
+            firWanted.Remove(deviceId);
+            return null;
+        }
+        var spec = LinearPhaseFiles.Spec.For(settings, channels, sampleRate);
+        var known = firFiles.TryGetValue(deviceId, out var k) ? k : default;
+        if (known.Spec != null && known.Spec.Equals(spec))
+        {
+            firWanted.Remove(deviceId);
+            return known.Files;
+        }
+        firWanted[deviceId] = spec;
+        firTimer.Stop();
+        firTimer.Start();
+        return known.Files;
+    }
+
+    private async void MakeFirFiles()
+    {
+        firTimer.Stop();
+        if (firBusy || firWanted.Count == 0 || EqualizerApo.ConfigPath is not string config) return;
+        firBusy = true;
+        var jobs = firWanted.ToList();
+        firWanted.Clear();
+        var folder = Path.Combine(config, LinearPhaseFiles.Folder);
+        var results = await Task.Run(() => jobs.Select(job =>
+        {
+            try
+            {
+                var (files, reference) = LinearPhaseFiles.Build(job.Value);
+                Directory.CreateDirectory(folder);
+                foreach (var f in files)
+                {
+                    var path = Path.Combine(folder, f.Name);
+                    // Named by their content: an existing file is already right.
+                    if (!File.Exists(path)) File.WriteAllBytes(path, f.Data);
+                }
+                return (job.Key, job.Value, (ApoConfig.FirFiles?)reference, (string?)null);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return (job.Key, job.Value, (ApoConfig.FirFiles?)null, (string?)e.Message);
+            }
+        }).ToList());
+        LinearPhaseProblem = null;
+        foreach (var (id, spec, files, error) in results)
+        {
+            // Remembered also when it failed, so it is not retried on every write (Recheck retries).
+            firFiles[id] = (spec, files);
+            if (error != null) LinearPhaseProblem = L.F("Could not write the linear-phase EQ: %@", error);
+        }
+        firBusy = false;
+        WriteConfig();
+        TidyFirFiles();
+    }
+
+    /// Deletes FIR files no device refers to any more.
+    private void TidyFirFiles()
+    {
+        if (EqualizerApo.ConfigPath is not string config) return;
+        var folder = Path.Combine(config, LinearPhaseFiles.Folder);
+        if (!Directory.Exists(folder)) return;
+        var used = firFiles.Values.Select(v => v.Files).OfType<ApoConfig.FirFiles>()
+            .SelectMany(f => new[] { f.Left, f.Right, f.Others }).OfType<string>()
+            .Select(f => Path.GetFileName(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.EnumerateFiles(folder, "*.wav"))
+        {
+            if (used.Contains(Path.GetFileName(file))) continue;
+            try { File.Delete(file); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
     private void TidySpeakerFiles(IEnumerable<ApoConfig.Device> devices)
     {
         if (speakerFilesTidied || EqualizerApo.ConfigPath is not string config) return;
@@ -627,6 +716,13 @@ sealed class AppModel
 
     public void SetEqEnabled(bool on) => Mutate(s => s.EqEnabled = on);
 
+    // MARK: - Filter phase
+
+    public void SetFilterPhase(FilterPhase phase) => Mutate(s => s.FilterPhase = phase);
+
+    /// Milliseconds the linear-phase EQ delays the sound on the current device.
+    public int LinearPhaseLatencyMs => (int)Math.Round(LinearPhaseEq.LatencyMilliseconds(SampleRate));
+
     // MARK: - Crossfeed and Virtual Speakers (one or the other)
 
     public void SetCrossfeed(bool on) =>
@@ -660,9 +756,11 @@ sealed class AppModel
     public void ToggleCompare()
     {
         var id = CurrentDeviceId;
-        var other = alternate.TryGetValue(id, out var a) ? a : Settings.Clone();
+        var other = alternate.TryGetValue(id, out var a) ? a.Clone() : Settings.Clone();
         alternate[id] = Settings.Clone();
         CompareSlot = CompareSlot == CompareSlot.A ? CompareSlot.B : CompareSlot.A;
+        // The filter phase belongs to the device, not to a slot: A/B must not jump in time.
+        other.FilterPhase = Settings.FilterPhase;
         Store(other);
     }
 

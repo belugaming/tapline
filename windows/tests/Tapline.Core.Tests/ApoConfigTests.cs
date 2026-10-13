@@ -78,8 +78,12 @@ public class ApoConfigTests
                 }
                 case "Delay":
                 {
-                    Assert.Contains("ms", parameters);
-                    var z = Complex.Exp(new Complex(0, -2 * Math.PI * f * Parse(Regex.Match(parameters, @"[-+0-9.]+").Value) / 1000));
+                    // As DelayFilter: in milliseconds or in samples.
+                    var samples = parameters.TrimEnd().EndsWith("samples", StringComparison.Ordinal);
+                    Assert.True(samples || parameters.TrimEnd().EndsWith("ms", StringComparison.Ordinal), line);
+                    var value = Parse(Regex.Match(parameters, @"[-+0-9.]+").Value);
+                    var seconds = samples ? value / SampleRate : value / 1000;
+                    var z = Complex.Exp(new Complex(0, -2 * Math.PI * f * seconds));
                     foreach (var c in selected) state[c] = (state[c].L * z, state[c].R * z);
                     break;
                 }
@@ -554,5 +558,147 @@ public class ApoConfigTests
         {
             CultureInfo.CurrentCulture = previous;
         }
+    }
+
+    // MARK: - Linear phase
+
+    /// <summary>The FIR files Tapline writes for <paramref name="s"/>, and their samples as Equalizer APO reads them.</summary>
+    private static (ApoConfig.FirFiles Reference, Dictionary<string, float[]> Samples) FirFiles(DspSettings s, int channels = 2)
+    {
+        var (files, reference) = LinearPhaseFiles.Build(LinearPhaseFiles.Spec.For(s, channels, SampleRate));
+        var samples = files.ToDictionary(f => LinearPhaseFiles.Folder + @"\" + f.Name, f =>
+        {
+            var wav = WavFile.Parse(f.Data);
+            Assert.Equal(SampleRate, wav.SampleRate);
+            Assert.Single(wav.Channels);
+            return wav.Channels[0];
+        });
+        return (reference, samples);
+    }
+
+    private static string BuildLinear(DspSettings s, ApoConfig.FirFiles? fir, int channels = 2, bool levelMatchedBypass = true) =>
+        ApoConfig.Build(true, [new ApoConfig.Device("{x}", "Test", channels, SampleRate, s, Fir: fir)], levelMatchedBypass);
+
+    /// <summary>Removes the FIRs' delay: what is left of a linear-phase response is real.</summary>
+    private static Complex Undelayed(Complex c, double f, int latency) => c * Complex.Exp(new Complex(0, 2 * Math.PI * f * latency / SampleRate));
+
+    /// <summary>The line after <paramref name="line"/>.</summary>
+    private static string After(string config, string line)
+    {
+        var lines = config.Split('\n').Select(l => l.Trim()).ToList();
+        var i = lines.IndexOf(line);
+        Assert.True(i >= 0 && i + 1 < lines.Count, line);
+        return lines[i + 1];
+    }
+
+    [Fact]
+    public void LinearPhaseConvolvesEachChannelWithTheCurve()
+    {
+        var s = DspSettings.Flat;
+        s.FilterPhase = FilterPhase.Linear;
+        s.Bands = [new EqBand(FilterType.LowShelf, 105, 4, 0.7), new EqBand(FilterType.Peak, 2500, -3, 2),
+                   new EqBand(FilterType.Peak, 6000, 4, 3, channels: EqChannels.Right)];
+        s.Tone = new ToneSettings(air: 2);
+        var (reference, samples) = FirFiles(s);
+        Assert.Equal(32_768, reference.Latency);
+        Assert.NotEqual(reference.Left, reference.Right);
+        var config = BuildLinear(s, reference);
+        Assert.Equal("Convolution: " + reference.Left, After(config, "Channel: 1"));
+        Assert.Equal("Convolution: " + reference.Right, After(config, "Channel: 2"));
+        // The biquads and the preamp are in the FIRs.
+        Assert.DoesNotContain("Filter", config);
+        Assert.DoesNotContain("Preamp", config);
+
+        var preampDb = s.EffectivePreampDb(SampleRate);
+        foreach (var f in new[] { 40.0, 105, 440, 2500, 6000, 12_000 })
+        {
+            var t = Interpret(config, f, files: samples);
+            var left = Undelayed(t.LL, f, reference.Latency);
+            var right = Undelayed(t.RR, f, reference.Latency);
+            // The magnitude of the biquads...
+            var wantLeft = preampDb + ResponseCurve.ResponseDb(s.ActiveBands, [f], SampleRate, EqChannels.Left)[0];
+            var wantRight = preampDb + ResponseCurve.ResponseDb(s.ActiveBands, [f], SampleRate, EqChannels.Right)[0];
+            Assert.True(Math.Abs(Db(left) - wantLeft) < 0.01, $"{f} Hz left: {Db(left)} dB, want {wantLeft}");
+            Assert.True(Math.Abs(Db(right) - wantRight) < 0.01, $"{f} Hz right: {Db(right)} dB, want {wantRight}");
+            // ...and no phase shift beyond the delay.
+            Assert.True(Math.Abs(left.Imaginary) < 1e-4 * left.Magnitude && left.Real > 0, $"{f} Hz phase {left.Phase}");
+            Assert.True(Math.Abs(right.Imaginary) < 1e-4 * right.Magnitude && right.Real > 0, $"{f} Hz phase {right.Phase}");
+            Assert.True(t.LR.Magnitude < 1e-9 && t.RL.Magnitude < 1e-9);
+        }
+    }
+
+    [Fact]
+    public void LinearPhaseBypassIsDelayedLikeTheFir()
+    {
+        var s = DspSettings.Flat;
+        s.FilterPhase = FilterPhase.Linear;
+        s.Bands = [new EqBand(FilterType.Peak, 1000, 6, 1)];
+        var (reference, samples) = FirFiles(s);
+        s.EqEnabled = false;
+        var config = BuildLinear(s, reference);
+        Assert.Contains("Delay: 32768 samples", config);
+        Assert.DoesNotContain("Convolution", config);
+        // Switching the EQ off keeps the time: the original sound at the bypass gain, exactly as late.
+        var gain = Math.Pow(10, s.BypassGainDb(SampleRate) / 20);
+        Assert.True(gain < 0.95);
+        foreach (var f in new[] { 100.0, 1000, 8000 })
+        {
+            var t = Undelayed(Interpret(config, f, files: samples).LL, f, reference.Latency);
+            Assert.True(Close(t, gain), $"{f} Hz: {t}, want {gain}");
+        }
+        // Without level matching the delay stays, without a preamp.
+        var plain = BuildLinear(s, reference, levelMatchedBypass: false);
+        Assert.Contains("Delay: 32768 samples", plain);
+        Assert.DoesNotContain("Preamp", plain);
+    }
+
+    [Fact]
+    public void LinearPhaseKeepsSurroundChannelsInTime()
+    {
+        var s = DspSettings.Flat;
+        s.FilterPhase = FilterPhase.Linear;
+        s.Bands = [new EqBand(FilterType.Peak, 1000, 3, 1), new EqBand(FilterType.Peak, 3000, 2, 1, channels: EqChannels.Left)];
+        var (reference, samples) = FirFiles(s, channels: 6);
+        Assert.NotNull(reference.Others);
+        var config = BuildLinear(s, reference, channels: 6);
+        Assert.Equal("Convolution: " + reference.Others, After(config, "Channel: 3 4 5 6"));
+        Interpret(config, 1000, channels: 6, files: samples);
+        // The other channels get the bands for every channel, not the left channel's.
+        var expected = s.EffectivePreampDb(SampleRate) + ResponseCurve.ResponseDb([s.Bands[0]], [3000.0], SampleRate)[0];
+        var others = Undelayed(Dft(samples[reference.Others!], 3000), 3000, reference.Latency);
+        Assert.True(Math.Abs(Db(others) - expected) < 0.01, $"{Db(others)} dB, want {expected}");
+        // Files made for a stereo layout are not used on it: the biquads play.
+        var stereo = FirFiles(s).Reference;
+        Assert.DoesNotContain("Convolution", BuildLinear(s, stereo, channels: 6));
+        Assert.Contains("Filter 1:", BuildLinear(s, stereo, channels: 6));
+    }
+
+    [Fact]
+    public void LinearPhaseOnAMonoDeviceUsesTheLeftCurve()
+    {
+        var s = DspSettings.Flat;
+        s.FilterPhase = FilterPhase.Linear;
+        s.Bands = [new EqBand(FilterType.Peak, 1000, 3, 1, channels: EqChannels.Left)];
+        var (reference, samples) = FirFiles(s, channels: 1);
+        var config = BuildLinear(s, reference, channels: 1);
+        Assert.Contains("Convolution: " + reference.Left, config);
+        Assert.DoesNotContain("Channel: 1", config);
+        Assert.DoesNotContain("Copy:", config);
+        var expected = s.EffectivePreampDb(SampleRate) + 3;
+        Assert.True(Math.Abs(Db(Dft(samples[reference.Left], 1000)) - expected) < 0.01);
+    }
+
+    [Fact]
+    public void LinearPhasePlaysTheBiquadsUntilItsFilesAreThere()
+    {
+        var s = DspSettings.Flat;
+        s.Bands = [new EqBand(FilterType.Peak, 1000, 3, 1)];
+        var minimum = Build(s);
+        s.FilterPhase = FilterPhase.Linear;
+        Assert.Equal(minimum, BuildLinear(s, null));
+        // And minimum phase ignores files.
+        var (reference, _) = FirFiles(s);
+        s.FilterPhase = FilterPhase.Minimum;
+        Assert.Equal(minimum, BuildLinear(s, reference));
     }
 }
