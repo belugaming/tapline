@@ -37,7 +37,8 @@ public class ModelTests
         Assert.Equal("left", (string?)band["channels"]);
         Assert.Equal("lowShelf", (string?)node["bands"]![0]!["type"]);
         Assert.Equal(["bass", "warmth", "clarity", "air"], node["tone"]!.AsObject().Select(p => p.Key));
-        Assert.Equal(["balance", "width", "mono", "swapChannels", "crossfeedEnabled", "crossfeed", "limiterEnabled", "limiterCeilingDB", "outputGainDB"],
+        Assert.Equal(["balance", "width", "mono", "swapChannels", "crossfeedEnabled", "crossfeed", "virtualSpeakersEnabled", "virtualSpeakers",
+                      "limiterEnabled", "limiterCeilingDB", "outputGainDB"],
                      node["effects"]!.AsObject().Select(p => p.Key));
         // Enums are strings even without TaplineJson.Options.
         Assert.Equal("\"highShelf\"", JsonSerializer.Serialize(FilterType.HighShelf));
