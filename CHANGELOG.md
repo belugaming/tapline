@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- **Settings → Filter Phase** shows the low-latency / high-precision choice only while linear phase is on. With minimum phase it was greyed out but still looked selected.
+
 ## [0.5.0] - 2026-10-13
 
 ### Added
