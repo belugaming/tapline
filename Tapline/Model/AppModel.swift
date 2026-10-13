@@ -377,12 +377,13 @@ final class AppModel {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.firInFlight = nil
+                    // Nil only without memory for it: retried with the next change.
+                    guard self.engine.isRunning, let fir else { return }
                     // Even when the curve moved on meanwhile, it is closer than the FIR playing.
                     // The kernel refuses one made for a rate it no longer runs at.
-                    if self.engine.isRunning, self.settings.filterPhase == .linear {
-                        self.engine.kernel.setLinearPhase(fir)
-                    }
-                    self.designNextFIR()
+                    if self.settings.filterPhase == .linear { self.engine.kernel.setLinearPhase(fir) }
+                    // Then catch up with the curve as it is now (it may also have gone back).
+                    self.pushLinearPhase()
                 }
             }
         }
