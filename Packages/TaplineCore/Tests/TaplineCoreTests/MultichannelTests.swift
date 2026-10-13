@@ -217,6 +217,62 @@ import TaplineDSP
         #expect(step < slope * 1.2, "step \(step), sine slope \(slope)")
     }
 
+    /// Switching the EQ (or its bypass) crossfades on every speaker, as on the front pair.
+    @Test func switchingTheEQDoesNotClickOnAnySpeaker() {
+        var s = Self.settings()
+        s.bands = [EQBand(type: .highPass, frequency: 1000, q: 0.71)]
+        let kernel = Self.makeKernel(s)
+        let tone = Self.sine(1000, amplitude: 0.5)
+        var position = 0
+        func next(_ n: Int) -> [[Float]] {
+            let o = Self.run(kernel, frames: n) { c, i in tone(c, position + i) }
+            position += n
+            return o
+        }
+        var streams = next(4096)
+        for on in [false, true] {
+            s.eqEnabled = on
+            kernel.setSettings(s, sampleRate: Self.rate)
+            let o = next(2048)
+            for c in 0..<Self.channels { streams[c] += o[c] }
+        }
+        s.eqEnabled = true
+        s.speakers.eqOnAllSpeakers = false
+        kernel.setSettings(s, sampleRate: Self.rate)
+        kernel.setSpeakers(s, layout: Self.layout, sampleRate: Self.rate)
+        let o = next(2048)
+        for c in 0..<Self.channels { streams[c] += o[c] }
+        let slope = Float(2 * Double.pi * 1000 / Self.rate * 0.5)
+        for c in [Self.left, Self.center, Self.lfe, Self.topRearRight] {
+            let step = zip(streams[c].dropFirst(), streams[c]).map { abs($0 - $1) }.max() ?? 0
+            #expect(step < slope * 1.1, "channel \(c): step \(step), sine slope \(slope)")
+        }
+    }
+
+    /// The stereo pair need not be the first two channels of the stream.
+    @Test func thePairCanSitAnywhereInTheStream() {
+        let channels = 12
+        let kernel = DSPKernel()
+        var roles = Self.layout.positions.map(KernelChannelRole.init)
+        roles.swapAt(0, 4)
+        roles.swapAt(1, 5)
+        kernel.configure(sampleRate: Self.rate, layout: KernelLayout(sourceBufferIndices: [0], sourceLeftChannel: 4, sourceRightChannel: 5,
+                                                                     leftBuffer: 0, leftChannel: 4, rightBuffer: 0, rightChannel: 5, passthrough: true,
+                                                                     channelRoles: roles))
+        var s = Self.settings()
+        s.effects.balance = 1
+        s.effects.outputGainDB = -6
+        kernel.setSettings(s, sampleRate: Self.rate)
+        kernel.setSpeakers(s, layout: Self.layout, sampleRate: Self.rate)
+        #expect(channels == Self.channels)
+        let out = Self.run(kernel, frames: 2048) { c, _ in 0.1 * Float(c + 1) }
+        let g = Float(dbToLinear(-6))
+        #expect(abs(out[4][1500]) < 1e-6, "the pair's left, balanced right")
+        #expect(abs(out[5][1500] - 0.6 * g) < 1e-5, "the pair's right")
+        #expect(abs(out[0][1500] - 0.1 * g) < 1e-5, "a surround on channel 1")
+        #expect(abs(out[2][1500] - 0.3 * g) < 1e-5, "the centre")
+    }
+
     @Test func nothingNonFiniteReachesTheSpeakers() {
         var s = DSPSettings()
         s.bands = [EQBand(frequency: 30, gain: 24, q: 18), EQBand(type: .highPass, frequency: 20_000, q: 0.1)]
