@@ -9,9 +9,9 @@
 //
 // Threading model:
 //   - tl_kernel_set_params / tl_kernel_set_speakers / tl_kernel_set_source_gain /
-//     tl_kernel_set_ir_set / tl_kernel_collect: any single non-realtime thread (the main
-//     thread in practice). Lock-free.
-//   - tl_ir_set_create / tl_ir_set_destroy: any non-realtime thread.
+//     tl_kernel_set_ir_set / tl_kernel_set_fir / tl_kernel_collect: any single non-realtime
+//     thread (the main thread in practice). Lock-free.
+//   - tl_ir_set_create / tl_fir_set_create / tl_ir_set_destroy: any non-realtime thread.
 //   - tl_kernel_configure / tl_kernel_reset: only while IO is stopped.
 //   - tl_kernel_read_meters / tl_kernel_copy_analyzer: any thread. Lock-free.
 //   - tl_ioproc: the IO thread.
@@ -38,6 +38,20 @@ extern "C" {
 #define TL_CONV_BLOCK 256
 /// Longest impulse response the convolution uses (at the device rate); longer ones are cut.
 #define TL_CONV_MAX_TAPS 65536
+
+/// Linear-phase EQ: its two FIR lengths (tl_params.linear_phase, tl_linear_phase_taps).
+#define TL_LIN_LOW_LATENCY 1
+#define TL_LIN_HIGH_PRECISION 2
+#define TL_LIN_MODES 2
+/// Linear-phase EQ: a FIR is cut into this many partitions, so its partition size (and the
+/// latency the convolution adds on top of the FIR's own delay) is a 64th of its length.
+#define TL_LIN_PARTS 64
+/// Linear-phase EQ: bounds of the FIR length (see tl_linear_phase_taps).
+#define TL_LIN_MIN_TAPS 1024
+#define TL_LIN_MAX_TAPS 262144
+/// Linear-phase EQ: the other channels of a stream that is not a speaker layout (an audio
+/// interface's further outputs) are delayed along with the processed pair, up to this many.
+#define TL_LIN_MAX_PASSTHROUGH 14
 
 /// Multichannel speakers: channels of the output stream, room-correction stages per speaker,
 /// and the longest speaker delay in samples (85 ms at 192 kHz, 341 ms at 48 kHz).
@@ -86,6 +100,11 @@ typedef struct {
     int32_t limiter_enabled;
     /// Convolves with the IR set from tl_kernel_set_ir_set. Takes crossfeed's place.
     int32_t virtual_speakers_enabled;
+    /// 0, or TL_LIN_LOW_LATENCY / TL_LIN_HIGH_PRECISION: plays preamp + EQ through that
+    /// length's FIR from tl_kernel_set_fir instead of the stages (which keep playing until
+    /// there is a FIR). Stereo layouts only: a multichannel speaker layout keeps the stages. The FIR holds the preamp; the stages and `preamp` must describe the same
+    /// curve, as the kernel switches between them.
+    int32_t linear_phase;
     /// Filled in while a device is chosen, also when it is switched off, so that switching fades.
     tl_simulation simulation;
 } tl_params;
@@ -131,7 +150,8 @@ typedef struct {
 
 typedef struct tl_kernel tl_kernel;
 
-/// Impulse responses of a pair of virtual speakers, transformed for the realtime kernel.
+/// Impulse responses transformed for the realtime kernel: a pair of virtual speakers
+/// (tl_ir_set_create) or the linear-phase EQ's FIR (tl_fir_set_create).
 typedef struct tl_ir_set tl_ir_set;
 
 tl_kernel *_Nullable tl_kernel_create(void);
@@ -177,9 +197,31 @@ void tl_ir_set_destroy(tl_ir_set *_Nullable set);
 /// set from now on. A set for another sample rate than the kernel's is ignored.
 void tl_kernel_set_ir_set(tl_kernel *kernel, tl_ir_set *_Nullable set);
 
-/// Frees the sets the IO thread has finished with. Called by tl_kernel_set_ir_set; call it
-/// now and then (e.g. with the meters) so a replaced set does not linger.
+/// Frees the sets the IO thread has finished with. Called by tl_kernel_set_ir_set and
+/// tl_kernel_set_fir; call it now and then (e.g. with the meters) so a replaced set does not
+/// linger.
 void tl_kernel_collect(tl_kernel *kernel);
+
+/// Linear-phase EQ: length of the FIR at `sample_rate` for TL_LIN_LOW_LATENCY or
+/// TL_LIN_HIGH_PRECISION, a power of two. High precision covers at least 1.25 seconds (the
+/// length is what resolves narrow bass bands), up to TL_LIN_MAX_TAPS; low latency is a quarter
+/// of it. The FIR is symmetric about tap `taps / 2`, and tap 0 is zero.
+uint32_t tl_linear_phase_taps(double sample_rate, int32_t mode);
+
+/// Linear-phase EQ: partition size of the convolution, taps / TL_LIN_PARTS.
+uint32_t tl_linear_phase_block(double sample_rate, int32_t mode);
+
+/// Linear-phase EQ: samples of delay it adds, the FIR's own (taps / 2) plus one partition.
+uint32_t tl_linear_phase_latency(double sample_rate, int32_t mode);
+
+/// Prepares a linear-phase FIR for the kernel: `left` and `right` (NULL: the same as `left`)
+/// hold `length` samples each, the tl_linear_phase_taps of one of the modes at `sample_rate`,
+/// which must be the kernel's. Allocates. NULL when the input is unusable.
+tl_ir_set *_Nullable tl_fir_set_create(const float *left, const float *_Nullable right, uint32_t length, double sample_rate);
+
+/// Hands the FIR of `mode` (NULL: none) to the IO thread, which crossfades to it. The kernel
+/// owns the set from now on. A set of another length or sample rate is ignored.
+void tl_kernel_set_fir(tl_kernel *kernel, int32_t mode, tl_ir_set *_Nullable set);
 
 /// The IOProc. Pass the kernel as client data. Signature matches AudioDeviceIOProc.
 OSStatus tl_ioproc(AudioObjectID device,

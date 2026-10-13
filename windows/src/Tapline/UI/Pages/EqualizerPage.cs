@@ -71,6 +71,14 @@ sealed class EqualizerPage : PageBase
         matched.VerticalAlignment = VerticalAlignment.Center;
         matched.ToolTip = L.T("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings.");
         Scope.Bind(matched, t => t.Visibility = t.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible);
+        var linear = Scope.Text(() => Model.Settings.FilterPhase == FilterPhase.Linear
+            ? L.F("Linear phase · %lld ms", Model.LinearPhaseLatencyMs) : "", 11.5, null, Theme.Secondary);
+        linear.VerticalAlignment = VerticalAlignment.Center;
+        Scope.Bind(linear, t =>
+        {
+            t.Visibility = t.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+            t.ToolTip = L.F("The EQ plays in linear phase: the same curve without phase shift, but the sound comes %lld ms late and video may lose lip sync. Switch it in the More menu or in Settings.", Model.LinearPhaseLatencyMs);
+        });
         var range = Scope.Segmented<double>([(6, "±6"), (12, "±12"), (18, "±18"), (24, "±24")],
             () => graph.DbRange, v => { graph.DbRange = v; Model.Prefs.Set("graphRange", v); Scope.Refresh(); }, 12).Tip(L.T("Vertical range of the graph"));
         var more = Ui.MenuButton(Ui.Glyph(Glyphs.More, 14, Theme.Text), () =>
@@ -79,9 +87,17 @@ sealed class EqualizerPage : PageBase
             Ui.Item(L.T("Copy A to B"), Model.CopyToOtherSlot),
             null,
             Ui.Item(L.T("Copy as Equalizer APO Text"), () => Ui.Copy(Model.ExportParametricEq())),
+            null,
+            Ui.Submenu(L.T("Filter Phase"),
+            [
+                Ui.Item(L.T("Minimum Phase (no latency)"), () => Model.SetFilterPhase(FilterPhase.Minimum),
+                        isChecked: Model.Settings.FilterPhase == FilterPhase.Minimum),
+                Ui.Item(L.F("Linear Phase (%lld ms latency)", Model.LinearPhaseLatencyMs), () => Model.SetFilterPhase(FilterPhase.Linear),
+                        isChecked: Model.Settings.FilterPhase == FilterPhase.Linear),
+            ]),
         ], L.T("More"));
         more.Margin = new Thickness(10, 0, 0, 0);
-        return Ui.HStack(10, eqLabel, eqSwitch, presetMenu.MaxW(260), save, compare, matched, Ui.Spacer(16), range, more);
+        return Ui.HStack(10, eqLabel, eqSwitch, presetMenu.MaxW(260), save, compare, matched, linear, Ui.Spacer(16), range, more);
     }
 
     private FrameworkElement MeterColumn()

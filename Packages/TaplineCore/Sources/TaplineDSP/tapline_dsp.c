@@ -11,21 +11,20 @@
 #define TL_LIMITER_MAX_LOOKAHEAD 1024
 #define TL_XFEED_RING 128  // power of two
 
-// Virtual speakers: uniformly partitioned overlap-save convolution. Each block of
-// TL_CONV_BLOCK input samples is transformed once (2 * TL_CONV_BLOCK point real FFT) and
-// kept in a frequency-domain delay line; every output block is the sum over partitions
-// of IR spectrum x delayed input spectrum, transformed back.
-#define TL_CONV_FFT (2 * TL_CONV_BLOCK)
-#define TL_CONV_LOG2 9
+// Virtual speakers: partitions of TL_CONV_BLOCK samples, up to TL_CONV_MAX_TAPS in all.
 #define TL_CONV_MAX_PARTS (TL_CONV_MAX_TAPS / TL_CONV_BLOCK)  // power of two
-_Static_assert((1 << TL_CONV_LOG2) == TL_CONV_FFT, "TL_CONV_LOG2 must match TL_CONV_BLOCK");
 _Static_assert((TL_CONV_MAX_PARTS & (TL_CONV_MAX_PARTS - 1)) == 0, "the delay line is a power-of-two ring");
+_Static_assert((TL_LIN_PARTS & (TL_LIN_PARTS - 1)) == 0, "the delay line is a power-of-two ring");
+_Static_assert(TL_LIN_MIN_TAPS / TL_LIN_PARTS >= 16, "partitions of at least 16 samples");
 
 struct tl_ir_set {
     double sample_rate;
+    uint32_t block;         // partition size the spectra were made for
     uint32_t parts;
+    // 4: a 2x2 matrix, path (input * 2 + output); 2: input c -> output c; 1: one filter for both.
+    uint32_t paths;
     // Spectrum of every partition in vDSP's packed real-FFT layout (bin 0 holds DC in re
-    // and Nyquist in im): [(ir * parts + part) * TL_CONV_BLOCK + bin]. Pre-scaled so the
+    // and Nyquist in im): [(path * parts + part) * block + bin]. Pre-scaled so the
     // inverse transform needs no further gain.
     float *re;
     float *im;
@@ -34,6 +33,61 @@ struct tl_ir_set {
 // Marks "remove the current set" in the pending slot (NULL there means "no change").
 static tl_ir_set tl_no_set;
 #define TL_NO_SET (&tl_no_set)
+
+// Uniformly partitioned overlap-save convolution of a stereo signal. Each block of `block`
+// input samples is transformed once (2 * block point real FFT) and kept in a frequency-domain
+// delay line; every output block is the sum over partitions of IR spectrum x delayed input
+// spectrum, transformed back, so the output lags the input by `block` samples. The main
+// thread publishes sets through `pending` and frees what the IO thread returns through
+// `retired`; everything else is IO-thread state. Virtual Speakers and the linear-phase EQ
+// each have one.
+typedef struct {
+    uint32_t block;
+    uint32_t log2n;                // of the transform size, 2 * block
+    uint32_t max_parts;            // delay-line slots, a power of two
+    int32_t matrix;                // takes 2x2 matrix sets, else per-channel ones
+    FFTSetup fft;
+    _Atomic(tl_ir_set *) pending;
+    _Atomic(tl_ir_set *) retired;
+    tl_ir_set *cur;
+    tl_ir_set *next;               // set being crossfaded to
+    int32_t removing;              // the owner fades out, then drops cur
+    int32_t running;               // the input blocks and delay line hold signal
+    float swap;                    // crossfade progress cur -> next
+    float swap_step;
+    uint32_t pos;                  // samples in the current input block
+    uint32_t head;                 // delay-line slot of the newest block
+    uint32_t filled;               // delay-line slots holding signal
+    float *in[2];                  // per channel: previous block, then the current one
+    float *out[2];
+    float *out_next[2];
+    float *acc_re[2];
+    float *acc_im[2];
+    float *time;
+    float *fdl_re[2];              // [slot * block + bin]
+    float *fdl_im[2];
+    float *memory;                 // all of the buffers above
+} tl_conv;
+
+// One length of the linear-phase EQ: the FIR in `conv`, and delay lines of the same latency
+// for the bypassed signal and the passthrough channels, so that switching between them and
+// the EQ neither shifts the time nor comb-filters.
+typedef struct {
+    tl_conv conv;
+    uint32_t taps;
+    uint32_t latency;              // samples: the FIR's own delay plus one partition
+    float *ring;                   // delay lines: [channel][ring_size], the pair, then passthrough
+    uint32_t ring_size;            // power of two above latency
+    uint32_t ring_channels;
+    uint32_t ring_pos;
+    uint32_t cycle_pos;            // ring_pos at the start of this IO cycle
+    int32_t cycle_active;          // this cycle wrote the delay lines
+    uint32_t warmup;               // samples before the FIR's output may fade in
+    float gain;                    // share of this path, 0 ... 1
+    float bypass_current;
+    int32_t eq_on;
+    float g[TL_MAX_FRAMES];        // per-sample shares of this cycle (for the passthrough channels)
+} tl_lin_path;
 
 struct tl_kernel {
     // Parameter triple buffer. The writer owns `back`, the reader owns `front`,
@@ -71,6 +125,9 @@ struct tl_kernel {
     // The bypassed signal while switching the EQ or the simulation on or off (crossfaded over one buffer).
     float dry_l[TL_MAX_FRAMES];
     float dry_r[TL_MAX_FRAMES];
+    // Convolution output (Virtual Speakers, linear-phase EQ).
+    float wet_l[TL_MAX_FRAMES];
+    float wet_r[TL_MAX_FRAMES];
 
     // Crossfeed
     float xf_ring_l[TL_XFEED_RING];
@@ -81,31 +138,25 @@ struct tl_kernel {
     float xf_lp_l, xf_lp_r;
     float xf_amount_current;
 
-    // Virtual speakers. The main thread publishes sets through `conv_pending` and frees
-    // what the IO thread returns through `conv_retired`; everything else is IO-thread state.
-    FFTSetup conv_fft;
-    _Atomic(tl_ir_set *) conv_pending;
-    _Atomic(tl_ir_set *) conv_retired;
-    tl_ir_set *conv_cur;
-    tl_ir_set *conv_next;          // set being crossfaded to
-    int32_t conv_removing;         // fading to dry, then dropping conv_cur
-    int32_t conv_running;          // the input blocks and delay line hold signal
-    float conv_mix;                // 0 = dry ... 1 = convolved
-    float conv_mix_step;
-    float conv_swap;               // crossfade progress conv_cur -> conv_next
-    float conv_swap_step;
-    uint32_t conv_warmup;          // samples before the convolved signal may fade in
-    uint32_t conv_pos;             // samples in the current input block
-    uint32_t conv_head;            // delay-line slot of the newest block
-    uint32_t conv_filled;          // delay-line slots holding signal
-    float conv_in[2][TL_CONV_FFT]; // per channel: previous block, then the current one
-    float conv_out[2][TL_CONV_BLOCK];
-    float conv_out_next[2][TL_CONV_BLOCK];
-    float conv_acc_re[2][TL_CONV_BLOCK];
-    float conv_acc_im[2][TL_CONV_BLOCK];
-    float conv_time[TL_CONV_FFT];
-    float conv_fdl_re[2][TL_CONV_MAX_PARTS][TL_CONV_BLOCK];
-    float conv_fdl_im[2][TL_CONV_MAX_PARTS][TL_CONV_BLOCK];
+    // Virtual speakers
+    tl_conv vs;
+    float vs_mix;                  // 0 = dry ... 1 = convolved
+    float vs_mix_step;
+    uint32_t vs_warmup;            // samples before the convolved signal may fade in
+
+    // Linear-phase EQ: a path per FIR length (see tl_lin_path). The stages (minimum phase)
+    // play until the requested FIR is there.
+    tl_lin_path lin[TL_LIN_MODES];
+    int32_t eq_path;               // what the EQ plays: 0 = stages, else lin[eq_path - 1]
+    float min_gain;                // share of the stages, 0 ... 1
+    float lin_fade_step;
+    float in_l[TL_MAX_FRAMES];     // the EQ's input
+    float in_r[TL_MAX_FRAMES];
+    float dly_l[TL_MAX_FRAMES];    // ... late by a linear-phase path's latency
+    float dly_r[TL_MAX_FRAMES];
+    float lin_l[TL_MAX_FRAMES];    // a linear-phase path's output
+    float lin_r[TL_MAX_FRAMES];
+    float min_g[TL_MAX_FRAMES];    // per-sample share of the stages in this cycle
 
     // Limiter (always in the path so latency stays constant)
     float lim_ring_l[TL_LIMITER_MAX_LOOKAHEAD];
@@ -180,6 +231,12 @@ static inline float take_float(_Atomic uint32_t *slot) {
     return u2f(atomic_exchange_explicit(slot, 0, memory_order_relaxed));
 }
 
+static inline uint32_t log2_ceil(uint32_t n) {
+    uint32_t log2n = 0;
+    while ((1u << log2n) < n) log2n++;
+    return log2n;
+}
+
 void tl_params_init(tl_params *p) {
     memset(p, 0, sizeof(*p));
     for (int i = 0; i < TL_MAX_STAGES; i++) {
@@ -198,6 +255,357 @@ void tl_params_init(tl_params *p) {
     p->eq_enabled = 1;
 }
 
+// MARK: - Impulse-response sets (non-realtime)
+
+static tl_ir_set *ir_set_build(const float *const *irs, uint32_t paths, uint32_t length, uint32_t block,
+                               double sample_rate, float gain) {
+    if (length == 0 || block == 0 || !(sample_rate >= 8000.0) || !isfinite(sample_rate) || !isfinite(gain)) return NULL;
+    const uint32_t parts = (length + block - 1) / block;
+    const uint32_t log2n = log2_ceil(2 * block);
+    const size_t count = (size_t)paths * parts * block;
+    tl_ir_set *set = calloc(1, sizeof(tl_ir_set));
+    float *buf = calloc(2 * (size_t)block, sizeof(float));
+    FFTSetup fft = vDSP_create_fftsetup(log2n, kFFTRadix2);
+    if (set) {
+        set->re = calloc(count, sizeof(float));
+        set->im = calloc(count, sizeof(float));
+    }
+    if (!set || !set->re || !set->im || !buf || !fft) {
+        if (set) { free(set->re); free(set->im); free(set); }
+        free(buf);
+        if (fft) vDSP_destroy_fftsetup(fft);
+        return NULL;
+    }
+    set->sample_rate = sample_rate;
+    set->block = block;
+    set->parts = parts;
+    set->paths = paths;
+    // zrip's forward transform scales by 2 (here and for the input), its inverse by the
+    // transform size: fold the undo into the IR.
+    const float scale = gain / (4.0f * (float)(2 * block));
+    for (uint32_t path = 0; path < paths; path++) {
+        for (uint32_t part = 0; part < parts; part++) {
+            memset(buf, 0, 2 * (size_t)block * sizeof(float));
+            const uint32_t start = part * block;
+            const uint32_t n = length - start < block ? length - start : block;
+            for (uint32_t i = 0; i < n; i++) {
+                const float v = irs[path][start + i];
+                buf[i] = isfinite(v) ? v * scale : 0.0f;
+            }
+            const size_t offset = ((size_t)path * parts + part) * block;
+            DSPSplitComplex split = { set->re + offset, set->im + offset };
+            vDSP_ctoz((const DSPComplex *)buf, 2, &split, 1, block);
+            vDSP_fft_zrip(fft, &split, 1, log2n, FFT_FORWARD);
+        }
+    }
+    free(buf);
+    vDSP_destroy_fftsetup(fft);
+    return set;
+}
+
+tl_ir_set *tl_ir_set_create(const float *const *irs, uint32_t length, double sample_rate, float gain) {
+    if (length > TL_CONV_MAX_TAPS) length = TL_CONV_MAX_TAPS;
+    return ir_set_build(irs, 4, length, TL_CONV_BLOCK, sample_rate, gain);
+}
+
+void tl_ir_set_destroy(tl_ir_set *set) {
+    if (!set || set == TL_NO_SET) return;
+    free(set->re);
+    free(set->im);
+    free(set);
+}
+
+// MARK: - Linear-phase FIR sizes
+
+static int32_t clamp_mode(int32_t mode) {
+    return mode == TL_LIN_LOW_LATENCY ? TL_LIN_LOW_LATENCY : TL_LIN_HIGH_PRECISION;
+}
+
+uint32_t tl_linear_phase_taps(double sample_rate, int32_t mode) {
+    if (!(sample_rate >= 8000.0) || !isfinite(sample_rate)) sample_rate = 48000.0;
+    const double wanted = 1.25 * sample_rate;
+    uint32_t taps = TL_LIN_MIN_TAPS * 4;
+    while ((double)taps < wanted && taps < TL_LIN_MAX_TAPS) taps <<= 1;
+    return clamp_mode(mode) == TL_LIN_LOW_LATENCY ? taps / 4 : taps;
+}
+
+uint32_t tl_linear_phase_block(double sample_rate, int32_t mode) {
+    return tl_linear_phase_taps(sample_rate, mode) / TL_LIN_PARTS;
+}
+
+uint32_t tl_linear_phase_latency(double sample_rate, int32_t mode) {
+    return tl_linear_phase_taps(sample_rate, mode) / 2 + tl_linear_phase_block(sample_rate, mode);
+}
+
+tl_ir_set *tl_fir_set_create(const float *left, const float *right, uint32_t length, double sample_rate) {
+    if (!(sample_rate >= 8000.0) || !isfinite(sample_rate)) return NULL;
+    if (length != tl_linear_phase_taps(sample_rate, TL_LIN_LOW_LATENCY) && length != tl_linear_phase_taps(sample_rate, TL_LIN_HIGH_PRECISION)) return NULL;
+    const float *irs[2] = { left, right ? right : left };
+    return ir_set_build(irs, right && right != left ? 2 : 1, length, length / TL_LIN_PARTS, sample_rate, 1.0f);
+}
+
+// MARK: - Convolution engine
+
+// Allocates the engine (non-realtime). 0 when out of memory; the engine is then unusable.
+static int conv_init(tl_conv *c, uint32_t block, uint32_t max_parts, int32_t matrix) {
+    memset(c, 0, sizeof(*c));
+    const uint32_t log2n = log2_ceil(2 * block);
+    FFTSetup fft = vDSP_create_fftsetup(log2n, kFFTRadix2);
+    // in: 2 x 2 blocks, out / out_next / acc_re / acc_im: 4 x 2 x 1, time: 2, delay line: 4 x max_parts.
+    float *memory = calloc((size_t)(14 + 4 * (size_t)max_parts) * block, sizeof(float));
+    if (!fft || !memory) {
+        if (fft) vDSP_destroy_fftsetup(fft);
+        free(memory);
+        return 0;
+    }
+    c->block = block;
+    c->log2n = log2n;
+    c->max_parts = max_parts;
+    c->matrix = matrix;
+    c->fft = fft;
+    c->memory = memory;
+    float *p = memory;
+    for (int ch = 0; ch < 2; ch++) { c->in[ch] = p; p += 2 * (size_t)block; }
+    for (int ch = 0; ch < 2; ch++) { c->out[ch] = p; p += block; }
+    for (int ch = 0; ch < 2; ch++) { c->out_next[ch] = p; p += block; }
+    for (int ch = 0; ch < 2; ch++) { c->acc_re[ch] = p; p += block; }
+    for (int ch = 0; ch < 2; ch++) { c->acc_im[ch] = p; p += block; }
+    c->time = p; p += 2 * (size_t)block;
+    for (int ch = 0; ch < 2; ch++) { c->fdl_re[ch] = p; p += (size_t)max_parts * block; }
+    for (int ch = 0; ch < 2; ch++) { c->fdl_im[ch] = p; p += (size_t)max_parts * block; }
+    return 1;
+}
+
+static void conv_collect(tl_conv *c) {
+    tl_ir_set *retired = atomic_exchange_explicit(&c->retired, NULL, memory_order_acq_rel);
+    if (retired) tl_ir_set_destroy(retired);
+}
+
+// Frees the engine and every set it holds (non-realtime, IO stopped).
+static void conv_free(tl_conv *c) {
+    conv_collect(c);
+    tl_ir_set *pending = atomic_exchange(&c->pending, NULL);
+    if (pending && pending != TL_NO_SET) tl_ir_set_destroy(pending);
+    tl_ir_set_destroy(c->cur);
+    tl_ir_set_destroy(c->next);
+    if (c->fft) vDSP_destroy_fftsetup(c->fft);
+    free(c->memory);
+    memset(c, 0, sizeof(*c));
+}
+
+// Main thread: hands `set` (NULL: none) to the IO thread.
+static void conv_hand_over(tl_conv *c, tl_ir_set *set) {
+    conv_collect(c);
+    // A set the IO thread has not picked up yet was never seen by it: free it here.
+    tl_ir_set *previous = atomic_exchange_explicit(&c->pending, set ? set : TL_NO_SET, memory_order_acq_rel);
+    if (previous && previous != TL_NO_SET) tl_ir_set_destroy(previous);
+}
+
+static void conv_reset(tl_conv *c) {
+    c->running = 0;
+    c->pos = 0;
+    c->filled = 0;
+    if (!c->block) return;
+    for (int ch = 0; ch < 2; ch++) {
+        memset(c->in[ch], 0, 2 * (size_t)c->block * sizeof(float));
+        memset(c->out[ch], 0, c->block * sizeof(float));
+        memset(c->out_next[ch], 0, c->block * sizeof(float));
+    }
+}
+
+// Reconfigure (non-realtime, IO stopped): finishes any change in progress and drops a set
+// made for another sample rate; the main thread sends a new one.
+static void conv_configure(tl_conv *c, double sample_rate, float swap_seconds) {
+    conv_collect(c);
+    if (c->next) {
+        tl_ir_set_destroy(c->cur);
+        c->cur = c->next;
+        c->next = NULL;
+    }
+    if (c->removing && c->cur) {
+        tl_ir_set_destroy(c->cur);
+        c->cur = NULL;
+    }
+    c->removing = 0;
+    if (c->cur && c->cur->sample_rate != sample_rate) {
+        tl_ir_set_destroy(c->cur);
+        c->cur = NULL;
+    }
+    c->swap = 0.0f;
+    c->swap_step = (float)(1.0 / (swap_seconds * sample_rate));
+    conv_reset(c);
+}
+
+// Hands a set back to the main thread. Only one is ever outstanding: changes are picked up
+// only while the slot is empty, and each change retires at most one set.
+static inline void conv_retire(tl_conv *c, tl_ir_set *set) {
+    if (set) atomic_store_explicit(&c->retired, set, memory_order_release);
+}
+
+// Silent: finishes a change that waited for the fade-out.
+static void conv_settle(tl_conv *c) {
+    if (c->next) {
+        conv_retire(c, c->cur);
+        c->cur = c->next;
+        c->next = NULL;
+    }
+    if (c->removing) {
+        conv_retire(c, c->cur);
+        c->cur = NULL;
+        c->removing = 0;
+    }
+    c->swap = 0.0f;
+}
+
+// Transforms the input block that just filled up into the newest delay-line slot.
+static void conv_push_block(tl_conv *c) {
+    const uint32_t block = c->block;
+    c->head = (c->head + 1) & (c->max_parts - 1);
+    for (int ch = 0; ch < 2; ch++) {
+        DSPSplitComplex split = { c->fdl_re[ch] + (size_t)c->head * block, c->fdl_im[ch] + (size_t)c->head * block };
+        vDSP_ctoz((const DSPComplex *)c->in[ch], 2, &split, 1, block);
+        vDSP_fft_zrip(c->fft, &split, 1, c->log2n, FFT_FORWARD);
+        memcpy(c->in[ch], c->in[ch] + block, block * sizeof(float));
+    }
+    if (c->filled < c->max_parts) c->filled++;
+}
+
+// acc += x * h for packed real-FFT spectra.
+static inline void conv_mac(float *restrict acc_re, float *restrict acc_im,
+                            const float *restrict x_re, const float *restrict x_im,
+                            const float *restrict h_re, const float *restrict h_im, uint32_t bins) {
+    acc_re[0] += x_re[0] * h_re[0];  // DC
+    acc_im[0] += x_im[0] * h_im[0];  // Nyquist
+    for (uint32_t b = 1; b < bins; b++) {
+        acc_re[b] += x_re[b] * h_re[b] - x_im[b] * h_im[b];
+        acc_im[b] += x_re[b] * h_im[b] + x_im[b] * h_re[b];
+    }
+}
+
+// One output block of `set` from the delay line. Returns 0 (and leaves silence) when it
+// is not finite, e.g. after an EQ filter blew up: the caller then restarts the delay line.
+static int conv_render(tl_conv *c, const tl_ir_set *set, float *const out[2]) {
+    const uint32_t block = c->block;
+    const uint32_t parts = set->parts < c->filled ? set->parts : c->filled;
+    for (int ch = 0; ch < 2; ch++) {
+        memset(c->acc_re[ch], 0, block * sizeof(float));
+        memset(c->acc_im[ch], 0, block * sizeof(float));
+    }
+    for (uint32_t part = 0; part < parts; part++) {
+        const size_t slot = (size_t)((c->head - part) & (c->max_parts - 1)) * block;
+        for (int in = 0; in < 2; in++) {
+            const float *x_re = c->fdl_re[in] + slot;
+            const float *x_im = c->fdl_im[in] + slot;
+            if (set->paths == 4) {
+                // Speaker `in` to both ears.
+                for (int ear = 0; ear < 2; ear++) {
+                    const size_t offset = ((size_t)(in * 2 + ear) * set->parts + part) * block;
+                    conv_mac(c->acc_re[ear], c->acc_im[ear], x_re, x_im, set->re + offset, set->im + offset, block);
+                }
+            } else {
+                const size_t offset = ((size_t)(set->paths == 1 ? 0 : in) * set->parts + part) * block;
+                conv_mac(c->acc_re[in], c->acc_im[in], x_re, x_im, set->re + offset, set->im + offset, block);
+            }
+        }
+    }
+    int ok = 1;
+    for (int ch = 0; ch < 2; ch++) {
+        DSPSplitComplex split = { c->acc_re[ch], c->acc_im[ch] };
+        vDSP_fft_zrip(c->fft, &split, 1, c->log2n, FFT_INVERSE);
+        vDSP_ztoc(&split, 1, (DSPComplex *)c->time, 2, block);
+        // Overlap-save: the first half wrapped around, the second half is the output.
+        float sum = 0.0f;
+        for (uint32_t i = 0; i < block; i++) {
+            out[ch][i] = c->time[block + i];
+            sum += out[ch][i];
+        }
+        if (!isfinite(sum)) ok = 0;
+    }
+    if (!ok) {
+        memset(out[0], 0, block * sizeof(float));
+        memset(out[1], 0, block * sizeof(float));
+    }
+    return ok;
+}
+
+// Clears the delay line and input after a non-finite block.
+static void conv_restart(tl_conv *c) {
+    c->filled = 0;
+    memset(c->in[0], 0, 2 * (size_t)c->block * sizeof(float));
+    memset(c->in[1], 0, 2 * (size_t)c->block * sizeof(float));
+}
+
+// Takes over a set from the main thread, one change at a time. `audible`: whether the
+// owner's output of cur can be heard (else a new set replaces it right away).
+static void conv_pick_up(tl_conv *c, double sample_rate, int audible) {
+    if (c->next || c->removing) return;
+    if (!atomic_load_explicit(&c->pending, memory_order_relaxed)) return;
+    if (atomic_load_explicit(&c->retired, memory_order_acquire)) return;
+    tl_ir_set *set = atomic_exchange_explicit(&c->pending, NULL, memory_order_acq_rel);
+    if (!set) return;
+    if (set == TL_NO_SET) {
+        set = NULL;
+    } else if (set->sample_rate != sample_rate || set->block != c->block || (set->paths == 4) != (c->matrix != 0)) {
+        conv_retire(c, set);   // made for the rate before a reconfigure
+        return;
+    }
+    if (!c->cur) {
+        c->cur = set;
+    } else if (!audible) {
+        // Nothing of the old set is audible: switch right away.
+        conv_retire(c, c->cur);
+        c->cur = set;
+        if (set && c->running && !conv_render(c, set, c->out)) conv_restart(c);
+    } else if (!set) {
+        c->removing = 1;
+    } else {
+        c->next = set;
+        c->swap = 0.0f;
+        // Its output for the block that is playing, from the same delay line.
+        if (!conv_render(c, set, c->out_next)) conv_restart(c);
+    }
+}
+
+// Feeds `frames` samples into the delay line and writes the convolved signal, `block` samples
+// late, to `wet_l` / `wet_r`, crossfading from cur to next while there is one. Needs cur.
+static void conv_process(tl_conv *c, const float *l, const float *r, float *wet_l, float *wet_r, uint32_t frames) {
+    const uint32_t block = c->block;
+    const float swap_step = c->swap_step;
+    float swap = c->swap;
+    uint32_t pos = c->pos;
+    for (uint32_t i = 0; i < frames; i++) {
+        float out_l = c->out[0][pos], out_r = c->out[1][pos];
+        if (c->next) {
+            out_l += swap * (c->out_next[0][pos] - out_l);
+            out_r += swap * (c->out_next[1][pos] - out_r);
+            swap += swap_step;
+            if (swap >= 1.0f) {
+                conv_retire(c, c->cur);
+                c->cur = c->next;
+                c->next = NULL;
+                memcpy(c->out[0], c->out_next[0], block * sizeof(float));
+                memcpy(c->out[1], c->out_next[1], block * sizeof(float));
+                swap = 0.0f;
+            }
+        }
+        c->in[0][block + pos] = l[i];
+        c->in[1][block + pos] = r[i];
+        if (++pos == block) {
+            pos = 0;
+            conv_push_block(c);
+            int ok = conv_render(c, c->cur, c->out);
+            if (c->next) ok &= conv_render(c, c->next, c->out_next);
+            if (!ok) conv_restart(c);
+        }
+        wet_l[i] = out_l;
+        wet_r[i] = out_r;
+    }
+    c->swap = swap;
+    c->pos = pos;
+}
+
+// MARK: - Kernel lifetime
+
 void tl_speakers_init(tl_speakers *sp) {
     memset(sp, 0, sizeof(*sp));
     for (int c = 0; c < TL_MAX_CHANNELS; c++) {
@@ -210,8 +618,7 @@ void tl_speakers_init(tl_speakers *sp) {
 tl_kernel *tl_kernel_create(void) {
     tl_kernel *k = calloc(1, sizeof(tl_kernel));
     if (!k) return NULL;
-    k->conv_fft = vDSP_create_fftsetup(TL_CONV_LOG2, kFFTRadix2);
-    if (!k->conv_fft) { free(k); return NULL; }
+    if (!conv_init(&k->vs, TL_CONV_BLOCK, TL_CONV_MAX_PARTS, 1)) { free(k); return NULL; }
     for (int i = 0; i < 3; i++) tl_params_init(&k->slots[i]);
     k->front = 0;
     atomic_store(&k->middle, 1);
@@ -232,22 +639,48 @@ tl_kernel *tl_kernel_create(void) {
 }
 
 void tl_kernel_destroy(tl_kernel *k) {
-    tl_kernel_collect(k);
-    tl_ir_set *pending = atomic_exchange(&k->conv_pending, NULL);
-    if (pending && pending != TL_NO_SET) tl_ir_set_destroy(pending);
-    if (k->conv_cur) tl_ir_set_destroy(k->conv_cur);
-    if (k->conv_next) tl_ir_set_destroy(k->conv_next);
-    vDSP_destroy_fftsetup(k->conv_fft);
+    conv_free(&k->vs);
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        conv_free(&k->lin[m].conv);
+        free(k->lin[m].ring);
+    }
     free(k);
 }
 
-static void conv_reset(tl_kernel *k) {
-    k->conv_running = 0;
-    k->conv_pos = 0;
-    k->conv_filled = 0;
-    memset(k->conv_in, 0, sizeof(k->conv_in));
-    memset(k->conv_out, 0, sizeof(k->conv_out));
-    memset(k->conv_out_next, 0, sizeof(k->conv_out_next));
+// Linear-phase EQ: an engine and delay lines for each length, sized for the rate (allocates when
+// it changed). A length without memory for them is never played.
+static void configure_linear_phase(tl_kernel *k, double sample_rate) {
+    const tl_params *p = &k->slots[k->front];
+    const uint32_t channels = 2 + (k->layout.passthrough ? TL_LIN_MAX_PASSTHROUGH : 0);
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        const uint32_t block = tl_linear_phase_block(sample_rate, m + 1);
+        if (path->conv.block != block) {
+            conv_free(&path->conv);
+            if (!conv_init(&path->conv, block, TL_LIN_PARTS, 0)) conv_free(&path->conv);
+        }
+        conv_configure(&path->conv, sample_rate, 0.050f);
+
+        path->taps = tl_linear_phase_taps(sample_rate, m + 1);
+        path->latency = tl_linear_phase_latency(sample_rate, m + 1);
+        const uint32_t size = 1u << log2_ceil(path->latency + 1);
+        if (size != path->ring_size || channels != path->ring_channels || !path->ring) {
+            free(path->ring);
+            path->ring = calloc((size_t)size * channels, sizeof(float));
+            path->ring_size = path->ring ? size : 0;
+            path->ring_channels = path->ring ? channels : 0;
+        }
+        if (!path->ring && path->conv.block) conv_free(&path->conv);
+        path->ring_pos = 0;
+        path->cycle_active = 0;
+        path->warmup = 0;
+        path->gain = 0.0f;
+        path->bypass_current = p->bypass_gain;
+        path->eq_on = p->eq_enabled ? 1 : 0;
+    }
+    k->eq_path = 0;
+    k->min_gain = 1.0f;
+    k->lin_fade_step = (float)(1.0 / (0.030 * sample_rate));
 }
 
 void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layout) {
@@ -334,88 +767,28 @@ void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layo
     // Virtual speakers: finish any change in progress and start dry, so starting IO fades
     // the effect in. A set made for another sample rate is dropped; the main thread sends a
     // new one. 30 ms to switch the effect on or off, 50 ms between two sets.
-    tl_kernel_collect(k);
-    if (k->conv_next) {
-        tl_ir_set_destroy(k->conv_cur);
-        k->conv_cur = k->conv_next;
-        k->conv_next = NULL;
-    }
-    if (k->conv_removing && k->conv_cur) {
-        tl_ir_set_destroy(k->conv_cur);
-        k->conv_cur = NULL;
-    }
-    k->conv_removing = 0;
-    if (k->conv_cur && k->conv_cur->sample_rate != sample_rate) {
-        tl_ir_set_destroy(k->conv_cur);
-        k->conv_cur = NULL;
-    }
-    k->conv_mix = 0.0f;
-    k->conv_swap = 0.0f;
-    k->conv_mix_step = (float)(1.0 / (0.030 * sample_rate));
-    k->conv_swap_step = (float)(1.0 / (0.050 * sample_rate));
-    conv_reset(k);
+    conv_configure(&k->vs, sample_rate, 0.050f);
+    k->vs_mix = 0.0f;
+    k->vs_mix_step = (float)(1.0 / (0.030 * sample_rate));
+
+    // Linear-phase EQ: the same for its FIR, and it starts on the stages. 30 ms to switch
+    // between the two, 50 ms between two FIRs.
+    configure_linear_phase(k, sample_rate);
 }
 
-// MARK: - Virtual speaker sets (non-realtime)
-
-tl_ir_set *tl_ir_set_create(const float *const *irs, uint32_t length, double sample_rate, float gain) {
-    if (length == 0 || !(sample_rate >= 8000.0) || !isfinite(sample_rate) || !isfinite(gain)) return NULL;
-    if (length > TL_CONV_MAX_TAPS) length = TL_CONV_MAX_TAPS;
-    const uint32_t parts = (length + TL_CONV_BLOCK - 1) / TL_CONV_BLOCK;
-    const size_t count = (size_t)4 * parts * TL_CONV_BLOCK;
-    tl_ir_set *set = calloc(1, sizeof(tl_ir_set));
-    FFTSetup fft = vDSP_create_fftsetup(TL_CONV_LOG2, kFFTRadix2);
-    if (set) {
-        set->re = calloc(count, sizeof(float));
-        set->im = calloc(count, sizeof(float));
-    }
-    if (!set || !set->re || !set->im || !fft) {
-        if (set) { free(set->re); free(set->im); free(set); }
-        if (fft) vDSP_destroy_fftsetup(fft);
-        return NULL;
-    }
-    set->sample_rate = sample_rate;
-    set->parts = parts;
-    // zrip's forward transform scales by 2 (here and for the input), its inverse by the
-    // transform size: fold the undo into the IR.
-    const float scale = gain / (4.0f * (float)TL_CONV_FFT);
-    float buf[TL_CONV_FFT];
-    for (int ir = 0; ir < 4; ir++) {
-        for (uint32_t part = 0; part < parts; part++) {
-            memset(buf, 0, sizeof(buf));
-            const uint32_t start = part * TL_CONV_BLOCK;
-            const uint32_t n = length - start < TL_CONV_BLOCK ? length - start : TL_CONV_BLOCK;
-            for (uint32_t i = 0; i < n; i++) {
-                const float v = irs[ir][start + i];
-                buf[i] = isfinite(v) ? v * scale : 0.0f;
-            }
-            const size_t offset = ((size_t)ir * parts + part) * TL_CONV_BLOCK;
-            DSPSplitComplex split = { set->re + offset, set->im + offset };
-            vDSP_ctoz((const DSPComplex *)buf, 2, &split, 1, TL_CONV_BLOCK);
-            vDSP_fft_zrip(fft, &split, 1, TL_CONV_LOG2, FFT_FORWARD);
-        }
-    }
-    vDSP_destroy_fftsetup(fft);
-    return set;
-}
-
-void tl_ir_set_destroy(tl_ir_set *set) {
-    if (!set || set == TL_NO_SET) return;
-    free(set->re);
-    free(set->im);
-    free(set);
-}
+// MARK: - Main-thread API
 
 void tl_kernel_set_ir_set(tl_kernel *k, tl_ir_set *set) {
-    tl_kernel_collect(k);
-    // A set the IO thread has not picked up yet was never seen by it: free it here.
-    tl_ir_set *previous = atomic_exchange_explicit(&k->conv_pending, set ? set : TL_NO_SET, memory_order_acq_rel);
-    if (previous && previous != TL_NO_SET) tl_ir_set_destroy(previous);
+    conv_hand_over(&k->vs, set);
+}
+
+void tl_kernel_set_fir(tl_kernel *k, int32_t mode, tl_ir_set *set) {
+    conv_hand_over(&k->lin[clamp_mode(mode) - 1].conv, set);
 }
 
 void tl_kernel_collect(tl_kernel *k) {
-    tl_ir_set *retired = atomic_exchange_explicit(&k->conv_retired, NULL, memory_order_acq_rel);
-    if (retired) tl_ir_set_destroy(retired);
+    conv_collect(&k->vs);
+    for (int m = 0; m < TL_LIN_MODES; m++) conv_collect(&k->lin[m].conv);
 }
 
 // Non-finite parameters would latch the gain ramps and filter states: replace them with
@@ -805,176 +1178,242 @@ static void mc_run_speakers(tl_kernel *k, const tl_speakers *sp, const tl_layout
     k->dl_pos = (k->dl_pos + frames) & (TL_MAX_DELAY - 1);
 }
 
-// MARK: - Virtual speakers (IO thread)
+// MARK: - EQ (IO thread)
 
-// Hands a set back to the main thread. Only one is ever outstanding: changes are picked up
-// only while the slot is empty, and each change retires at most one set.
-static inline void conv_retire(tl_kernel *k, tl_ir_set *set) {
-    if (set) atomic_store_explicit(&k->conv_retired, set, memory_order_release);
+// Preamp + stages in place on buf_l / buf_r. While the EQ is bypassed, `bypass_gain` takes
+// their place so that switching compares the sound, not the level. A switch crossfades the
+// two paths over one buffer: the filters shift the phase, and a hard cut would click.
+static void run_stages_path(tl_kernel *k, const tl_params *p, uint32_t frames) {
+    float *l = k->buf_l, *r = k->buf_r;
+    const int32_t eq_on = p->eq_enabled ? 1 : 0;
+    if (eq_on != k->eq_on) {
+        memcpy(k->dry_l, l, frames * sizeof(float));
+        memcpy(k->dry_r, r, frames * sizeof(float));
+        apply_gain_ramp(k->dry_l, k->dry_r, frames, &k->bypass_current, p->bypass_gain);
+        apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
+        run_biquads(k, p, frames);
+        crossfade(l, r, k->dry_l, k->dry_r, frames, eq_on);
+        k->eq_on = eq_on;
+    } else if (eq_on) {
+        apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
+        run_biquads(k, p, frames);
+        k->bypass_current = p->bypass_gain;
+    } else {
+        apply_gain_ramp(l, r, frames, &k->bypass_current, p->bypass_gain);
+        k->preamp_current = p->preamp;
+        for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
+    }
 }
 
-// Transforms the input block that just filled up into the newest delay-line slot.
-static void conv_push_block(tl_kernel *k) {
-    k->conv_head = (k->conv_head + 1) & (TL_CONV_MAX_PARTS - 1);
+// A linear-phase path from in_l / in_r into lin_l / lin_r: the FIR (which holds the preamp),
+// or while bypassed the input delayed by the same latency, at `bypass_gain`. Both are lined
+// up sample for sample and differ only in their magnitude, so the one-buffer crossfade between
+// them neither comb-filters nor jumps in time. Leaves the delayed input in dly_l / dly_r.
+static void run_linear_path(tl_kernel *k, tl_lin_path *path, const tl_params *p, uint32_t frames) {
+    const uint32_t mask = path->ring_size - 1, latency = path->latency, start = path->ring_pos;
     for (int ch = 0; ch < 2; ch++) {
-        DSPSplitComplex split = { k->conv_fdl_re[ch][k->conv_head], k->conv_fdl_im[ch][k->conv_head] };
-        vDSP_ctoz((const DSPComplex *)k->conv_in[ch], 2, &split, 1, TL_CONV_BLOCK);
-        vDSP_fft_zrip(k->conv_fft, &split, 1, TL_CONV_LOG2, FFT_FORWARD);
-        memcpy(k->conv_in[ch], k->conv_in[ch] + TL_CONV_BLOCK, TL_CONV_BLOCK * sizeof(float));
+        float *ring = path->ring + (size_t)ch * path->ring_size;
+        const float *x = ch == 0 ? k->in_l : k->in_r;
+        float *d = ch == 0 ? k->dly_l : k->dly_r;
+        for (uint32_t i = 0; i < frames; i++) {
+            const uint32_t w = (start + i) & mask;
+            ring[w] = x[i];
+            d[i] = ring[(w - latency) & mask];
+        }
     }
-    if (k->conv_filled < TL_CONV_MAX_PARTS) k->conv_filled++;
+    conv_process(&path->conv, k->in_l, k->in_r, k->wet_l, k->wet_r, frames);
+    path->cycle_pos = start;
+    path->cycle_active = 1;
+    path->ring_pos = (start + frames) & mask;
+
+    float *l = k->lin_l, *r = k->lin_r;
+    const int32_t eq_on = p->eq_enabled ? 1 : 0;
+    if (eq_on != path->eq_on || !eq_on) {
+        memcpy(l, k->dly_l, frames * sizeof(float));
+        memcpy(r, k->dly_r, frames * sizeof(float));
+        apply_gain_ramp(l, r, frames, &path->bypass_current, p->bypass_gain);
+        if (eq_on != path->eq_on) {
+            // l / r hold the bypassed signal: fade the FIR's output in over it, or out.
+            for (uint32_t i = 0; i < frames; i++) {
+                const float t = (float)(i + 1) / (float)frames;
+                const float wet = eq_on ? t : 1.0f - t;
+                l[i] += (k->wet_l[i] - l[i]) * wet;
+                r[i] += (k->wet_r[i] - r[i]) * wet;
+            }
+            path->eq_on = eq_on;
+        }
+    } else {
+        memcpy(l, k->wet_l, frames * sizeof(float));
+        memcpy(r, k->wet_r, frames * sizeof(float));
+        path->bypass_current = p->bypass_gain;
+    }
 }
 
-// acc += x * h for packed real-FFT spectra.
-static inline void conv_mac(float *restrict acc_re, float *restrict acc_im,
-                            const float *restrict x_re, const float *restrict x_im,
-                            const float *restrict h_re, const float *restrict h_im) {
-    acc_re[0] += x_re[0] * h_re[0];  // DC
-    acc_im[0] += x_im[0] * h_im[0];  // Nyquist
-    for (uint32_t b = 1; b < TL_CONV_BLOCK; b++) {
-        acc_re[b] += x_re[b] * h_re[b] - x_im[b] * h_im[b];
-        acc_im[b] += x_re[b] * h_im[b] + x_im[b] * h_re[b];
-    }
+// Whether the EQ can play path `eq_path` (0 = stages, always).
+static int eq_path_ready(const tl_kernel *k, int32_t eq_path) {
+    if (eq_path <= 0) return 1;
+    const tl_conv *c = &k->lin[eq_path - 1].conv;
+    return c->block && c->cur && !c->removing;
 }
 
-// One output block of `set` from the delay line. Returns 0 (and leaves silence) when it
-// is not finite, e.g. after an EQ filter blew up: the caller then restarts the delay line.
-static int conv_render(tl_kernel *k, const tl_ir_set *set, float out[2][TL_CONV_BLOCK]) {
-    const uint32_t parts = set->parts < k->conv_filled ? set->parts : k->conv_filled;
-    memset(k->conv_acc_re, 0, sizeof(k->conv_acc_re));
-    memset(k->conv_acc_im, 0, sizeof(k->conv_acc_im));
-    for (uint32_t part = 0; part < parts; part++) {
-        const uint32_t slot = (k->conv_head - part) & (TL_CONV_MAX_PARTS - 1);
-        for (int speaker = 0; speaker < 2; speaker++) {
-            const float *x_re = k->conv_fdl_re[speaker][slot];
-            const float *x_im = k->conv_fdl_im[speaker][slot];
-            for (int ear = 0; ear < 2; ear++) {
-                const size_t offset = ((size_t)(speaker * 2 + ear) * set->parts + part) * TL_CONV_BLOCK;
-                conv_mac(k->conv_acc_re[ear], k->conv_acc_im[ear], x_re, x_im, set->re + offset, set->im + offset);
+static inline float ramp_towards(float g, float target, float step) {
+    return g < target ? fminf(target, g + step) : fmaxf(target, g - step);
+}
+
+// 3. Preamp + EQ, through the stages (minimum phase, no latency) or, on a stereo layout, a
+//    linear-phase FIR (low latency or high precision, tl_linear_phase_latency samples late). The EQ moves to the
+//    requested path once that can play; switching fades the old path out and the new one in,
+//    30 ms each: their delays differ, so the music skips forward (to a shorter delay) or pauses
+//    (to a FIR, whose output fades in once its delay line is full) rather than playing twice.
+//    Also feeds the pre-EQ analyzer, lined up with the output.
+static void run_eq(tl_kernel *k, const tl_params *p, uint32_t frames, uint64_t ana) {
+    float *l = k->buf_l, *r = k->buf_r;
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_conv *c = &k->lin[m].conv;
+        if (c->block) conv_pick_up(c, k->sample_rate, k->lin[m].gain > 0.0f);
+        // The FIR was removed before its output faded in: nothing of it is audible.
+        if (c->running && !c->cur) conv_reset(c);
+    }
+    // The FIRs cover the stereo pair: a multichannel speaker layout keeps the stages, or the
+    // front pair would lag the other speakers by the FIR's latency.
+    const int32_t requested = !k->mc_active && (p->linear_phase == TL_LIN_LOW_LATENCY || p->linear_phase == TL_LIN_HIGH_PRECISION)
+        ? p->linear_phase : 0;
+    if (eq_path_ready(k, requested)) k->eq_path = requested;
+    else if (!eq_path_ready(k, k->eq_path)) k->eq_path = 0;
+    const int32_t target = k->eq_path;
+    if (target > 0) {
+        tl_lin_path *path = &k->lin[target - 1];
+        if (!path->conv.running) {
+            conv_reset(&path->conv);
+            path->conv.running = 1;
+            path->warmup = path->latency;
+            path->eq_on = p->eq_enabled ? 1 : 0;
+            path->bypass_current = p->bypass_gain;
+        }
+    }
+
+    // The shares of the paths, sample by sample.
+    const float step = k->lin_fade_step;
+    const float min_before = k->min_gain;
+    float mg = min_before;
+    const float min_target = target == 0 ? 1.0f : 0.0f;
+    for (uint32_t i = 0; i < frames; i++) {
+        mg = ramp_towards(mg, min_target, step);
+        k->min_g[i] = mg;
+    }
+    tl_lin_path *loudest = NULL;
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        path->cycle_active = 0;
+        if (!path->conv.running) continue;
+        if (!loudest || path->gain > loudest->gain) loudest = path;
+        float g = path->gain;
+        for (uint32_t i = 0; i < frames; i++) {
+            float lin_target = 0.0f;
+            if (target == m + 1) {
+                if (path->warmup > 0) path->warmup--;
+                else lin_target = 1.0f;
+            }
+            g = ramp_towards(g, lin_target, step);
+            path->g[i] = g;
+        }
+    }
+    const int run_min = min_before > 0.0f || mg > 0.0f;
+    // The analyzer shows the input as it lines up with what plays.
+    tl_lin_path *delayed_pre = loudest && loudest->gain >= 0.5f ? loudest : NULL;
+
+    if (loudest) {
+        memcpy(k->in_l, l, frames * sizeof(float));
+        memcpy(k->in_r, r, frames * sizeof(float));
+    }
+    if (!delayed_pre) {
+        for (uint32_t i = 0; i < frames; i++) {
+            k->ana_pre[(ana + i) & (TL_ANALYZER_SIZE - 1)] = 0.5f * (l[i] + r[i]);
+        }
+    }
+
+    if (run_min) {
+        run_stages_path(k, p, frames);
+        if (min_before < 1.0f || mg < 1.0f) {
+            for (uint32_t i = 0; i < frames; i++) {
+                l[i] *= k->min_g[i];
+                r[i] *= k->min_g[i];
             }
         }
-    }
-    int ok = 1;
-    for (int ear = 0; ear < 2; ear++) {
-        DSPSplitComplex split = { k->conv_acc_re[ear], k->conv_acc_im[ear] };
-        vDSP_fft_zrip(k->conv_fft, &split, 1, TL_CONV_LOG2, FFT_INVERSE);
-        vDSP_ztoc(&split, 1, (DSPComplex *)k->conv_time, 2, TL_CONV_BLOCK);
-        // Overlap-save: the first half wrapped around, the second half is the output.
-        float sum = 0.0f;
-        for (uint32_t i = 0; i < TL_CONV_BLOCK; i++) {
-            out[ear][i] = k->conv_time[TL_CONV_BLOCK + i];
-            sum += out[ear][i];
-        }
-        if (!isfinite(sum)) ok = 0;
-    }
-    if (!ok) memset(out, 0, 2 * TL_CONV_BLOCK * sizeof(float));
-    return ok;
-}
-
-// Clears the delay line and input after a non-finite block.
-static void conv_restart(tl_kernel *k) {
-    k->conv_filled = 0;
-    memset(k->conv_in, 0, sizeof(k->conv_in));
-}
-
-// Takes over a set from the main thread, one change at a time.
-static void conv_pick_up(tl_kernel *k) {
-    if (k->conv_next || k->conv_removing) return;
-    if (!atomic_load_explicit(&k->conv_pending, memory_order_relaxed)) return;
-    if (atomic_load_explicit(&k->conv_retired, memory_order_acquire)) return;
-    tl_ir_set *set = atomic_exchange_explicit(&k->conv_pending, NULL, memory_order_acq_rel);
-    if (!set) return;
-    if (set == TL_NO_SET) {
-        set = NULL;
-    } else if (set->sample_rate != k->sample_rate) {
-        conv_retire(k, set);   // made for the rate before a reconfigure
-        return;
-    }
-    if (!k->conv_cur) {
-        k->conv_cur = set;
-    } else if (k->conv_mix <= 0.0f) {
-        // Nothing of the old set is audible: switch right away.
-        conv_retire(k, k->conv_cur);
-        k->conv_cur = set;
-        if (set && k->conv_running && !conv_render(k, set, k->conv_out)) conv_restart(k);
-    } else if (!set) {
-        k->conv_removing = 1;
     } else {
-        k->conv_next = set;
-        k->conv_swap = 0.0f;
-        // Its output for the block that is playing, from the same delay line.
-        if (!conv_render(k, set, k->conv_out_next)) conv_restart(k);
+        // Idle: start fresh, without ramps, when it is needed again.
+        k->preamp_current = p->preamp;
+        k->bypass_current = p->bypass_gain;
+        k->eq_on = p->eq_enabled ? 1 : 0;
+        for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
+        memset(l, 0, frames * sizeof(float));
+        memset(r, 0, frames * sizeof(float));
+    }
+
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        if (!path->conv.running) continue;
+        run_linear_path(k, path, p, frames);
+        if (path == delayed_pre) {
+            for (uint32_t i = 0; i < frames; i++) {
+                k->ana_pre[(ana + i) & (TL_ANALYZER_SIZE - 1)] = 0.5f * (k->dly_l[i] + k->dly_r[i]);
+            }
+        }
+        for (uint32_t i = 0; i < frames; i++) {
+            l[i] += k->lin_l[i] * path->g[i];
+            r[i] += k->lin_r[i] * path->g[i];
+        }
+        path->gain = path->g[frames - 1];
+    }
+    k->min_gain = mg;
+
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        if (target == m + 1 || path->gain > 0.0f) continue;
+        // Silent: let go of the FIR's delay line, and finish a change that waited.
+        if (path->conv.block) conv_settle(&path->conv);
+        if (path->conv.running) conv_reset(&path->conv);
+        path->gain = 0.0f;
+        path->warmup = 0;
     }
 }
+
+// MARK: - Virtual speakers (IO thread)
 
 // Crossfades between the dry signal and the convolved one: the convolved signal lags by
 // TL_CONV_BLOCK samples, so it fades in only once its first block is out.
 static void run_virtual_speakers(tl_kernel *k, const tl_params *p, float *l, float *r, uint32_t frames) {
-    conv_pick_up(k);
+    tl_conv *c = &k->vs;
+    conv_pick_up(c, k->sample_rate, k->vs_mix > 0.0f);
     // A headphone effect: never on a multichannel speaker layout.
-    const int wanted = p->virtual_speakers_enabled && !k->mc_active && k->conv_cur && !k->conv_removing;
-    if (!k->conv_cur || (!wanted && k->conv_mix <= 0.0f)) {
+    const int wanted = p->virtual_speakers_enabled && !k->mc_active && c->cur && !c->removing;
+    if (!c->cur || (!wanted && k->vs_mix <= 0.0f)) {
         // Dry: finish a change that waited for the fade-out and stop convolving.
-        if (k->conv_next) {
-            conv_retire(k, k->conv_cur);
-            k->conv_cur = k->conv_next;
-            k->conv_next = NULL;
-        }
-        if (k->conv_removing) {
-            conv_retire(k, k->conv_cur);
-            k->conv_cur = NULL;
-            k->conv_removing = 0;
-        }
-        k->conv_mix = 0.0f;
-        k->conv_swap = 0.0f;
-        if (k->conv_running) conv_reset(k);
+        conv_settle(c);
+        k->vs_mix = 0.0f;
+        if (c->running) conv_reset(c);
         return;
     }
-    if (!k->conv_running) {
-        k->conv_running = 1;
-        k->conv_warmup = TL_CONV_BLOCK;
+    if (!c->running) {
+        c->running = 1;
+        k->vs_warmup = c->block;
     }
+    conv_process(c, l, r, k->wet_l, k->wet_r, frames);
     const float target = wanted ? 1.0f : 0.0f;
-    const float mix_step = k->conv_mix_step, swap_step = k->conv_swap_step;
-    float mix = k->conv_mix, swap = k->conv_swap;
-    uint32_t pos = k->conv_pos;
+    const float mix_step = k->vs_mix_step;
+    float mix = k->vs_mix;
     for (uint32_t i = 0; i < frames; i++) {
-        const float dry_l = l[i], dry_r = r[i];
-        float wet_l = k->conv_out[0][pos], wet_r = k->conv_out[1][pos];
-        if (k->conv_next) {
-            wet_l += swap * (k->conv_out_next[0][pos] - wet_l);
-            wet_r += swap * (k->conv_out_next[1][pos] - wet_r);
-            swap += swap_step;
-            if (swap >= 1.0f) {
-                conv_retire(k, k->conv_cur);
-                k->conv_cur = k->conv_next;
-                k->conv_next = NULL;
-                memcpy(k->conv_out, k->conv_out_next, sizeof(k->conv_out));
-                swap = 0.0f;
-            }
-        }
-        k->conv_in[0][TL_CONV_BLOCK + pos] = dry_l;
-        k->conv_in[1][TL_CONV_BLOCK + pos] = dry_r;
-        if (++pos == TL_CONV_BLOCK) {
-            pos = 0;
-            conv_push_block(k);
-            int ok = conv_render(k, k->conv_cur, k->conv_out);
-            if (k->conv_next) ok &= conv_render(k, k->conv_next, k->conv_out_next);
-            if (!ok) conv_restart(k);
-        }
-        if (k->conv_warmup > 0) {
-            k->conv_warmup--;
+        if (k->vs_warmup > 0) {
+            k->vs_warmup--;
         } else if (mix < target) {
             mix = fminf(target, mix + mix_step);
         } else if (mix > target) {
             mix = fmaxf(target, mix - mix_step);
         }
-        l[i] = dry_l + mix * (wet_l - dry_l);
-        r[i] = dry_r + mix * (wet_r - dry_r);
+        l[i] += mix * (k->wet_l[i] - l[i]);
+        r[i] += mix * (k->wet_r[i] - r[i]);
     }
-    k->conv_mix = mix;
-    k->conv_swap = swap;
-    k->conv_pos = pos;
+    k->vs_mix = mix;
 }
 
 // Clamps to +-limit; NaN and infinities become silence.
@@ -1082,35 +1521,9 @@ OSStatus tl_ioproc(AudioObjectID device,
         }
     }
 
-    // 2. Pre analyzer
+    // 2 + 3. Pre analyzer, preamp + EQ (minimum or linear phase, see run_eq).
     uint64_t pos = atomic_load_explicit(&k->ana_pos, memory_order_relaxed);
-    for (uint32_t i = 0; i < frames; i++) {
-        k->ana_pre[(pos + i) & (TL_ANALYZER_SIZE - 1)] = 0.5f * (l[i] + r[i]);
-    }
-
-    // 3. Preamp + EQ. While the EQ is bypassed, `bypass_gain` takes their place so that
-    //    switching compares the sound, not the level. A switch crossfades the two paths
-    //    over one buffer: the filters shift the phase, and a hard cut would click.
-    {
-        const int32_t eq_on = p->eq_enabled ? 1 : 0;
-        if (eq_on != k->eq_on) {
-            memcpy(k->dry_l, l, frames * sizeof(float));
-            memcpy(k->dry_r, r, frames * sizeof(float));
-            apply_gain_ramp(k->dry_l, k->dry_r, frames, &k->bypass_current, p->bypass_gain);
-            apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
-            run_biquads(k, p, frames);
-            crossfade(l, r, k->dry_l, k->dry_r, frames, eq_on);
-            k->eq_on = eq_on;
-        } else if (eq_on) {
-            apply_gain_ramp(l, r, frames, &k->preamp_current, p->preamp);
-            run_biquads(k, p, frames);
-            k->bypass_current = p->bypass_gain;
-        } else {
-            apply_gain_ramp(l, r, frames, &k->bypass_current, p->bypass_gain);
-            k->preamp_current = p->preamp;
-            for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
-        }
-    }
+    run_eq(k, p, frames, pos);
 
     // 3b. Device simulation ("Listen as"): make-up gain, the device's filters and its stereo
     //     width, on top of the EQ whether or not that is bypassed. Switching crossfades like the EQ.
@@ -1333,6 +1746,33 @@ OSStatus tl_ioproc(AudioObjectID device,
                     if (c == skip_l || c == skip_r) continue;
                     dst[i * stride + c] += src[i * stride + c] * g;
                 }
+            }
+        }
+        // Linear phase (stereo layouts only, so never here on a multichannel speaker layout):
+        // they follow the processed pair through delay lines of its latency, and through its
+        // switches between the paths.
+        int any = 0;
+        for (int m = 0; m < TL_LIN_MODES; m++) any |= k->lin[m].cycle_active;
+        if (any) {
+            uint32_t line = 2;
+            for (uint32_t c = 0; c < stride; c++) {
+                if (c == skip_l || c == skip_r) continue;
+                for (uint32_t i = 0; i < frames; i++) {
+                    float v = dst[i * stride + c];
+                    if (!isfinite(v)) v = 0.0f;
+                    float out = v * k->min_g[i];
+                    for (int m = 0; m < TL_LIN_MODES; m++) {
+                        tl_lin_path *path = &k->lin[m];
+                        if (!path->cycle_active || line >= path->ring_channels) continue;
+                        const uint32_t mask = path->ring_size - 1;
+                        float *ring = path->ring + (size_t)line * path->ring_size;
+                        const uint32_t w = (path->cycle_pos + i) & mask;
+                        ring[w] = v;
+                        out += ring[(w - path->latency) & mask] * path->g[i];
+                    }
+                    dst[i * stride + c] = out;
+                }
+                line++;
             }
         }
     }

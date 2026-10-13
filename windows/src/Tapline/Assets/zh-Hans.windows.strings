@@ -1,5 +1,11 @@
 /* Simplified Chinese strings that only the Windows version uses. Keys are the English source strings. */
 
+/* Filter phase (linear-phase EQ) */
+"Equalizer APO starts its convolution afresh whenever its configuration changes, so in linear phase the sound pauses for that long after each change. Tapline writes a new curve once you stop adjusting it." = "每当配置改变，Equalizer APO 都会重新开始卷积，所以在线性相位下，每次改动后声音会停顿这么久。Tapline 会等你停止调节后再写入新曲线。";
+"Could not write the linear-phase EQ: %@" = "无法写入线性相位 EQ：%@";
+"Linear Phase (%lld ms latency)" = "线性相位（延迟 %lld ms）";
+"Linear phase plays the same curve without any phase shift, but %lld ms late: video may lose lip sync. The room correction's timing is unchanged, as linear phase only removes the EQ's own phase shift, and room measurements are not delayed." = "线性相位播放同一条曲线，完全没有相移，但声音会晚 %lld ms：视频可能音画不同步。房间校正的时间特性不变：线性相位只去掉 EQ 自身的相移，房间测量也不会被延迟。";
+
 "Already used by another app: %@" = "已被其他软件占用：%@";
 "Audio enhancements are off for %@" = "%@ 的“音频增强”已关闭";
 "Audio processing by Equalizer APO by Jonas Thedering (GPL)." = "音频处理由 Jonas Thedering 开发的 Equalizer APO 完成（GPL）。";

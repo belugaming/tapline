@@ -55,9 +55,9 @@ struct EqualizerPage: View {
             .fixedSize()
             .help(Text("Turn the equalizer on or off for this output device"))
 
-            // The only control that gives way on a narrow window: long preset names truncate.
+            // On a narrow window long preset names truncate, and the status shrinks to symbols.
             PresetMenu()
-                .frame(minWidth: 120, maxWidth: 240)
+                .frame(minWidth: 90, maxWidth: 240)
 
             Button {
                 presetName = model.matchingPreset?.name ?? ""
@@ -72,13 +72,8 @@ struct EqualizerPage: View {
             CompareButton()
                 .fixedSize()
 
-            if !model.settings.eqEnabled && model.levelMatchedBypass {
-                Text("Level-matched \(Format.gain(model.settings.bypassGainDB(sampleRate: model.engine.sampleRate)))")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .help(Text("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings."))
-            }
+            EQStatus()
+                .layoutPriority(-1)
 
             Spacer(minLength: 16)
 
@@ -112,6 +107,8 @@ struct EqualizerPage: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(model.exportParametricEQ(), forType: .string)
                     }
+                    Divider()
+                    FilterPhasePicker(title: "Filter Phase")
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -472,6 +469,77 @@ extension EQChannels {
         case .both: "L + R"
         case .left: "Left"
         case .right: "Right"
+        }
+    }
+}
+
+/// Minimum or linear phase for the current device, with the latency linear phase adds.
+struct FilterPhasePicker: View {
+    @Environment(AppModel.self) private var model
+    let title: LocalizedStringKey
+
+    var body: some View {
+        if let unavailable = model.linearPhaseUnavailable {
+            // A surround output: what it plays, and why, as disabled items.
+            Menu(title) {
+                Text(unavailable)
+                Button("Minimum Phase (no latency)") {}
+                    .disabled(true)
+            }
+        } else {
+            Picker(title, selection: Binding(get: { model.settings.filterPhase }, set: { model.setFilterPhase($0) })) {
+                Text("Minimum Phase (no latency)").tag(FilterPhase.minimum)
+                Text("Linear Phase · Low Latency (\(model.linearPhaseLatencyMS(.linearLowLatency)) ms)").tag(FilterPhase.linearLowLatency)
+                Text("Linear Phase · High Precision (\(model.linearPhaseLatencyMS(.linearHighPrecision)) ms)").tag(FilterPhase.linearHighPrecision)
+            }
+        }
+    }
+}
+
+/// What the EQ switch does not show: the level of the bypass, and linear phase with its
+/// latency. In words when there is room, as symbols (with the words as help) when not.
+private struct EQStatus: View {
+    @Environment(AppModel.self) private var model
+
+    private enum Detail { case full, short, symbol }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            items(.full)
+            items(.short)
+            items(.symbol)
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+
+    private func items(_ detail: Detail) -> some View {
+        let s = model.settings
+        let ms = model.linearPhaseLatencyMS(s.filterPhase)
+        return HStack(spacing: 10) {
+            if !s.eqEnabled && model.levelMatchedBypass {
+                let gain = Format.gain(s.bypassGainDB(sampleRate: model.engine.sampleRate))
+                Group {
+                    switch detail {
+                    case .full: Text("Level-matched \(gain)")
+                    case .short: Label(gain, systemImage: "speaker.wave.2")
+                    case .symbol: Image(systemName: "speaker.wave.2")
+                    }
+                }
+                .help(Text("Level-matched \(gain)") + Text(verbatim: "\n")
+                      + Text("The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings."))
+            }
+            if model.playsLinearPhase {
+                Group {
+                    switch detail {
+                    case .full: Label("Linear phase · \(ms) ms", systemImage: "timer")
+                    case .short: Label("\(ms) ms", systemImage: "timer")
+                    case .symbol: Image(systemName: "timer")
+                    }
+                }
+                .help(Text("The EQ plays in linear phase: the same curve without phase shift, but the sound comes \(ms) ms late and video may lose lip sync. Switch it in the More menu or in Settings."))
+            }
         }
     }
 }

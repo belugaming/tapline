@@ -12,14 +12,16 @@ namespace Tapline.Core;
 /// automatic preamp keeps the EQ from clipping. With <c>levelMatchedBypass</c>, a device whose EQ is off gets a
 /// preamp equal to the EQ's loudness change instead (never a boost), so switching the EQ off
 /// compares sound rather than level. A "Listen as" simulation follows the EQ, as on macOS: its
-/// make-up gain and filters, and its stereo width folded into the width matrix.
+/// make-up gain and filters, and its stereo width folded into the width matrix. In linear phase
+/// the EQ (bands, tone controls and preamp) is one FIR per channel for Equalizer APO's convolver,
+/// and the bypassed sound is delayed by as much, so that switching never jumps in time.
 ///
 /// A multichannel speaker output (5.1 … 7.1.4, see <see cref="ProcessesPerSpeaker"/>) gets the macOS
 /// kernel's multichannel processing instead, channel by channel: the EQ on every speaker (or the
 /// front pair only), without its boosts above 120 Hz on LFE channels; swap, width and balance on
-/// the front pair; no headphone effects (crossfeed, Virtual Speakers, "Listen as"); the output gain
-/// on every speaker; then each speaker's room correction, trim and delay. Channels without a known
-/// speaker pass through untouched.
+/// the front pair; no headphone effects (crossfeed, Virtual Speakers, "Listen as") and no linear
+/// phase; the output gain on every speaker; then each speaker's room correction, trim and delay.
+/// Channels without a known speaker pass through untouched.
 public static class ApoConfig
 {
     /// First line of every configuration Tapline writes, so it can tell its own from the user's.
@@ -30,12 +32,19 @@ public static class ApoConfig
     /// file (see <see cref="VirtualSpeakerFiles"/>), at the device's sample rate.</summary>
     public sealed record SpeakerFiles(string FrontLeftToLeft, string FrontLeftToRight, string FrontRightToLeft, string FrontRightToRight);
 
+    /// <summary>The linear-phase EQ's FIR files (see <see cref="LinearPhaseFiles"/>), relative to the
+    /// configuration file: for the left and right channel, and the other channels of a multichannel
+    /// device. <paramref name="Latency"/>: the FIRs' delay in samples.</summary>
+    public sealed record FirFiles(string Left, string Right, string? Others, int Latency);
+
     /// <summary><paramref name="Speakers"/>: the files for Virtual Speakers when the device has
     /// them on and they could be written; without them the effect is left out.
     /// <paramref name="Simulation"/>: the "Listen as" device playing on this output, if any.
-    /// <paramref name="Layout"/>: the output's speakers, one position per channel (null: unknown).</summary>
+    /// <paramref name="Layout"/>: the output's speakers, one position per channel (null: unknown).
+    /// <paramref name="Fir"/>: the linear-phase EQ's files when the device plays in linear phase and
+    /// they are ready; until then it plays the biquads.</summary>
     public sealed record Device(string Guid, string Name, int Channels, double SampleRate, DspSettings Settings, SpeakerFiles? Speakers = null,
-                                DeviceSimulation? Simulation = null, SpeakerLayout? Layout = null);
+                                DeviceSimulation? Simulation = null, SpeakerLayout? Layout = null, FirFiles? Fir = null);
 
     /// <summary>Whether an output with <paramref name="channels"/> and <paramref name="layout"/> gets the
     /// per-speaker processing: more than two channels, a surround layout (more than a front pair), and
@@ -74,7 +83,13 @@ public static class ApoConfig
         sb.AppendLine("Channel: all");
 
         var number = 1;
-        if (s.EqEnabled)
+        // Files for another channel layout are not used.
+        var fir = s.FilterPhase == FilterPhase.Linear && d.Fir is { } files && (d.Channels > 2) == (files.Others != null) ? files : null;
+        if (s.EqEnabled && fir != null)
+        {
+            AppendLinearPhase(sb, fir, d.Channels);
+        }
+        else if (s.EqEnabled)
         {
             var preamp = s.EffectivePreampDb(d.SampleRate);
             if (Math.Abs(preamp) >= 0.005) sb.AppendLine($"Preamp: {N(preamp, 2)} dB");
@@ -97,10 +112,15 @@ public static class ApoConfig
                 sb.AppendLine("Channel: all");
             }
         }
-        else if (levelMatchedBypass)
+        else
         {
-            var gain = s.BypassGainDb(d.SampleRate);
-            if (Math.Abs(gain) >= 0.005) sb.AppendLine($"Preamp: {N(gain, 2)} dB");
+            if (levelMatchedBypass)
+            {
+                var gain = s.BypassGainDb(d.SampleRate);
+                if (Math.Abs(gain) >= 0.005) sb.AppendLine($"Preamp: {N(gain, 2)} dB");
+            }
+            // Bypassed in linear phase: as late as the FIR, so that switching does not jump in time.
+            if (fir != null) sb.AppendLine($"Delay: {fir.Latency.ToString(Inv)} samples");
         }
 
         // "Listen as": on top of the EQ, bypassed or not. No limiter follows, so the make-up gain
@@ -185,6 +205,27 @@ public static class ApoConfig
         sb.AppendLine("Copy: " + string.Join(" ",
             new[] { $"1={Sum((l1, "1"), (l2, "2"))}", $"2={Sum((r1, "1"), (r2, "2"))}" }
             .Concat(others.Select(o => $"{o}={Sum((outputGain, o.ToString(Inv)))}"))));
+    }
+
+    /// The linear-phase EQ: each channel convolved with its FIR, which holds the preamp.
+    private static void AppendLinearPhase(StringBuilder sb, FirFiles fir, int channels)
+    {
+        sb.AppendLine($"# Linear phase: the EQ as one FIR per channel, {fir.Latency.ToString(Inv)} samples late");
+        if (channels < 2)
+        {
+            sb.AppendLine($"Convolution: {fir.Left}");
+            return;
+        }
+        sb.AppendLine("Channel: 1");
+        sb.AppendLine($"Convolution: {fir.Left}");
+        sb.AppendLine("Channel: 2");
+        sb.AppendLine($"Convolution: {fir.Right}");
+        if (fir.Others != null)
+        {
+            sb.AppendLine("Channel: " + string.Join(" ", Enumerable.Range(3, channels - 2).Select(c => c.ToString(Inv))));
+            sb.AppendLine($"Convolution: {fir.Others}");
+        }
+        sb.AppendLine("Channel: all");
     }
 
     /// <summary>A multichannel speaker output, following the macOS kernel's multichannel path.</summary>

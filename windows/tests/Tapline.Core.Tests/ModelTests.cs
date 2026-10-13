@@ -30,7 +30,8 @@ public class ModelTests
     public void JsonUsesTheSwiftKeysAndRawValues()
     {
         var node = JsonNode.Parse(JsonSerializer.Serialize(Sample(), TaplineJson.Options))!.AsObject();
-        Assert.Equal(["eqEnabled", "preampDB", "autoPreamp", "bands", "tone", "effects", "speakers"], node.Select(p => p.Key));
+        Assert.Equal(["eqEnabled", "preampDB", "autoPreamp", "bands", "tone", "effects", "filterPhase", "speakers"], node.Select(p => p.Key));
+        Assert.Equal("minimum", (string?)node["filterPhase"]);
         var band = node["bands"]![1]!.AsObject();
         Assert.Equal(["id", "type", "frequency", "gain", "q", "isEnabled", "channels"], band.Select(p => p.Key));
         Assert.Equal("notch", (string?)band["type"]);

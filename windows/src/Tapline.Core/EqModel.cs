@@ -287,6 +287,10 @@ public sealed class DspSettings : IEquatable<DspSettings>
     public List<EqBand> Bands { get => _bands; set => _bands = value ?? []; }
     public ToneSettings Tone { get; set; } = new();
     public EffectsSettings Effects { get; set; } = new();
+    /// <summary>Biquads (no latency) or a linear-phase FIR of the same curve. A setting of the device:
+    /// presets and the A/B slots leave it alone.</summary>
+    [JsonConverter(typeof(FilterPhaseConverter))]
+    public FilterPhase FilterPhase { get; set; } = FilterPhase.Minimum;
     /// <summary>Multichannel outputs only.</summary>
     public SpeakerSetup Speakers { get => _speakers; set => _speakers = value ?? new(); }
 
@@ -369,6 +373,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         Bands = [.. Bands],
         Tone = Tone,
         Effects = Effects,
+        FilterPhase = FilterPhase,
         Speakers = Speakers.Clone(),
     };
 
@@ -379,6 +384,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         && AutoPreamp == other.AutoPreamp
         && Tone == other.Tone
         && Effects == other.Effects
+        && FilterPhase == other.FilterPhase
         && Speakers.Equals(other.Speakers)
         && Bands.SequenceEqual(other.Bands);
 
@@ -392,6 +398,7 @@ public sealed class DspSettings : IEquatable<DspSettings>
         hash.Add(AutoPreamp);
         hash.Add(Tone);
         hash.Add(Effects);
+        hash.Add(FilterPhase);
         hash.Add(Speakers);
         foreach (var band in Bands) hash.Add(band);
         return hash.ToHashCode();

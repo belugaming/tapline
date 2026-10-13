@@ -94,6 +94,12 @@ final class AppModel {
     @ObservationIgnored private let preAnalyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
     @ObservationIgnored private var analyzerBuffer = [Float](repeating: 0, count: 8192)
     @ObservationIgnored private var tickCount = 0
+    // Linear-phase EQ: FIRs are designed one at a time on this queue, for the newest curve.
+    @ObservationIgnored private let firQueue = DispatchQueue(label: "io.github.belugaming.Tapline.linear-phase", qos: .userInitiated)
+    @ObservationIgnored private var firWanted: LinearPhaseEQ.Spec?
+    @ObservationIgnored private var firInFlight: LinearPhaseEQ.Spec?
+    @ObservationIgnored private var firStarted = Date.distantPast
+    @ObservationIgnored private var firRetryScheduled = false
     @ObservationIgnored private var runawaySeconds = 0.0
     @ObservationIgnored private var lastCycles: UInt64 = 0
     @ObservationIgnored private var stalledSeconds = 0.0
@@ -326,6 +332,72 @@ final class AppModel {
                                   simulation: simulation, simulating: simulating)
         engine.kernel.setSpeakers(settings, layout: engine.speakerLayout, firstChannel: engine.speakerFirstChannel, sampleRate: engine.sampleRate)
         pushVirtualSpeakers()
+        pushLinearPhase()
+    }
+
+    /// Keeps the kernel's linear-phase FIR in step with the curve. A design takes about 10 ms
+    /// at 48 kHz, off the main thread. While a band is dragged, one runs at a time, at most
+    /// every 50 ms and always for the newest curve; the kernel crossfades each new FIR in over
+    /// 50 ms, so dragging stays smooth.
+    private func pushLinearPhase() {
+        let phase = settings.filterPhase
+        let lengths = FilterPhase.allCases.filter(\.isLinear)
+        // The FIRs cover the stereo pair: a surround output keeps minimum phase (the kernel
+        // would not play them either).
+        guard phase.isLinear, speakerLayout == nil else {
+            // The kernel fades back to the stages, then frees the FIRs.
+            firWanted = nil
+            for length in lengths { engine.kernel.removeLinearPhase(length) }
+            return
+        }
+        let spec = LinearPhaseEQ.Spec(settings: settings, sampleRate: engine.sampleRate)
+        if spec == engine.kernel.linearPhaseSpec(phase) {
+            firWanted = nil
+            // The kernel plays the other length until this one's FIR is there; now it can go.
+            for length in lengths where length != phase { engine.kernel.removeLinearPhase(length) }
+            return
+        }
+        guard spec != firInFlight else {
+            firWanted = nil
+            return
+        }
+        firWanted = spec
+        designNextFIR()
+    }
+
+    private func designNextFIR() {
+        guard firInFlight == nil, let spec = firWanted else { return }
+        let wait = 0.05 - Date().timeIntervalSince(firStarted)
+        if wait > 0 {
+            guard !firRetryScheduled else { return }
+            firRetryScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.firRetryScheduled = false
+                    self?.designNextFIR()
+                }
+            }
+            return
+        }
+        firWanted = nil
+        firInFlight = spec
+        firStarted = Date()
+        firQueue.async { [weak self] in
+            let fir = LinearPhaseEQ.prepare(spec)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.firInFlight = nil
+                    // Nil only without memory for it: retried with the next change.
+                    guard self.engine.isRunning, let fir else { return }
+                    // Even when the curve moved on meanwhile, it is closer than the FIR playing.
+                    // The kernel refuses one made for a rate it no longer runs at.
+                    if self.settings.filterPhase == fir.spec.phase { self.engine.kernel.setLinearPhase(fir) }
+                    // Then catch up with the curve as it is now (it may also have gone back).
+                    self.pushLinearPhase()
+                }
+            }
+        }
     }
 
     /// Hands the chosen impulse responses to the kernel when the set or the sample rate
@@ -569,6 +641,24 @@ final class AppModel {
 
     func setEQEnabled(_ on: Bool) { mutate { $0.eqEnabled = on } }
 
+    // MARK: - Filter phase
+
+    func setFilterPhase(_ phase: FilterPhase) { mutate { $0.filterPhase = phase } }
+
+    /// Whether the current output plays the linear-phase setting: stereo outputs only.
+    var playsLinearPhase: Bool { settings.filterPhase.isLinear && speakerLayout == nil }
+
+    /// Why linear phase is off on the current output, if it is a surround layout.
+    var linearPhaseUnavailable: String? {
+        speakerLayout.map { String(format: String(localized: "Linear phase plays on stereo outputs only, so this %@ speaker layout keeps minimum phase."), $0.name) }
+    }
+
+    /// Milliseconds `phase` delays the sound on the current device.
+    func linearPhaseLatencyMS(_ phase: FilterPhase) -> Int {
+        let rate = engine.isRunning ? engine.sampleRate : (currentOutput?.sampleRate ?? 48_000)
+        return Int(LinearPhaseEQ.latencyMilliseconds(sampleRate: rate, phase: phase).rounded())
+    }
+
     // MARK: - Multichannel speakers
 
     /// The current output's 5.1 … 9.1.6 speaker layout, whose speakers Tapline processes one by one.
@@ -638,9 +728,11 @@ final class AppModel {
 
     func toggleCompare() {
         let uid = currentDeviceUID
-        let other = alternate[uid] ?? settings
+        var other = alternate[uid] ?? settings
         alternate[uid] = settings
         compareSlot = compareSlot == .a ? .b : .a
+        // The filter phase belongs to the device, not to a slot: A/B must not jump in time.
+        other.filterPhase = settings.filterPhase
         store(other)
     }
 

@@ -134,6 +134,9 @@ static class EqualizerApo
     public static void Write(string text)
     {
         if (ConfigPath is not string dir || ConfigFile is not string file) throw new InvalidOperationException("Equalizer APO is not installed.");
+        // Equalizer APO reloads on every write, which restarts its filters (and empties a
+        // convolver's history): leave an unchanged configuration alone.
+        if (ConfigIsManaged && ReadConfig() == text) return;
         var backup = Path.Combine(dir, BackupName);
         if (File.Exists(file) && !File.Exists(backup) && !ConfigIsManaged) File.Copy(file, backup);
         var temp = Path.Combine(dir, "config.tapline.tmp");

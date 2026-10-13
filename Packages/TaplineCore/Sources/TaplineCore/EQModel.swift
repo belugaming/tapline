@@ -244,17 +244,21 @@ public struct DSPSettings: Codable, Hashable, Sendable {
     public var bands: [EQBand] = []
     public var tone = ToneSettings()
     public var effects = EffectsSettings()
+    /// Biquads (no latency) or a linear-phase FIR of the same curve. A setting of the device:
+    /// presets and the A/B slots leave it alone.
+    public var filterPhase: FilterPhase = .minimum
     /// Multichannel outputs only.
     public var speakers = SpeakerSetup()
 
     public init(eqEnabled: Bool = true, preampDB: Double = 0, autoPreamp: Bool = true, bands: [EQBand] = [], tone: ToneSettings = ToneSettings(),
-                effects: EffectsSettings = EffectsSettings(), speakers: SpeakerSetup = SpeakerSetup()) {
+                effects: EffectsSettings = EffectsSettings(), filterPhase: FilterPhase = .minimum, speakers: SpeakerSetup = SpeakerSetup()) {
         self.eqEnabled = eqEnabled
         self.preampDB = preampDB
         self.autoPreamp = autoPreamp
         self.bands = bands
         self.tone = tone
         self.effects = effects
+        self.filterPhase = filterPhase
         self.speakers = speakers
     }
 
@@ -266,6 +270,7 @@ public struct DSPSettings: Codable, Hashable, Sendable {
         bands = try c.decodeIfPresent([EQBand].self, forKey: .bands) ?? []
         tone = try c.decodeIfPresent(ToneSettings.self, forKey: .tone) ?? ToneSettings()
         effects = try c.decodeIfPresent(EffectsSettings.self, forKey: .effects) ?? EffectsSettings()
+        filterPhase = (try? c.decodeIfPresent(FilterPhase.self, forKey: .filterPhase)) ?? .minimum
         speakers = try c.decodeIfPresent(SpeakerSetup.self, forKey: .speakers) ?? SpeakerSetup()
     }
 
