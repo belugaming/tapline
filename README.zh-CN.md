@@ -9,14 +9,14 @@
   <a href="https://github.com/belugaming/tapline/releases/latest"><img src="https://img.shields.io/github/v/release/belugaming/tapline?include_prereleases&sort=semver" alt="Release"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-black" alt="Apple Silicon">
-  <a href="#windows-版测试版"><img src="https://img.shields.io/badge/Windows-10%2B%20(%E6%B5%8B%E8%AF%95%E7%89%88)-0078D4" alt="Windows 10+（测试版）"></a>
+  <a href="#windows-版"><img src="https://img.shields.io/badge/Windows-10%2B-0078D4" alt="Windows 10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/belugaming/tapline" alt="License: GPL-3.0"></a>
 </p>
 
 <p align="center">
-  <b>macOS 全局参数均衡器、分应用混音器和耳机校正工具，现在也有 Windows 测试版。</b><br>
+  <b>macOS 和 Windows 上的全局参数均衡器、分应用混音器和耳机校正工具。</b><br>
   在 macOS 上不装驱动，不建虚拟声卡，基于 Core Audio 的进程截取接口实现。<br>
-  <a href="#windows-版测试版">Windows 版</a>目前是测试版，基于 Equalizer APO。<br>
+  <a href="#windows-版">Windows 版</a>基于 Equalizer APO。<br>
   <a href="README.md">English</a>
 </p>
 
@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/022a002c-c52c-459e-8b60-b277e9fa475c
 
 Tapline 夹在各个 App 和你的音箱、耳机之间，让你调整听到的所有声音：带实时频谱的精确参数 EQ、每个 App 单独调音量、根据公开测量数据算出的耳机校正曲线，以及几种听音效果。它常驻在菜单栏，自动跟随 macOS 当前的输出设备，每个设备各自保存一套设置。
 
-Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一样，基于 Equalizer APO。详见 [Windows 版（测试版）](#windows-版测试版)。
+Tapline 也有 Windows 10 和 11 版，页面和 macOS 版一样，基于 Equalizer APO。详见 [Windows 版](#windows-版)。
 
 和同类软件相比：
 
@@ -43,7 +43,7 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 
 - [系统要求](#系统要求)
 - [安装](#安装)
-- [Windows 版（测试版）](#windows-版测试版)
+- [Windows 版](#windows-版)
   - [Windows 版功能一览](#windows-版功能一览)
   - [在 Windows 上安装](#在-windows-上安装)
   - [在 Windows 上使用](#在-windows-上使用)
@@ -59,6 +59,7 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
   - [7. 多个设备、多套配置](#7-多个设备多套配置)
   - [8. 菜单栏和快捷键](#8-菜单栏和快捷键)
   - [9. 怎么看电平表](#9-怎么看电平表)
+  - [10. 模拟其他设备试听](#10-模拟其他设备试听)
 - [常见问题](#常见问题)
 - [工作原理](#工作原理)
 - [隐私与联网](#隐私与联网)
@@ -73,7 +74,7 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 - macOS 26 Tahoe 或更高版本
 - Apple Silicon 芯片的 Mac
 
-**Windows（测试版）**
+**Windows**
 
 - 64 位 Windows 10 或 11，x64 电脑（不支持 ARM 版 Windows，因为 Equalizer APO 只有 x64 版本）
 - 免费的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)，并在要用的输出设备上启用
@@ -88,18 +89,15 @@ Tapline 也推出了 Windows 10 和 11 的**测试版**，页面和 macOS 版一
 
 更新时，退出 Tapline，用新版本替换掉旧的 App 就行。发布版用 Tapline 自己的证书签名，所以更新后系统会保留音频权限。从更早的临时签名版本更新过来时，还会再要一次。
 
-## Windows 版（测试版）
+## Windows 版
 
 Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版的页面和 Mac 版一样（均衡器、助手和耳机校正、房间校正、混音器、效果器、设备），每个输出设备也各自保存一套 EQ。
 
-> [!NOTE]
-> Windows 版目前是**测试版**。它刚推出，还没有在很多电脑上测试过，难免有不完善的地方。欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈哪些能用、哪些不行。
-
-Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。Windows 版有自己的版本号（0.1.0-beta.x），以预发布版的形式发布，标题以 “Tapline for Windows” 开头；每个版本的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。
+Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。从 0.4.0 起，Windows 版和 Mac 版同时发布、版本号相同，标题以 “Tapline for Windows” 开头；Windows 版的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。遇到问题欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈。
 
 ### Windows 版功能一览
 
-| 功能 | macOS | Windows（测试版） |
+| 功能 | macOS | Windows |
 |---|---|---|
 | 参数 EQ，最多 24 个频段：在曲线上拖动、预设、A/B 对比、撤销、自动预增益 | ✓ | ✓ |
 | 只作用于左声道或右声道的频段 | ✓ | ✓ |
@@ -114,10 +112,11 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 | 限幅器 | ✓ | ✗（请把预增益保持在**自动**） |
 | 输出增益、声道平衡、立体声宽度、单声道、左右互换、交叉馈送 | ✓ | ✓（单声道输出设备上只有输出增益） |
 | 虚拟音箱（HRIR/BRIR 卷积，导入 HeSuVi） | ✓ | ✓（用 Equalizer APO 的卷积器） |
+| 模拟试听：用自己的耳机听其他耳机（squig.link）和日常设备扬声器的声音 | ✓，响度匹配 | ✓，提升可能削波时会比响度匹配更小声（没有限幅器） |
 | 切换输出、输入设备 | ✓ | ✓ |
 | 修改设备采样率 | ✓ | ✗（只显示） |
 | 快捷面板 | 菜单栏 | 通知区域（托盘） |
-| 全局快捷键 | ⌃⌥⌘P / B / K | Ctrl+Alt+Shift+P / B / K |
+| 全局快捷键 | ⌃⌥⌘P / B / K / L | Ctrl+Alt+Shift+P / B / K / L |
 | 登录时打开 | ✓ | ✓ |
 
 ### 在 Windows 上安装
@@ -131,9 +130,9 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 
 教程以 Mac 版为例。Windows 版的页面用法相同，每节教程下面都注明了 Windows 上的不同之处。简单来说：
 
-- **按键**：把 ⌘ 换成 Ctrl，⌥ 换成 Alt。窗口里：Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+B 旁通 EQ，Ctrl+K A/B 对比。全局快捷键（可以在**设置**里关掉）：Ctrl+Alt+Shift+P 开关处理，Ctrl+Alt+Shift+B 旁通 EQ，Ctrl+Alt+Shift+K 切换 A/B。
+- **按键**：把 ⌘ 换成 Ctrl，⌥ 换成 Alt。窗口里：Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+B 旁通 EQ，Ctrl+K A/B 对比。全局快捷键（可以在**设置**里关掉）：Ctrl+Alt+Shift+P 开关处理，Ctrl+Alt+Shift+B 旁通 EQ，Ctrl+Alt+Shift+K 切换 A/B，Ctrl+Alt+Shift+L 开关模拟试听。
 - **关闭 Tapline 后 EQ 依然有效**，因为是 Equalizer APO 在处理声音，重启电脑后也一样。要听原声，请关闭处理：电源按钮、托盘面板、Ctrl+Alt+Shift+P，或者 **设置 → 处理音频**。
-- **通知区域（托盘）**：点 Tapline 的图标打开快捷面板（处理开关、输出设备、音量、EQ 和预设、正在播放的 App）；右键点图标可以退出。关闭窗口后 Tapline 会留在托盘里继续运行；在**设置**里关掉这一项，关闭窗口就会退出。
+- **通知区域（托盘）**：点 Tapline 的图标打开快捷面板（处理开关、输出设备、音量、EQ 和预设、模拟试听、正在播放的 App）；右键点图标可以退出。关闭窗口后 Tapline 会留在托盘里继续运行；在**设置**里关掉这一项，关闭窗口就会退出。
 - **只有装了 Equalizer APO 的设备才会被处理。** 设备页会给其他设备标上**未装 Equalizer APO**：在 Equalizer APO 的 Configurator 里勾选它们（横幅上的**打开 Configurator**），然后重启。如果某个设备关闭了 Windows 的**音频增强**，Equalizer APO 也会被跳过，Tapline 会显示横幅，可以直接打开声音设置。从没调过 EQ 的输出设备不做任何处理。
 - **房间测量**期间，Tapline 会把被测的输出设备暂时从 Equalizer APO 的配置里拿掉，所以这几十秒里这个设备上的所有声音都不经过处理。如果麦克风只录到静音，请在 Windows 的隐私设置里允许访问麦克风（**打开麦克风设置**）。
 - 界面语言跟随 Windows 的显示语言（英文或简体中文）。
@@ -318,7 +317,7 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 
 <img src="docs/images/zh/menubar.png" width="340" align="right" alt="菜单栏面板">
 
-点菜单栏里的 Tapline 图标会弹出一个小面板：总开关、输出设备、系统音量、EQ 开关和当前曲线、预设菜单，以及正在播放的 App。点曲线图可以打开主窗口。
+点菜单栏里的 Tapline 图标会弹出一个小面板：总开关、输出设备、系统音量、EQ 开关和当前曲线、预设菜单、**模拟试听**开关，以及正在播放的 App。点曲线图可以打开主窗口。
 
 全局快捷键在任何 App 里都能用，可以在**设置**里关掉：
 
@@ -327,10 +326,11 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 | ⌃⌥⌘P | 开启或关闭处理 |
 | ⌃⌥⌘B | 旁通 EQ（以相同响度和原声对比） |
 | ⌃⌥⌘K | A/B 对比 |
+| ⌃⌥⌘L | 开关模拟试听（见 [10. 模拟其他设备试听](#10-模拟其他设备试听)） |
 
 在 Tapline 里：⌘Z / ⇧⌘Z 撤销和重做，⌘B 旁通 EQ，⌘K A/B 对比，⌘Q 隐藏到菜单栏，⌥⌘Q 彻底退出。
 
-> **Windows 上：** 面板从通知区域（托盘）里的 Tapline 图标打开，右键点图标可以退出。全局快捷键是 Ctrl+Alt+Shift+P / B / K；在 Tapline 里 Ctrl+Z / Ctrl+Y 撤销和重做，Ctrl+B 旁通 EQ，Ctrl+K A/B 对比。关闭窗口后 Tapline 会留在托盘里。
+> **Windows 上：** 面板从通知区域（托盘）里的 Tapline 图标打开，右键点图标可以退出。全局快捷键是 Ctrl+Alt+Shift+P / B / K / L；在 Tapline 里 Ctrl+Z / Ctrl+Y 撤销和重做，Ctrl+B 旁通 EQ，Ctrl+K A/B 对比。关闭窗口后 Tapline 会留在托盘里。
 
 <br clear="right">
 
@@ -343,6 +343,25 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 - **衰减（GR）**表示限幅器正在把峰值压低多少。空着最好；如果经常在动，就把预增益调低一点，或者打开**自动**。
 
 > **Windows 上：** 没有限幅器，所以也没有 GR 表。削波指示灯变红时，调低预增益或打开**自动**。
+
+### 10. 模拟其他设备试听
+
+在好耳机上练琴、混音时，你可能想知道大多数人听到的是什么样：耳塞、手机、笔记本电脑、汽车。**辅助调音 → 模拟试听**让你用自己的耳机听到音乐在这些设备上的样子，类似 Sonarworks SoundID 的 Translation Check。它叠加在你的 EQ 和耳机校正之上，不会改动它们，也永远不会存进预设。
+
+**耳机与耳塞**（精确）：在 squig.link 的测量数据里搜索一个设备，比如 *AirPods Pro 2*、*Apple EarPods* 或 *Galaxy Buds*，然后选中它。Tapline 会拟合一条 EQ，把你的耳机校正所追求的声音变成这个设备的声音：图上灰线是你的声音，虚线是设备，绿线是模拟结果。点**模拟这个设备**。
+
+- 如果这个设备和你的耳机来自同一个数据库（你在 **squig.link 测量** 里选的那个），Tapline 直接使用设备和你的目标曲线之间的差异。
+- 否则它会把设备和它自己数据库里的目标曲线对比（与你的目标同名的那条，或者 Harman 目标；可以在**对比目标**里换），两套测量设备的差异因此相互抵消。卡片上会注明是哪种情况。
+- 10 kHz 以上只模拟大致趋势，和耳机校正一样。
+- 先校正你自己的耳机（见 [2. 校正你的耳机](#2-校正你的耳机)）：模拟以你的校正所追求的目标曲线为起点。
+
+**设备扬声器**（近似）：点**手机扬声器**、**笔记本电脑扬声器**、**电视扬声器**、**小型蓝牙音箱**或**汽车**。每一项都是一条频响曲线（低频在哪里截止、典型的共振、高频）加上声道处理：手机和蓝牙音箱是单声道，笔记本电脑是窄立体声。它们是依据这类扬声器的一般特性编写的近似模拟，不是任何产品的实测数据。再点一次同一项即可停止。
+
+切换时**响度一致**：一个补偿增益抵消设备曲线对粉红噪声的响度变化（按 LUFS 响度表的方式加权），让你比较的是音色而不是音量。限幅器关闭时，Tapline 会改为保留余量，卡片上会注明模拟小声了多少。
+
+在卡片上、菜单栏面板里或按 ⌃⌥⌘L 开关它。Tapline 会记住上次选的设备；模拟本身每次启动 Tapline 时都是关闭的。
+
+> **Windows 上：** 托盘面板里也有这个开关，快捷键是 Ctrl+Alt+Shift+L。模拟用的滤波器写在 Equalizer APO 配置里你的 EQ 之后，只作用于当前输出设备。Equalizer APO 没有限幅器，所以设备会把某个频率提升到超过你的 EQ 本身的最高电平时，模拟会相应地比响度匹配更小声；卡片上会注明小声了多少。
 
 ## 常见问题
 
@@ -386,7 +405,7 @@ rm -rf ~/Library/Caches/io.github.belugaming.Tapline
 ```
 各个 App ──► 截取输出设备自己的输出流（Tapline 读取期间，原声在源头被静音）
         ──► 私有聚合设备 =［截取流 + 作为时钟源的输出设备］
-        ──► C 语言音频回调：混合各 App → 预增益 → EQ → 音色 → 效果（含虚拟音箱） → 限幅器
+        ──► C 语言音频回调：混合各 App → 预增益 → EQ → 音色 → 模拟试听 → 效果（含虚拟音箱） → 限幅器
         ──► 输出设备
 ```
 
@@ -394,6 +413,7 @@ rm -rf ~/Library/Caches/io.github.belugaming.Tapline
 - 有独立晶振的设备（USB、内置）开启漂移补偿；蓝牙和虚拟设备关闭，否则系统会插入或丢弃采样点。
 - 实时音频部分用纯 C 编写（`Packages/TaplineCore/Sources/TaplineDSP`），音频线程上没有内存分配、锁或 Swift 运行时。参数通过无锁三缓冲传进去。滤波器是 RBJ 双二阶滤波器，用双精度计算。
 - 虚拟音箱是均匀分段的 FFT 卷积（重叠保留法，每段 256 个采样，用 Accelerate 的实数 FFT），每条路径最长 65,536 个抽头。主线程把新的组合变换好，通过原子指针交给音频线程；音频线程交叉淡变过去，再把旧的交还给主线程释放。
+- 模拟试听在 EQ 之后有一个独立的处理块：最多 16 个双二阶滤波器、一个补偿增益和一个中/侧宽度，开关时和 EQ 一样交叉淡化。耳机模拟用同一个 EQ 拟合算法，把参考目标曲线当作“测量”，把设备当作“目标”。
 - EQ 旁通时，预增益、EQ 和音色由一个增益代替：整个 EQ 对粉红噪声的响度变化（按 ITU-R BS.1770 做 K 加权），最高 0 dB。开关 EQ 时，两条通路在一个音频缓冲内交叉淡化。
 - EQ 拟合算法（`EQFitter.swift`）参照 AutoEQ 的做法：先对齐电平，平滑所需的校正量（8 kHz 以上用两个倍频程的平滑），在误差最大的地方逐个加搁架和峰值滤波器，再用模式搜索一起微调所有参数。强度低于 100 % 时，它拟合的是把测量曲线朝目标移动相应比例后的曲线，所以结果和完整校正一样准确。
 - 同一时间只能运行一个 Tapline；设备停止回调时看门狗会自动重启引擎；检测到反馈回路时会自动关闭处理。Tapline 退出或崩溃时，它创建的截取流和聚合设备会一起消失。
@@ -450,13 +470,7 @@ scripts/release.sh 0.2.0 --push
 
 这个脚本会检查 `main` 分支有没有未提交的改动，然后更新版本号，把 Unreleased 整理成 `0.2.0`，提交、打 `v0.2.0` 标签并推送。接着[发布工作流](.github/workflows/release.yml)会在 GitHub 的 macOS 服务器上测试、编译，把 .dmg 磁盘映像连同这一段更新日志发布到 Releases。带后缀的版本（比如 `0.3.0-beta.1`）会标记为预发布版。每次推送到 `main`，[CI 工作流](.github/workflows/ci.yml)都会用 Xcode 27 编译一遍。
 
-Windows 测试版单独定版本号、单独发布。先在 [windows/CHANGELOG.md](windows/CHANGELOG.md) 里加一段，比如 `## 0.1.0-beta.4`，再推送同一版本号的标签：
-
-```bash
-git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
-```
-
-[Windows 发布工作流](.github/workflows/release-windows.yml)会在 Windows 服务器上测试、编译，把安装程序发布为 “Tapline for Windows 0.1.0-beta.4”，并用这一段更新日志作为发布说明。带后缀的版本会标记为预发布版；Windows 版永远不会被标记为最新版本，所以[安装](#安装)里的下载链接始终指向 Mac 版。`windows/` 下的改动由 [Windows 工作流](.github/workflows/windows.yml)在 Windows 上编译。
+Windows 版和 Mac 版一起发布，版本号相同。Windows 版的改动记在 [windows/CHANGELOG.md](windows/CHANGELOG.md) 的 **Unreleased** 部分：这一段有内容时，`scripts/release.sh` 会把它也整理成 `## 0.2.0`，更新 `Tapline.csproj` 里的版本号，并在同一个提交上打 `windows-v0.2.0` 标签。[Windows 发布工作流](.github/workflows/release-windows.yml)随后会在 Windows 服务器上测试、编译，把安装程序发布为 “Tapline for Windows 0.2.0”，并用这一段更新日志作为发布说明。带后缀的版本会标记为预发布版；Windows 版永远不会被标记为最新版本，所以[安装](#安装)里的下载链接始终指向 Mac 版。`windows/` 下的改动由 [Windows 工作流](.github/workflows/windows.yml)在 Windows 上编译。
 
 ## 已知限制
 
@@ -465,8 +479,9 @@ git tag windows-v0.1.0-beta.4 && git push origin windows-v0.1.0-beta.4
 - ADI-2 导出的是 ADI-2 DAC（FS）的文件；ADI-2 Pro 和 2/4 Pro 用的是别的文件类型。
 - 第一次调某个 App 的音量时，重建音频通路会短暂停一下。
 - 发布版还没有经过公证（见[安装](#安装)）。
-- Windows 版是测试版，还没有代码签名。它和 macOS 版的区别见 [Windows 版功能一览](#windows-版功能一览)。
+- Windows 版还没有代码签名。它和 macOS 版的区别见 [Windows 版功能一览](#windows-版功能一览)。
 - 虚拟音箱没有头部追踪：转头时音箱会跟着转。
+- 模拟试听的设备扬声器是典型设备的近似模拟，不是任何产品的实测数据；耳机模拟假定你自己的耳机已经校正到目标曲线。
 
 ## 致谢
 

@@ -194,6 +194,8 @@ struct TaplineCommands: Commands {
                 .keyboardShortcut("b", modifiers: [.command])
             Button("Compare A/B") { model.toggleCompare() }
                 .keyboardShortcut("k", modifiers: [.command])
+            Button(model.simulating ? "Stop Listening As Another Device" : "Listen As Another Device") { model.toggleSimulation() }
+                .disabled(model.simulation == nil)
             Divider()
             Button("Restart Audio Engine") { model.restartEngine() }
         }

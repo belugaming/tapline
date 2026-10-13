@@ -1,6 +1,7 @@
 name: Release (Windows)
 
-# Runs when a Windows version tag is pushed, e.g. windows-v0.1.0-beta.1.
+# Runs when a Windows version tag is pushed, e.g. windows-v0.4.0. scripts/release.sh
+# tags it together with the macOS release when windows/CHANGELOG.md has entries.
 on:
   push:
     tags: ["windows-v*"]
@@ -26,7 +27,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#windows-v}"
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          # File versions are numeric: 0.1.0-beta.1 -> 0.1.0
+          # File versions are numeric: 0.4.0-beta.1 -> 0.4.0
           echo "FILE_VERSION=${version%%-*}" >> "$GITHUB_ENV"
 
       - name: Test core
@@ -58,7 +59,7 @@ jobs:
             echo
             echo "需要 64 位 Windows 10 或 11，以及免费的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)。先安装 Equalizer APO，在它的 Configurator 中勾选输出设备并重启，然后运行 **Tapline-$VERSION-win-x64-setup.exe**。程序还没有代码签名，SmartScreen 可能会拦截：点“更多信息 → 仍要运行”。"
             echo
-            echo "This is a beta built without testing on Windows hardware yet. Please report what works and what does not in [Issues](https://github.com/belugaming/tapline/issues)."
+            echo "Please report problems in [Issues](https://github.com/belugaming/tapline/issues)."
           } > artifacts/notes.md
           cat artifacts/notes.md
 
