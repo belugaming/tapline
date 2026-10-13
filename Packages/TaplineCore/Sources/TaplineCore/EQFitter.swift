@@ -34,6 +34,9 @@ public enum EQFitter {
         /// Round the result to the steps a hardware EQ can be set to.
         public var gainStepDB: Double?
         public var qStep: Double?
+        /// How much of the correction to apply, 0...1, like a dry/wet control: the EQ is
+        /// fitted to the measurement moved this far towards the target.
+        public var strength: Double = 1
 
         public init(maxFilters: Int = 10, bassAdjustDB: Double = 0, tiltDBPerOctave: Double = 0, keepBassBelow: Double? = nil) {
             self.maxFilters = maxFilters
@@ -96,9 +99,12 @@ public enum EQFitter {
         public var measurement: [Double]
         /// Target including the bass / tilt preferences.
         public var target: [Double]
+        /// What the EQ was fitted to: the measurement moved `strength` of the way to `target`.
+        public var fitTarget: [Double]
         /// Measurement with the fitted EQ applied.
         public var predicted: [Double]
-        /// Weighted RMS deviation from the target (20 Hz - 10 kHz) before and after EQ.
+        /// Weighted RMS deviation from the full target (20 Hz - 10 kHz) before and after EQ:
+        /// at lower strengths, part of the deviation is left on purpose.
         public var errorBeforeDB: Double
         public var errorAfterDB: Double
     }
@@ -126,8 +132,13 @@ public enum EQFitter {
         let offset = mids.reduce(0) { $0 + t[$1] - m[$1] } / Double(max(mids.count, 1))
         for i in 0..<n { m[i] += offset }
 
+        // Partial strength: fit to a target between the measurement and the full target, so
+        // the EQ is as accurate as at full strength, just less of it.
+        let k = options.strength.isNaN ? 1 : options.strength.clamped(to: 0...1)
+        let goal = k == 1 ? t : (0..<n).map { m[$0] + k * (t[$0] - m[$0]) }
+
         // Required correction, smoothed more in the treble where measurements are least reliable.
-        var c = (0..<n).map { t[$0] - m[$0] }
+        var c = (0..<n).map { k * (t[$0] - m[$0]) }
         // Like AutoEQ: fine smoothing below 6 kHz, two-octave smoothing above 8 kHz with
         // a crossfade in between. Measurement rigs disagree wildly up there (coupler
         // resonances, fit), so only the broad treble trend is worth correcting.
@@ -176,7 +187,7 @@ public enum EQFitter {
         let before = weightedRMS((0..<n).map { t[$0] - m[$0] }, w: w, f: f)
         let after = weightedRMS((0..<n).map { t[$0] - predicted[$0] }, w: w, f: f)
 
-        return Result(bands: model.bands, frequencies: f, measurement: m, target: t, predicted: predicted,
+        return Result(bands: model.bands, frequencies: f, measurement: m, target: t, fitTarget: goal, predicted: predicted,
                       errorBeforeDB: before, errorAfterDB: after)
     }
 

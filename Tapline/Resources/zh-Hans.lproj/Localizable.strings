@@ -447,3 +447,13 @@
 "Show the curve of each measured position" = "显示每个测量位置的曲线";
 "%@ is a virtual output. If it belongs to software that changes the sound (such as SoundID Reference or an EQ app), that change ends up in the measurement: switch it off, or make the speakers' own device the output." = "%@ 是虚拟输出设备。如果它属于会改变声音的软件（比如 SoundID Reference 或 EQ 类 App），这些处理会混进测量结果：请先关掉它，或把音箱本身的设备设为输出。";
 "%@ is a virtual input, not a microphone. Choose the microphone's own device as the input." = "%@ 是虚拟输入设备，不是麦克风。请把麦克风本身的设备选为输入。";
+
+/* Level-matched bypass, correction strength */
+"EQ Bypass" = "EQ 旁通";
+"What you hear when the EQ is switched off (EQ switch, ⌘B, ⌃⌥⌘B, menu bar)." = "关掉 EQ 时听到的声音（EQ 开关、⌘B、⌃⌥⌘B、菜单栏）。";
+"Match loudness when bypassing" = "旁通时匹配响度";
+"A correction usually lowers the level a few dB to make room for its boosts, so without it the music plays louder, and louder tends to sound better. With this on, the bypassed sound plays at the loudness of the EQ (measured on pink noise, like a LUFS meter), so the comparison is fair. It never raises the level." = "校正曲线通常会把音量降低几 dB，给提升的频段留出余量，所以关掉 EQ 后音乐会变响，而更响的声音往往听起来更好。打开这一项后，旁通的声音会以 EQ 的响度播放（用粉红噪声测量，算法同 LUFS 响度表），对比才公平。它不会提高音量。";
+"Level-matched %@" = "已匹配响度 %@";
+"The EQ is bypassed and the original sound plays at the loudness of the EQ, so you compare sound, not level. You can turn this off in Settings." = "EQ 已旁通，原声以 EQ 的响度播放，让你比较的是音色而不是音量。可以在设置中关闭。";
+"Strength" = "强度";
+"How much of the correction to apply. At full strength the EQ corrects all the way to the target; lower values go part of the way, like a dry/wet control." = "校正的程度。强度拉满时 EQ 完全校正到目标曲线；调低则只校正一部分，类似干/湿比控制。";

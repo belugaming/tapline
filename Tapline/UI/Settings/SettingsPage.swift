@@ -16,6 +16,13 @@ struct SettingsPage: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Card(title: "EQ Bypass", subtitle: "What you hear when the EQ is switched off (EQ switch, ⌘B, ⌃⌥⌘B, menu bar).", systemImage: "power") {
+                    Toggle("Match loudness when bypassing", isOn: Binding(get: { model.levelMatchedBypass }, set: { model.levelMatchedBypass = $0 }))
+                    Text("A correction usually lowers the level a few dB to make room for its boosts, so without it the music plays louder, and louder tends to sound better. With this on, the bypassed sound plays at the loudness of the EQ (measured on pink noise, like a LUFS meter), so the comparison is fair. It never raises the level.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Card(title: "Keyboard Shortcuts", subtitle: "Work in every app, even when Tapline is in the background.", systemImage: "command") {
                     Toggle("Enable global shortcuts", isOn: Binding(get: { model.globalShortcutsEnabled }, set: { model.globalShortcutsEnabled = $0 }))
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
