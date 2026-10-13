@@ -305,7 +305,7 @@ static class ListenAs
                     if (v.Length == 0) return;
                     targetName = v;
                     Refresh();
-                }, 320);
+                }, 260);
             var spinner = HeadphoneCorrection.Spinner();
             scope.Bind(spinner, s => s.Visibility = computing ? Visibility.Visible : Visibility.Collapsed);
             var targetRow = Ui.HStack(8, Ui.Text(L.T("Compared with")), targetPicker, spinner);
