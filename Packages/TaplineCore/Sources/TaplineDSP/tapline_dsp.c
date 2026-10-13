@@ -1422,104 +1422,28 @@ static inline float guard_sample(float x, float limit) {
     return isfinite(x) ? copysignf(limit, x) : 0.0f;
 }
 
-// MARK: - IOProc
+// MARK: - Processing core (IO thread)
 
-OSStatus tl_ioproc(AudioObjectID device,
-                   const AudioTimeStamp *now,
-                   const AudioBufferList *input,
-                   const AudioTimeStamp *input_time,
-                   AudioBufferList *output,
-                   const AudioTimeStamp *output_time,
-                   void *client_data) {
-    (void)device; (void)now; (void)input_time; (void)output_time;
-    tl_kernel *k = (tl_kernel *)client_data;
-    if (!k || !output) return noErr;
-
-    // Pick up the newest parameter block, if any.
+// Picks up the newest parameter block and speaker settings, if any.
+static void pick_up_params(tl_kernel *k) {
     if (atomic_load_explicit(&k->middle, memory_order_acquire) & TL_DIRTY) {
         int previous = atomic_exchange_explicit(&k->middle, k->front, memory_order_acq_rel);
         k->front = previous & 3;
     }
-    const tl_params *p = &k->slots[k->front];
-    const tl_layout *L = &k->layout;
     if (atomic_load_explicit(&k->spk_middle, memory_order_acquire) & TL_DIRTY) {
         int previous = atomic_exchange_explicit(&k->spk_middle, k->spk_front, memory_order_acq_rel);
         k->spk_front = previous & 3;
     }
-    const tl_speakers *sp = &k->spk_slots[k->spk_front];
+}
 
-    for (UInt32 b = 0; b < output->mNumberBuffers; b++) {
-        if (output->mBuffers[b].mData) memset(output->mBuffers[b].mData, 0, output->mBuffers[b].mDataByteSize);
-    }
-    atomic_fetch_add_explicit(&k->m_cycles, 1, memory_order_relaxed);
-
-    if (L->out_buffer_l < 0 || (UInt32)L->out_buffer_l >= output->mNumberBuffers) return noErr;
-    AudioBuffer *ob_l = &output->mBuffers[L->out_buffer_l];
-    if (!ob_l->mData || ob_l->mNumberChannels == 0) return noErr;
-    uint32_t frames = ob_l->mDataByteSize / (uint32_t)(sizeof(float) * ob_l->mNumberChannels);
-    AudioBuffer *ob_r = NULL;
-    if (L->out_buffer_r >= 0 && (UInt32)L->out_buffer_r < output->mNumberBuffers) {
-        ob_r = &output->mBuffers[L->out_buffer_r];
-        if (!ob_r->mData || ob_r->mNumberChannels == 0) ob_r = NULL;
-        else {
-            uint32_t fr = ob_r->mDataByteSize / (uint32_t)(sizeof(float) * ob_r->mNumberChannels);
-            if (fr < frames) frames = fr;
-        }
-    }
-    if (frames == 0) return noErr;
-    if (frames > TL_MAX_FRAMES) frames = TL_MAX_FRAMES;
-
+// Steps 2 to 9 on the stereo pair in buf_l / buf_r, from the EQ to the meters: what tl_ioproc
+// and tl_kernel_process share. With `mc`, the other speakers of a multichannel layout (`chan`,
+// by channel of the stream, the pair being buf_l / buf_r) go along.
+static void process_pair(tl_kernel *k, const tl_params *p, const tl_speakers *sp, int mc,
+                         float *const *chan, uint32_t frames) {
+    const tl_layout *L = &k->layout;
     float *l = k->buf_l;
     float *r = k->buf_r;
-    memset(l, 0, frames * sizeof(float));
-    memset(r, 0, frames * sizeof(float));
-
-    // Multichannel speakers: every channel of the stream, by channel (the pair is l / r).
-    const int mc = mc_usable(L, ob_l, ob_r);
-    k->mc_active = mc;
-    float *chan[TL_MAX_CHANNELS];
-    if (mc) {
-        for (int c = 0; c < L->channel_count; c++) chan[c] = k->mc_buf[c];
-        chan[L->out_channel_l] = l;
-        chan[L->out_channel_r] = r;
-        mc_mix_sources(k, L, input, frames);
-    }
-
-    // 1. Mix the tapped sources with their own gains.
-    if (input) {
-        for (int s = 0; s < L->source_count; s++) {
-            const int idx = L->source_buffer_index[s];
-            float target = atomic_load_explicit(&k->source_gain_target[s], memory_order_relaxed);
-            float g = k->source_gain_current[s];
-            if (idx < 0 || (UInt32)idx >= input->mNumberBuffers) { k->source_gain_current[s] = target; continue; }
-            const AudioBuffer *ib = &input->mBuffers[idx];
-            if (!ib->mData || ib->mNumberChannels == 0) { k->source_gain_current[s] = target; continue; }
-            const float *src = (const float *)ib->mData;
-            const uint32_t ch = ib->mNumberChannels;
-            uint32_t n = ib->mDataByteSize / (uint32_t)(sizeof(float) * ch);
-            if (n > frames) n = frames;
-            const uint32_t cl = (L->source_channel_l >= 0 && (uint32_t)L->source_channel_l < ch) ? (uint32_t)L->source_channel_l : 0;
-            const uint32_t cr = (L->source_channel_r >= 0 && (uint32_t)L->source_channel_r < ch) ? (uint32_t)L->source_channel_r : cl;
-            const float step = (target - g) / (float)(n ? n : 1);
-            float peak = 0.0f;
-            for (uint32_t i = 0; i < n; i++) {
-                float sl = src[i * ch + cl];
-                float sr = src[i * ch + cr];
-                // A broken stream must not poison the mix: drop its NaN / inf samples,
-                // but let the meter (and the runaway guard) see them.
-                if (!isfinite(sl)) { sl = 0.0f; peak = INFINITY; }
-                if (!isfinite(sr)) { sr = 0.0f; peak = INFINITY; }
-                const float al = fabsf(sl), ar = fabsf(sr);
-                if (al > peak) peak = al;
-                if (ar > peak) peak = ar;
-                g += step;
-                l[i] += sl * g;
-                r[i] += sr * g;
-            }
-            k->source_gain_current[s] = target;
-            atomic_max_float(&k->m_source_peak[s], peak);
-        }
-    }
 
     // 2 + 3. Pre analyzer, preamp + EQ (minimum or linear phase, see run_eq).
     uint64_t pos = atomic_load_explicit(&k->ana_pos, memory_order_relaxed);
@@ -1701,6 +1625,101 @@ OSStatus tl_ioproc(AudioObjectID device,
         atomic_max_float(&k->m_rms_r, (float)sqrt(sr / frames));
         if (clips) atomic_fetch_add_explicit(&k->m_clips, clips, memory_order_relaxed);
     }
+}
+
+// MARK: - IOProc
+
+OSStatus tl_ioproc(AudioObjectID device,
+                   const AudioTimeStamp *now,
+                   const AudioBufferList *input,
+                   const AudioTimeStamp *input_time,
+                   AudioBufferList *output,
+                   const AudioTimeStamp *output_time,
+                   void *client_data) {
+    (void)device; (void)now; (void)input_time; (void)output_time;
+    tl_kernel *k = (tl_kernel *)client_data;
+    if (!k || !output) return noErr;
+
+    pick_up_params(k);
+    const tl_params *p = &k->slots[k->front];
+    const tl_layout *L = &k->layout;
+    const tl_speakers *sp = &k->spk_slots[k->spk_front];
+
+    for (UInt32 b = 0; b < output->mNumberBuffers; b++) {
+        if (output->mBuffers[b].mData) memset(output->mBuffers[b].mData, 0, output->mBuffers[b].mDataByteSize);
+    }
+    atomic_fetch_add_explicit(&k->m_cycles, 1, memory_order_relaxed);
+
+    if (L->out_buffer_l < 0 || (UInt32)L->out_buffer_l >= output->mNumberBuffers) return noErr;
+    AudioBuffer *ob_l = &output->mBuffers[L->out_buffer_l];
+    if (!ob_l->mData || ob_l->mNumberChannels == 0) return noErr;
+    uint32_t frames = ob_l->mDataByteSize / (uint32_t)(sizeof(float) * ob_l->mNumberChannels);
+    AudioBuffer *ob_r = NULL;
+    if (L->out_buffer_r >= 0 && (UInt32)L->out_buffer_r < output->mNumberBuffers) {
+        ob_r = &output->mBuffers[L->out_buffer_r];
+        if (!ob_r->mData || ob_r->mNumberChannels == 0) ob_r = NULL;
+        else {
+            uint32_t fr = ob_r->mDataByteSize / (uint32_t)(sizeof(float) * ob_r->mNumberChannels);
+            if (fr < frames) frames = fr;
+        }
+    }
+    if (frames == 0) return noErr;
+    if (frames > TL_MAX_FRAMES) frames = TL_MAX_FRAMES;
+
+    float *l = k->buf_l;
+    float *r = k->buf_r;
+    memset(l, 0, frames * sizeof(float));
+    memset(r, 0, frames * sizeof(float));
+
+    // Multichannel speakers: every channel of the stream, by channel (the pair is l / r).
+    const int mc = mc_usable(L, ob_l, ob_r);
+    k->mc_active = mc;
+    float *chan[TL_MAX_CHANNELS];
+    if (mc) {
+        for (int c = 0; c < L->channel_count; c++) chan[c] = k->mc_buf[c];
+        chan[L->out_channel_l] = l;
+        chan[L->out_channel_r] = r;
+        mc_mix_sources(k, L, input, frames);
+    }
+
+    // 1. Mix the tapped sources with their own gains.
+    if (input) {
+        for (int s = 0; s < L->source_count; s++) {
+            const int idx = L->source_buffer_index[s];
+            float target = atomic_load_explicit(&k->source_gain_target[s], memory_order_relaxed);
+            float g = k->source_gain_current[s];
+            if (idx < 0 || (UInt32)idx >= input->mNumberBuffers) { k->source_gain_current[s] = target; continue; }
+            const AudioBuffer *ib = &input->mBuffers[idx];
+            if (!ib->mData || ib->mNumberChannels == 0) { k->source_gain_current[s] = target; continue; }
+            const float *src = (const float *)ib->mData;
+            const uint32_t ch = ib->mNumberChannels;
+            uint32_t n = ib->mDataByteSize / (uint32_t)(sizeof(float) * ch);
+            if (n > frames) n = frames;
+            const uint32_t cl = (L->source_channel_l >= 0 && (uint32_t)L->source_channel_l < ch) ? (uint32_t)L->source_channel_l : 0;
+            const uint32_t cr = (L->source_channel_r >= 0 && (uint32_t)L->source_channel_r < ch) ? (uint32_t)L->source_channel_r : cl;
+            const float step = (target - g) / (float)(n ? n : 1);
+            float peak = 0.0f;
+            for (uint32_t i = 0; i < n; i++) {
+                float sl = src[i * ch + cl];
+                float sr = src[i * ch + cr];
+                // A broken stream must not poison the mix: drop its NaN / inf samples,
+                // but let the meter (and the runaway guard) see them.
+                if (!isfinite(sl)) { sl = 0.0f; peak = INFINITY; }
+                if (!isfinite(sr)) { sr = 0.0f; peak = INFINITY; }
+                const float al = fabsf(sl), ar = fabsf(sr);
+                if (al > peak) peak = al;
+                if (ar > peak) peak = ar;
+                g += step;
+                l[i] += sl * g;
+                r[i] += sr * g;
+            }
+            k->source_gain_current[s] = target;
+            atomic_max_float(&k->m_source_peak[s], peak);
+        }
+    }
+
+    // 2 ... 9. EQ, effects, limiter, meters.
+    process_pair(k, p, sp, mc, chan, frames);
 
     // 10. Write to the device's stereo channels.
     {
@@ -1777,6 +1796,46 @@ OSStatus tl_ioproc(AudioObjectID device,
         }
     }
     return noErr;
+}
+
+// MARK: - Host buffers (Audio Unit)
+
+void tl_kernel_process(tl_kernel *k, float *const *channels, uint32_t channel_count, uint32_t frames) {
+    if (!k || !channels || channel_count == 0 || !channels[0]) return;
+    float *in_l = channels[0];
+    float *in_r = channel_count > 1 && channels[1] ? channels[1] : NULL;
+
+    pick_up_params(k);
+    const tl_params *p = &k->slots[k->front];
+    const tl_speakers *sp = &k->spk_slots[k->spk_front];
+    // One stereo pair, never a speaker layout: the headphone effects and linear phase play.
+    k->mc_active = 0;
+    atomic_fetch_add_explicit(&k->m_cycles, 1, memory_order_relaxed);
+
+    for (uint32_t done = 0; done < frames;) {
+        const uint32_t n = frames - done < TL_MAX_FRAMES ? frames - done : TL_MAX_FRAMES;
+        memcpy(k->buf_l, in_l + done, n * sizeof(float));
+        memcpy(k->buf_r, (in_r ? in_r : in_l) + done, n * sizeof(float));
+        process_pair(k, p, sp, 0, NULL, n);
+        if (in_r) {
+            memcpy(in_l + done, k->buf_l, n * sizeof(float));
+            memcpy(in_r + done, k->buf_r, n * sizeof(float));
+        } else {
+            for (uint32_t i = 0; i < n; i++) in_l[done + i] = 0.5f * (k->buf_l[i] + k->buf_r[i]);
+        }
+        done += n;
+    }
+}
+
+uint32_t tl_kernel_latency(const tl_kernel *k, const tl_params *params) {
+    uint32_t latency = k->lim_lookahead;
+    if (params->virtual_speakers_enabled) latency += k->vs.block;
+    if (params->linear_phase == TL_LIN_LOW_LATENCY || params->linear_phase == TL_LIN_HIGH_PRECISION) {
+        const tl_lin_path *path = &k->lin[params->linear_phase - 1];
+        // A length the kernel has no memory for keeps playing the stages.
+        if (path->conv.block) latency += path->latency;
+    }
+    return latency;
 }
 
 OSStatus tl_set_stream_usage(AudioObjectID device,

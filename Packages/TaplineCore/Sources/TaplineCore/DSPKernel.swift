@@ -189,6 +189,17 @@ public final class DSPKernel: @unchecked Sendable {
         }
     }
 
+    /// Samples of delay the kernel adds at the configured rate with Virtual Speakers on or off and
+    /// the EQ at `phase`, once that plays: the limiter's look-ahead and what the convolutions add.
+    /// What a host compensates (the Audio Unit's latency).
+    public func latency(virtualSpeakers: Bool, phase: FilterPhase) -> Int {
+        var p = tl_params()
+        tl_params_init(&p)
+        p.virtual_speakers_enabled = virtualSpeakers ? 1 : 0
+        p.linear_phase = phase.kernelMode
+        return Int(tl_kernel_latency(pointer, &p))
+    }
+
     /// Frees sets the IO thread is done with.
     public func collectReleasedSets() {
         tl_kernel_collect(pointer)
