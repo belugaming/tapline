@@ -36,6 +36,9 @@ public static class EqFitter
         /// <summary>Round the result to the steps a hardware EQ can be set to.</summary>
         public double? GainStepDb { get; set; }
         public double? QStep { get; set; }
+        /// <summary>How much of the correction to apply, 0...1, like a dry/wet control: the EQ is
+        /// fitted to the measurement moved this far towards the target.</summary>
+        public double Strength { get; set; } = 1;
 
         public Options() { }
 
@@ -52,6 +55,7 @@ public static class EqFitter
             && KeepBassBelow == other.KeepBassBelow && MaxBoostDb.Equals(other.MaxBoostDb) && MaxCutDb.Equals(other.MaxCutDb)
             && CorrectOnlyBelow == other.CorrectOnlyBelow && NoBoostBelow == other.NoBoostBelow && MaxQ.Equals(other.MaxQ)
             && LowSmoothingOctaves.Equals(other.LowSmoothingOctaves) && GainStepDb == other.GainStepDb && QStep == other.QStep
+            && Strength.Equals(other.Strength)
             && (Slots is null ? other.Slots is null : other.Slots is not null && Slots.SequenceEqual(other.Slots));
 
         public override readonly int GetHashCode() =>
@@ -109,9 +113,12 @@ public static class EqFitter
         public double[] Measurement { get; init; } = [];
         /// <summary>Target including the bass / tilt preferences.</summary>
         public double[] Target { get; init; } = [];
+        /// <summary>What the EQ was fitted to: the measurement moved <see cref="Options.Strength"/> of the way to <see cref="Target"/>.</summary>
+        public double[] FitTarget { get; init; } = [];
         /// <summary>Measurement with the fitted EQ applied.</summary>
         public double[] Predicted { get; init; } = [];
-        /// <summary>Weighted RMS deviation from the target (20 Hz - 10 kHz) before and after EQ.</summary>
+        /// <summary>Weighted RMS deviation from the full target (20 Hz - 10 kHz) before and after EQ:
+        /// at lower strengths, part of the deviation is left on purpose.</summary>
         public double ErrorBeforeDb { get; init; }
         public double ErrorAfterDb { get; init; }
     }
@@ -153,9 +160,15 @@ public static class EqFitter
         double offset = offsetSum / Math.Max(midCount, 1);
         for (int i = 0; i < n; i++) m[i] += offset;
 
+        // Partial strength: fit to a target between the measurement and the full target, so
+        // the EQ is as accurate as at full strength, just less of it.
+        double k = double.IsNaN(o.Strength) ? 1 : Math.Clamp(o.Strength, 0, 1);
+        var goal = new double[n];
+        for (int i = 0; i < n; i++) goal[i] = k == 1 ? t[i] : m[i] + k * (t[i] - m[i]);
+
         // Required correction, smoothed more in the treble where measurements are least reliable.
         var c = new double[n];
-        for (int i = 0; i < n; i++) c[i] = t[i] - m[i];
+        for (int i = 0; i < n; i++) c[i] = k * (t[i] - m[i]);
         // Like AutoEQ: fine smoothing below 6 kHz, two-octave smoothing above 8 kHz with
         // a crossfade in between. Measurement rigs disagree wildly up there (coupler
         // resonances, fit), so only the broad treble trend is worth correcting.
@@ -220,6 +233,7 @@ public static class EqFitter
             Frequencies = [.. f],
             Measurement = m,
             Target = t,
+            FitTarget = goal,
             Predicted = predicted,
             ErrorBeforeDb = WeightedRms(errBefore, w, f),
             ErrorAfterDb = WeightedRms(errAfter, w, f),

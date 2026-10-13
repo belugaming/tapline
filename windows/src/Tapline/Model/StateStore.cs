@@ -18,6 +18,8 @@ sealed class PersistedState
     public bool GlobalShortcuts { get; set; } = true;
     public double AnalyzerTilt { get; set; } = 3;
     public bool CloseToTray { get; set; } = true;
+    /// Play the bypassed sound at the loudness of the EQ (see DspSettings.BypassGainDb).
+    public bool LevelMatchedBypass { get; set; } = true;
     /// The user agreed that Tapline replaces Equalizer APO's configuration.
     public bool TookOverApoConfig { get; set; }
     /// Small per-view preferences (like @AppStorage on macOS).

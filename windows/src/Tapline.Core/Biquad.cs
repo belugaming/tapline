@@ -169,4 +169,35 @@ public static class ResponseCurve
         return Math.Max(ResponseDb(list, Probe, sampleRate, EqChannels.Left).Max(),
                         ResponseDb(list, Probe, sampleRate, EqChannels.Right).Max());
     }
+
+    // Pink noise has equal power per octave, so every point of a log-spaced grid carries the
+    // same power. Each point is weighted by the K-weighting filter of ITU-R BS.1770 (the
+    // loudness of LUFS meters): a high-pass around 40 Hz and +4 dB above 2 kHz.
+    private static readonly double[] LoudnessGrid = LogFrequencies(320);
+    private static readonly double[] LoudnessWeights = KWeights();
+
+    private static double[] KWeights()
+    {
+        var shelf = new BiquadCoefficients(1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585);
+        var highPass = new BiquadCoefficients(1, -2, 1, -1.99004745483398, 0.99007225036621);
+        return LoudnessGrid.Select(f =>
+        {
+            double g = shelf.Magnitude(f, 48_000) * highPass.Magnitude(f, 48_000);
+            return g * g;
+        }).ToArray();
+    }
+
+    /// <summary>How much the bands change the loudness of pink noise, in dB (LU): positive when the
+    /// curve makes music louder. With <paramref name="channel"/>, only the bands that process that channel count.</summary>
+    public static double LoudnessChangeDb(IEnumerable<EqBand> bands, double sampleRate, EqChannels? channel = null)
+    {
+        var response = ResponseDb(bands, LoudnessGrid, sampleRate, channel);
+        double power = 0, total = 0;
+        for (int i = 0; i < response.Length; i++)
+        {
+            power += LoudnessWeights[i] * Math.Pow(10, response[i] / 10);
+            total += LoudnessWeights[i];
+        }
+        return 10 * Math.Log10(Math.Max(power / total, 1e-12));
+    }
 }

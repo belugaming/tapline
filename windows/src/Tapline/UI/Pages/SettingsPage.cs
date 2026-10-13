@@ -21,6 +21,10 @@ sealed class SettingsPage : PageBase
             Scope.Check(L.T("Keep Tapline in the notification area when the window is closed"), () => Model.CloseToTray, v => Model.CloseToTray = v),
             Ui.Caption(L.T("The interface language follows your system language (English or Simplified Chinese).")));
 
+        var bypass = Ui.Card(L.T("EQ Bypass"), L.T("What you hear when the EQ is switched off (EQ switch, Ctrl+B, Ctrl+Alt+Shift+B, notification area)."), Glyphs.Power,
+            Scope.Check(L.T("Match loudness when bypassing"), () => Model.LevelMatchedBypass, v => Model.LevelMatchedBypass = v),
+            Ui.Caption(L.T("A correction usually lowers the level a few dB to make room for its boosts, so without it the music plays louder, and louder tends to sound better. With this on, the bypassed sound plays at the loudness of the EQ (measured on pink noise, like a LUFS meter), so the comparison is fair. It never raises the level.")));
+
         var conflicts = Scope.Text(() => Model.ShortcutConflicts.Count == 0 ? "" : L.F("Already used by another app: %@", string.Join(", ", Model.ShortcutConflicts)), 12, null, Theme.Warning, wrap: true);
         Scope.Bind(conflicts, c => c.Visibility = Model.ShortcutConflicts.Count == 0 ? Visibility.Collapsed : Visibility.Visible);
         var shortcuts = Ui.Card(L.T("Keyboard Shortcuts"), L.T("Work in every app, even when Tapline is in the background."), Glyphs.Keyboard,
@@ -58,7 +62,7 @@ sealed class SettingsPage : PageBase
             Ui.Caption(L.T("Audio processing by Equalizer APO by Jonas Thedering (GPL).")),
             links);
 
-        Content = Ui.Page(Ui.VStack(16, general, shortcuts, analyzer, reset, about), 760);
+        Content = Ui.Page(Ui.VStack(16, general, bypass, shortcuts, analyzer, reset, about), 760);
     }
 
 }
