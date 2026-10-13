@@ -17,6 +17,9 @@ GitHub release notes, so write entries for users.
 - Switching the EQ off (EQ switch, ⌘B, ⌃⌥⌘B, menu bar) is now level-matched: the original plays at the loudness of the EQ instead of a few dB louder, because a correction's preamp makes it quieter and louder tends to sound better. The gain is the EQ's loudness change on pink noise, weighted like a LUFS meter, and is never a boost. It shows next to the EQ switch while the EQ is off.
 - Switching the EQ on or off crossfades over a few milliseconds instead of cutting, so it no longer clicks.
 
+### Fixed
+- The controls at the top right of the Equalizer page (input spectrum, range, more) keep their size while you edit the EQ. On a narrow window they were squeezed whenever the preset name changed, for example from a preset's name to "Custom".
+
 ## [0.3.2] - 2026-10-12
 
 ### Changed
