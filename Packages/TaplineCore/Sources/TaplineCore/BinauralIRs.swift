@@ -32,6 +32,9 @@ public struct BinauralIRs: Equatable, Sendable {
         case wrongFileCount(Int)
     }
 
+    /// The longest response the kernel uses, in samples at the device rate.
+    public static let maxLength = Int(TL_CONV_MAX_TAPS)
+
     /// Index of each response in `responses`.
     public static let frontLeftToLeft = 0, frontLeftToRight = 1, frontRightToLeft = 2, frontRightToRight = 3
 
@@ -146,6 +149,13 @@ public struct BinauralIRs: Equatable, Sendable {
         return result
     }
 
+    /// Ready for the kernel at `rate`: trimmed, cut (with a fade) to what fits the kernel
+    /// at that rate, and resampled.
+    public func prepared(sampleRate rate: Double) -> BinauralIRs {
+        let fits = rate > 0 ? Int(Double(Self.maxLength) * sampleRate / rate) : Self.maxLength
+        return trimmed(maxLength: min(Self.maxLength, fits)).resampled(to: rate)
+    }
+
     /// Band-limited resampling (Kaiser-windowed sinc). Scales by the rate ratio so the
     /// filters keep their gain. Stops after `maxLength` output samples.
     public func resampled(to rate: Double, maxLength: Int = Int(TL_CONV_MAX_TAPS)) -> BinauralIRs {
@@ -233,19 +243,22 @@ private struct Resampler {
         // Cut off at 96% of the lower Nyquist frequency.
         let cutoff = min(1, ratio) * 0.96
         let zeroCrossings = 24.0
-        halfWidth = zeroCrossings / cutoff
+        let half = zeroCrossings / cutoff
         let beta = 8.0
-        let count = Int(halfWidth * Self.stepsPerSample) + 2
+        let steps = Self.stepsPerSample
+        let count = Int(half * steps) + 2
         // An impulse response gets `ratio` times as many samples: scale them down so the
         // filter keeps its gain.
         let scale = 1 / ratio
+        let norm = Self.besselI0(beta)
+        halfWidth = half
         table = (0..<count).map { i in
-            let t = Double(i) / Self.stepsPerSample
-            guard t < halfWidth else { return 0 }
+            let t = Double(i) / steps
+            guard t < half else { return 0 }
             let x = cutoff * t
             let sinc = x == 0 ? 1 : sin(Double.pi * x) / (Double.pi * x)
-            let u = t / halfWidth
-            let window = Self.besselI0(beta * (1 - u * u).squareRoot()) / Self.besselI0(beta)
+            let u = t / half
+            let window = Resampler.besselI0(beta * (1 - u * u).squareRoot()) / norm
             return cutoff * sinc * window * scale
         }
     }

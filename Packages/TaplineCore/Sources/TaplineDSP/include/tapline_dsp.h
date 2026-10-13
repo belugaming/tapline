@@ -112,7 +112,7 @@ void tl_params_init(tl_params *params);
 /// front right -> left ear, front right -> right ear, at `sample_rate`, which must be the
 /// rate the kernel is configured for (resample first). `gain` scales all four. Only the
 /// first TL_CONV_MAX_TAPS samples are used. Allocates. NULL when the input is unusable.
-tl_ir_set *_Nullable tl_ir_set_create(const float *const *irs, uint32_t length, double sample_rate, float gain);
+tl_ir_set *_Nullable tl_ir_set_create(const float *_Nonnull const *_Nonnull irs, uint32_t length, double sample_rate, float gain);
 
 /// Frees a set that was never handed to a kernel. NULL is ignored.
 void tl_ir_set_destroy(tl_ir_set *_Nullable set);
