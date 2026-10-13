@@ -208,6 +208,7 @@ final class AudioUnitEngine: @unchecked Sendable {
         let fir = state.filterPhase.isLinear ? Double(LinearPhaseEQ.taps(sampleRate: sampleRate, phase: state.filterPhase) / 2) / sampleRate : 0
         let tail = (state.virtualSpeakersEnabled ? speakersDuration : 0) + fir
         let rate = sampleRate
+        inbox.latency.store(latency, ordering: .relaxed)
         current.withLock {
             $0.latency = latency
             $0.sampleRate = rate

@@ -1,7 +1,8 @@
 // Checks the registered Tapline Audio Unit the way a host uses it: it loads out of process, lists
 // Tapline's presets (the built-in ones, then the user's, read from the app's preferences through
-// the extension's sandbox exception), keeps its whole state in a project, loads Virtual Speakers
-// and reports the latency of linear phase and Virtual Speakers. auval checks the rest.
+// the extension's sandbox exception), keeps its whole state in a project, loads Virtual Speakers,
+// and delays the sound exactly by the latency it reports, also while the host bypasses it (a
+// synthetic impulse rendered offline; no audio device is used). auval checks the rest.
 //
 //   swift scripts/check-audio-unit.swift [--expect-preset NAME]
 //
@@ -37,6 +38,54 @@ let expectedPreset = arguments.firstIndex(of: "--expect-preset").flatMap { argum
 
 /// Waits for the extension, which applies changes on its own queue.
 func settle() async { try? await Task.sleep(for: .milliseconds(600)) }
+
+/// Renders a synthetic impulse through a fresh instance offline (no audio device) and returns
+/// the reported latency in samples, the first sample that is not silent and the loudest one,
+/// counted from the impulse.
+@MainActor func impulse(virtualSpeakers: Bool, bypassed: Bool) async -> (latency: Int, first: Int, peak: Int) {
+    let rate = 48_000.0, at = 4800, length = 9600
+    let unit: AVAudioUnit
+    do {
+        unit = try await AVAudioUnit.instantiate(with: description, options: .loadOutOfProcess)
+    } catch {
+        fail("could not load aufx Tpln Tpln: \(error)")
+    }
+    parameter(unit.auAudioUnit, "virtualSpeakers").value = virtualSpeakers ? 1 : 0
+    await settle()
+    unit.auAudioUnit.shouldBypassEffect = bypassed
+    let engine = AVAudioEngine()
+    let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
+    var position = 0
+    let source = AVAudioSourceNode(format: format) { _, _, frames, list in
+        for buffer in UnsafeMutableAudioBufferListPointer(list) {
+            let samples = buffer.mData!.assumingMemoryBound(to: Float.self)
+            for i in 0..<Int(frames) { samples[i] = position + i == at ? 0.5 : 0 }
+        }
+        position += Int(frames)
+        return noErr
+    }
+    var output: [Float] = []
+    do {
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 512)
+        engine.attach(source)
+        engine.attach(unit)
+        engine.connect(source, to: unit, format: format)
+        engine.connect(unit, to: engine.mainMixerNode, format: format)
+        try engine.start()
+        let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 512)!
+        while output.count < length {
+            _ = try engine.renderOffline(512, to: buffer)
+            output += UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength))
+        }
+        engine.stop()
+    } catch {
+        fail("offline rendering failed: \(error)")
+    }
+    let latency = Int((unit.auAudioUnit.latency * rate).rounded())
+    let first = (output.firstIndex { abs($0) > 1e-4 } ?? length) - at
+    let peak = (output.indices.max { abs(output[$0]) < abs(output[$1]) } ?? 0) - at
+    return (latency, first, peak)
+}
 
 @MainActor func check() async {
     let unit = await instantiate()
@@ -96,6 +145,18 @@ func settle() async { try? await Task.sleep(for: .milliseconds(600)) }
     guard let preset = a["preset"] as? NSDictionary, preset["name"] as? String == presets[1].name else { fail("the saved state lost the preset") }
     guard other.latency > 0.17 else { fail("the restored instance reports \(other.latency) s of latency") }
     print("State: saved and restored (\(saved.count) bytes)")
+
+    // The sound comes out exactly as late as reported, also while the host bypasses the effect
+    // (a synthetic impulse, rendered offline).
+    for (virtualSpeakers, bypassed) in [(false, false), (false, true), (true, false), (true, true)] {
+        let r = await impulse(virtualSpeakers: virtualSpeakers, bypassed: bypassed)
+        let what = "\(virtualSpeakers ? "Virtual Speakers" : "EQ")\(bypassed ? ", bypassed by the host" : "")"
+        print("Impulse (\(what)): reported \(r.latency) samples, first sound after \(r.first), loudest after \(r.peak)")
+        guard r.first >= r.latency else { fail("\(what): sound \(r.latency - r.first) samples earlier than the reported latency") }
+        if !virtualSpeakers || bypassed {
+            guard r.peak == r.latency else { fail("\(what): the impulse came out \(r.peak) samples late, \(r.latency) reported") }
+        }
+    }
     print("OK")
 }
 

@@ -14,6 +14,12 @@ private struct RenderBuffers {
     var inputData: (UnsafeMutablePointer<Float>?, UnsafeMutablePointer<Float>?) = (nil, nil)
     var outputData: (UnsafeMutablePointer<Float>?, UnsafeMutablePointer<Float>?) = (nil, nil)
     var maxFrames: AUAudioFrameCount = 0
+    /// While the host bypasses the effect, the input still comes out as late as the effect's
+    /// latency, which the host compensates: delay lines (left, then right, `delayMask + 1`
+    /// samples each) that always record.
+    var delay: UnsafeMutablePointer<Float>?
+    var delayMask = 0
+    var delayPosition = 0
 }
 
 /// A pointer the render block may capture: nothing but the block reads it while rendering.
@@ -34,6 +40,7 @@ final class TaplineAudioUnit: AUAudioUnit, @unchecked Sendable {
     private let buffers: UnsafeMutablePointer<RenderBuffers>
     private var inputBuffer: AVAudioPCMBuffer?
     private var outputBuffer: AVAudioPCMBuffer?
+    private var delayMemory: UnsafeMutableBufferPointer<Float>?
     private var observer: UUID?
     private var selectedPreset: AUAudioUnitPreset?
 
@@ -73,6 +80,7 @@ final class TaplineAudioUnit: AUAudioUnit, @unchecked Sendable {
 
     deinit {
         if let observer { engine.removeObserver(observer) }
+        delayMemory?.deallocate()
         buffers.deinitialize(count: 1)
         buffers.deallocate()
     }
@@ -120,11 +128,22 @@ final class TaplineAudioUnit: AUAudioUnit, @unchecked Sendable {
         }
         self.inputBuffer = inputBuffer
         self.outputBuffer = outputBuffer
+        // The longest latency at this rate: high precision, Virtual Speakers and the look-ahead.
+        let rate = output.sampleRate
+        let longest = LinearPhaseEQ.latency(sampleRate: rate, phase: .linearHighPrecision) + DSPKernel.virtualSpeakerLatency + Int(0.0015 * rate) + 2
+        var size = 1
+        while size < longest + 1 { size <<= 1 }
+        delayMemory?.deallocate()
+        let delay = UnsafeMutableBufferPointer<Float>.allocate(capacity: 2 * size)
+        delay.initialize(repeating: 0)
+        delayMemory = delay
         var b = RenderBuffers()
         b.input = inputBuffer.mutableAudioBufferList
         b.inputData = (inputChannels[0], input.channelCount > 1 ? inputChannels[1] : nil)
         b.outputData = (outputChannels[0], outputChannels[1])
         b.maxFrames = frames
+        b.delay = delay.baseAddress
+        b.delayMask = size - 1
         buffers.pointee = b
         engine.start(sampleRate: output.sampleRate)
     }
@@ -134,6 +153,8 @@ final class TaplineAudioUnit: AUAudioUnit, @unchecked Sendable {
         buffers.pointee = RenderBuffers()
         inputBuffer = nil
         outputBuffer = nil
+        delayMemory?.deallocate()
+        delayMemory = nil
         super.deallocateRenderResources()
     }
 
@@ -187,7 +208,25 @@ final class TaplineAudioUnit: AUAudioUnit, @unchecked Sendable {
             if left != inLeft { left.update(from: inLeft, count: count) }
             if right != inRight { right.update(from: inRight, count: count) }
 
-            if inbox.bypassed.load(ordering: .relaxed) { return noErr }
+            // Record the input; while the host bypasses the effect, play it as late as the effect would.
+            let bypassed = inbox.bypassed.load(ordering: .relaxed)
+            if let delay = b.delay {
+                let mask = b.delayMask, size = mask + 1
+                let lag = min(inbox.latency.load(ordering: .relaxed), mask)
+                var position = b.delayPosition
+                for i in 0..<count {
+                    delay[position] = left[i]
+                    delay[size + position] = right[i]
+                    if bypassed {
+                        let read = (position - lag) & mask
+                        left[i] = delay[read]
+                        right[i] = delay[size + read]
+                    }
+                    position = (position + 1) & mask
+                }
+                buffers.pointer.pointee.delayPosition = position
+            }
+            if bypassed { return noErr }
             var channels: (UnsafeMutablePointer<Float>?, UnsafeMutablePointer<Float>?) = (left, right)
             withUnsafePointer(to: &channels) { pair in
                 pair.withMemoryRebound(to: UnsafeMutablePointer<Float>?.self, capacity: 2) {

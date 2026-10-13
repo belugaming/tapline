@@ -4,7 +4,7 @@ import TaplineCore
 
 /// Parameter changes the host schedules on the render thread (automation), handed to the engine
 /// without locks or allocation: the render block posts them, the engine's timer takes them.
-/// Also the host's bypass, which the render block reads.
+/// Also the host's bypass and the latency, which the render block reads.
 final class ParameterInbox: Sendable {
     private let strength = Atomic<UInt32>(0)
     private let eq = Atomic<UInt32>(0)
@@ -14,8 +14,10 @@ final class ParameterInbox: Sendable {
     /// One bit per parameter address that has a value waiting.
     private let waiting = Atomic<UInt32>(0)
 
-    /// The host bypasses the effect: the render block passes the input through.
+    /// The host bypasses the effect: the render block passes the input through, `latency` late.
     let bypassed = Atomic<Bool>(false)
+    /// Samples the effect delays the sound, as reported to the host.
+    let latency = Atomic<Int>(0)
 
     /// Render thread.
     func post(address: AUParameterAddress, value: AUValue) {
