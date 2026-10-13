@@ -52,8 +52,10 @@ struct EqualizerPage: View {
                     .font(.headline)
             }
             .toggleStyle(.switch)
+            .fixedSize()
             .help(Text("Turn the equalizer on or off for this output device"))
 
+            // The only control that gives way on a narrow window: long preset names truncate.
             PresetMenu()
                 .frame(minWidth: 120, maxWidth: 240)
 
@@ -64,9 +66,11 @@ struct EqualizerPage: View {
                 Label("Save Preset", systemImage: "square.and.arrow.down")
                     .labelStyle(.iconOnly)
             }
+            .fixedSize()
             .help(Text("Save the current curve as a preset"))
 
             CompareButton()
+                .fixedSize()
 
             if !model.settings.eqEnabled && model.levelMatchedBypass {
                 Text("Level-matched \(Format.gain(model.settings.bypassGainDB(sampleRate: model.engine.sampleRate)))")
@@ -78,41 +82,45 @@ struct EqualizerPage: View {
 
             Spacer(minLength: 16)
 
-            Toggle(isOn: Binding(get: { model.showPreSpectrum }, set: { model.showPreSpectrum = $0 })) {
-                Label("Input Spectrum", systemImage: "waveform")
-                    .labelStyle(.iconOnly)
-            }
-            .toggleStyle(.button)
-            .help(Text("Also show the spectrum before the EQ"))
-            .padding(.trailing, 14)
-
-            Picker("Range", selection: $graphRange) {
-                Text("±6").tag(6.0)
-                Text("±12").tag(12.0)
-                Text("±18").tag(18.0)
-                Text("±24").tag(24.0)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 156)
-            .help(Text("Vertical range of the graph"))
-
-            Menu {
-                Button("Reset to Flat") { model.resetBands() }
-                Button("Copy A to B") { model.copyToOtherSlot() }
-                Divider()
-                Button("Copy as Equalizer APO Text") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(model.exportParametricEQ(), forType: .string)
+            // Fixed size: when the preset name changes while editing (a preset's name, then
+            // "Custom") and the window is narrow, the header would otherwise squeeze these.
+            HStack(spacing: 10) {
+                Toggle(isOn: Binding(get: { model.showPreSpectrum }, set: { model.showPreSpectrum = $0 })) {
+                    Label("Input Spectrum", systemImage: "waveform")
+                        .labelStyle(.iconOnly)
                 }
-            } label: {
-                Image(systemName: "ellipsis")
+                .toggleStyle(.button)
+                .help(Text("Also show the spectrum before the EQ"))
+                .padding(.trailing, 14)
+
+                Picker("Range", selection: $graphRange) {
+                    Text("±6").tag(6.0)
+                    Text("±12").tag(12.0)
+                    Text("±18").tag(18.0)
+                    Text("±24").tag(24.0)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 156)
+                .help(Text("Vertical range of the graph"))
+
+                Menu {
+                    Button("Reset to Flat") { model.resetBands() }
+                    Button("Copy A to B") { model.copyToOtherSlot() }
+                    Divider()
+                    Button("Copy as Equalizer APO Text") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(model.exportParametricEQ(), forType: .string)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .padding(.leading, 14)
+                .help(Text("More"))
             }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
             .fixedSize()
-            .padding(.leading, 14)
-            .help(Text("More"))
         }
     }
 
