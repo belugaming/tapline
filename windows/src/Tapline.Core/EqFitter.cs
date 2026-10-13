@@ -162,13 +162,13 @@ public static class EqFitter
 
         // Partial strength: fit to a target between the measurement and the full target, so
         // the EQ is as accurate as at full strength, just less of it.
-        double k = double.IsNaN(o.Strength) ? 1 : Math.Clamp(o.Strength, 0, 1);
+        double strength = double.IsNaN(o.Strength) ? 1 : Math.Clamp(o.Strength, 0, 1);
         var goal = new double[n];
-        for (int i = 0; i < n; i++) goal[i] = k == 1 ? t[i] : m[i] + k * (t[i] - m[i]);
+        for (int i = 0; i < n; i++) goal[i] = strength == 1 ? t[i] : m[i] + strength * (t[i] - m[i]);
 
         // Required correction, smoothed more in the treble where measurements are least reliable.
         var c = new double[n];
-        for (int i = 0; i < n; i++) c[i] = k * (t[i] - m[i]);
+        for (int i = 0; i < n; i++) c[i] = strength * (t[i] - m[i]);
         // Like AutoEQ: fine smoothing below 6 kHz, two-octave smoothing above 8 kHz with
         // a crossfade in between. Measurement rigs disagree wildly up there (coupler
         // resonances, fit), so only the broad treble trend is worth correcting.

@@ -9,6 +9,14 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Added
+- **Strength** in Assistant → Headphone Correction, 0–100 %, like a Dry/Wet control: apply only part of a correction. For squig.link measurements and your own measurement, the EQ is fitted to a curve that far between the headphones and the target, so it stays accurate; the green line and *Deviation* show the result. AutoEQ presets scale each band's gain.
+- **Settings → EQ Bypass → Match loudness when bypassing** (on by default).
+
+### Changed
+- Switching the EQ off (EQ switch, ⌘B, ⌃⌥⌘B, menu bar) is now level-matched: the original plays at the loudness of the EQ instead of a few dB louder, because a correction's preamp makes it quieter and louder tends to sound better. The gain is the EQ's loudness change on pink noise, weighted like a LUFS meter, and is never a boost. It shows next to the EQ switch while the EQ is off.
+- Switching the EQ on or off crossfades over a few milliseconds instead of cutting, so it no longer clicks.
+
 ## [0.3.2] - 2026-10-12
 
 ### Changed
