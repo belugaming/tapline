@@ -69,6 +69,26 @@ typedef struct {
     float *memory;                 // all of the buffers above
 } tl_conv;
 
+// One length of the linear-phase EQ: the FIR in `conv`, and delay lines of the same latency
+// for the bypassed signal and the passthrough channels, so that switching between them and
+// the EQ neither shifts the time nor comb-filters.
+typedef struct {
+    tl_conv conv;
+    uint32_t taps;
+    uint32_t latency;              // samples: the FIR's own delay plus one partition
+    float *ring;                   // delay lines: [channel][ring_size], the pair, then passthrough
+    uint32_t ring_size;            // power of two above latency
+    uint32_t ring_channels;
+    uint32_t ring_pos;
+    uint32_t cycle_pos;            // ring_pos at the start of this IO cycle
+    int32_t cycle_active;          // this cycle wrote the delay lines
+    uint32_t warmup;               // samples before the FIR's output may fade in
+    float gain;                    // share of this path, 0 ... 1
+    float bypass_current;
+    int32_t eq_on;
+    float g[TL_MAX_FRAMES];        // per-sample shares of this cycle (for the passthrough channels)
+} tl_lin_path;
+
 struct tl_kernel {
     // Parameter triple buffer. The writer owns `back`, the reader owns `front`,
     // `middle` is exchanged atomically and carries a dirty flag.
@@ -124,31 +144,19 @@ struct tl_kernel {
     float vs_mix_step;
     uint32_t vs_warmup;            // samples before the convolved signal may fade in
 
-    // Linear-phase EQ: the FIR in `lin`, and delay lines of the same latency for the bypassed
-    // signal and the passthrough channels, so that switching between them and the EQ neither
-    // shifts the time nor comb-filters. The stages (minimum phase) play until a FIR is there.
-    tl_conv lin;
-    uint32_t lin_latency;          // samples: the FIR's own delay plus one partition
-    float *lin_ring;               // delay lines: [channel][lin_ring_size], the pair, then passthrough
-    uint32_t lin_ring_size;        // power of two above lin_latency
-    uint32_t lin_ring_channels;
-    uint32_t lin_ring_pos;
-    uint32_t lin_cycle_pos;        // lin_ring_pos at the start of this IO cycle
-    int32_t lin_cycle_active;      // this cycle wrote the delay lines
-    uint32_t lin_warmup;           // samples before the FIR's output may fade in
-    float lin_gain;                // share of the linear-phase path, 0 ... 1
+    // Linear-phase EQ: a path per FIR length (see tl_lin_path). The stages (minimum phase)
+    // play until the requested FIR is there.
+    tl_lin_path lin[TL_LIN_MODES];
+    int32_t eq_path;               // what the EQ plays: 0 = stages, else lin[eq_path - 1]
     float min_gain;                // share of the stages, 0 ... 1
     float lin_fade_step;
-    float lin_bypass_current;
-    int32_t lin_eq_on;
     float in_l[TL_MAX_FRAMES];     // the EQ's input
     float in_r[TL_MAX_FRAMES];
-    float dly_l[TL_MAX_FRAMES];    // ... lin_latency samples late
+    float dly_l[TL_MAX_FRAMES];    // ... late by a linear-phase path's latency
     float dly_r[TL_MAX_FRAMES];
-    float lin_l[TL_MAX_FRAMES];    // the linear-phase path's output
+    float lin_l[TL_MAX_FRAMES];    // a linear-phase path's output
     float lin_r[TL_MAX_FRAMES];
-    float lin_g[TL_MAX_FRAMES];    // per-sample shares of this cycle (for the passthrough channels)
-    float min_g[TL_MAX_FRAMES];
+    float min_g[TL_MAX_FRAMES];    // per-sample share of the stages in this cycle
 
     // Limiter (always in the path so latency stays constant)
     float lim_ring_l[TL_LIMITER_MAX_LOOKAHEAD];
@@ -278,26 +286,31 @@ void tl_ir_set_destroy(tl_ir_set *set) {
 
 // MARK: - Linear-phase FIR sizes
 
-uint32_t tl_linear_phase_taps(double sample_rate) {
+static int32_t clamp_mode(int32_t mode) {
+    return mode == TL_LIN_LOW_LATENCY ? TL_LIN_LOW_LATENCY : TL_LIN_HIGH_PRECISION;
+}
+
+uint32_t tl_linear_phase_taps(double sample_rate, int32_t mode) {
     if (!(sample_rate >= 8000.0) || !isfinite(sample_rate)) sample_rate = 48000.0;
     const double wanted = 1.25 * sample_rate;
-    uint32_t taps = TL_LIN_MIN_TAPS;
+    uint32_t taps = TL_LIN_MIN_TAPS * 4;
     while ((double)taps < wanted && taps < TL_LIN_MAX_TAPS) taps <<= 1;
-    return taps;
+    return clamp_mode(mode) == TL_LIN_LOW_LATENCY ? taps / 4 : taps;
 }
 
-uint32_t tl_linear_phase_block(double sample_rate) {
-    return tl_linear_phase_taps(sample_rate) / TL_LIN_PARTS;
+uint32_t tl_linear_phase_block(double sample_rate, int32_t mode) {
+    return tl_linear_phase_taps(sample_rate, mode) / TL_LIN_PARTS;
 }
 
-uint32_t tl_linear_phase_latency(double sample_rate) {
-    return tl_linear_phase_taps(sample_rate) / 2 + tl_linear_phase_block(sample_rate);
+uint32_t tl_linear_phase_latency(double sample_rate, int32_t mode) {
+    return tl_linear_phase_taps(sample_rate, mode) / 2 + tl_linear_phase_block(sample_rate, mode);
 }
 
 tl_ir_set *tl_fir_set_create(const float *left, const float *right, uint32_t length, double sample_rate) {
-    if (!(sample_rate >= 8000.0) || !isfinite(sample_rate) || length != tl_linear_phase_taps(sample_rate)) return NULL;
+    if (!(sample_rate >= 8000.0) || !isfinite(sample_rate)) return NULL;
+    if (length != tl_linear_phase_taps(sample_rate, TL_LIN_LOW_LATENCY) && length != tl_linear_phase_taps(sample_rate, TL_LIN_HIGH_PRECISION)) return NULL;
     const float *irs[2] = { left, right ? right : left };
-    return ir_set_build(irs, right && right != left ? 2 : 1, length, tl_linear_phase_block(sample_rate), sample_rate, 1.0f);
+    return ir_set_build(irs, right && right != left ? 2 : 1, length, length / TL_LIN_PARTS, sample_rate, 1.0f);
 }
 
 // MARK: - Convolution engine
@@ -583,40 +596,47 @@ tl_kernel *tl_kernel_create(void) {
 
 void tl_kernel_destroy(tl_kernel *k) {
     conv_free(&k->vs);
-    conv_free(&k->lin);
-    free(k->lin_ring);
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        conv_free(&k->lin[m].conv);
+        free(k->lin[m].ring);
+    }
     free(k);
 }
 
-// Linear-phase EQ: an engine and delay lines sized for the rate (allocates when it changed).
-// Without memory for them the EQ stays minimum phase.
+// Linear-phase EQ: an engine and delay lines for each length, sized for the rate (allocates when
+// it changed). A length without memory for them is never played.
 static void configure_linear_phase(tl_kernel *k, double sample_rate) {
-    const uint32_t block = tl_linear_phase_block(sample_rate);
-    if (k->lin.block != block) {
-        conv_free(&k->lin);
-        if (!conv_init(&k->lin, block, TL_LIN_PARTS, 0)) conv_free(&k->lin);
-    }
-    conv_configure(&k->lin, sample_rate, 0.050f);
-
-    k->lin_latency = tl_linear_phase_latency(sample_rate);
-    const uint32_t size = 1u << log2_ceil(k->lin_latency + 1);
+    const tl_params *p = &k->slots[k->front];
     const uint32_t channels = 2 + (k->layout.passthrough ? TL_LIN_MAX_PASSTHROUGH : 0);
-    if (size != k->lin_ring_size || channels != k->lin_ring_channels || !k->lin_ring) {
-        free(k->lin_ring);
-        k->lin_ring = calloc((size_t)size * channels, sizeof(float));
-        k->lin_ring_size = k->lin_ring ? size : 0;
-        k->lin_ring_channels = k->lin_ring ? channels : 0;
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        const uint32_t block = tl_linear_phase_block(sample_rate, m + 1);
+        if (path->conv.block != block) {
+            conv_free(&path->conv);
+            if (!conv_init(&path->conv, block, TL_LIN_PARTS, 0)) conv_free(&path->conv);
+        }
+        conv_configure(&path->conv, sample_rate, 0.050f);
+
+        path->taps = tl_linear_phase_taps(sample_rate, m + 1);
+        path->latency = tl_linear_phase_latency(sample_rate, m + 1);
+        const uint32_t size = 1u << log2_ceil(path->latency + 1);
+        if (size != path->ring_size || channels != path->ring_channels || !path->ring) {
+            free(path->ring);
+            path->ring = calloc((size_t)size * channels, sizeof(float));
+            path->ring_size = path->ring ? size : 0;
+            path->ring_channels = path->ring ? channels : 0;
+        }
+        if (!path->ring && path->conv.block) conv_free(&path->conv);
+        path->ring_pos = 0;
+        path->cycle_active = 0;
+        path->warmup = 0;
+        path->gain = 0.0f;
+        path->bypass_current = p->bypass_gain;
+        path->eq_on = p->eq_enabled ? 1 : 0;
     }
-    if (!k->lin_ring && k->lin.block) conv_free(&k->lin);
-    k->lin_ring_pos = 0;
-    k->lin_cycle_active = 0;
-    k->lin_warmup = 0;
-    k->lin_gain = 0.0f;
+    k->eq_path = 0;
     k->min_gain = 1.0f;
     k->lin_fade_step = (float)(1.0 / (0.030 * sample_rate));
-    const tl_params *p = &k->slots[k->front];
-    k->lin_bypass_current = p->bypass_gain;
-    k->lin_eq_on = p->eq_enabled ? 1 : 0;
 }
 
 void tl_kernel_configure(tl_kernel *k, double sample_rate, const tl_layout *layout) {
@@ -689,13 +709,13 @@ void tl_kernel_set_ir_set(tl_kernel *k, tl_ir_set *set) {
     conv_hand_over(&k->vs, set);
 }
 
-void tl_kernel_set_fir(tl_kernel *k, tl_ir_set *set) {
-    conv_hand_over(&k->lin, set);
+void tl_kernel_set_fir(tl_kernel *k, int32_t mode, tl_ir_set *set) {
+    conv_hand_over(&k->lin[clamp_mode(mode) - 1].conv, set);
 }
 
 void tl_kernel_collect(tl_kernel *k) {
     conv_collect(&k->vs);
-    conv_collect(&k->lin);
+    for (int m = 0; m < TL_LIN_MODES; m++) conv_collect(&k->lin[m].conv);
 }
 
 // Non-finite parameters would latch the gain ramps and filter states: replace them with
@@ -888,14 +908,14 @@ static void run_stages_path(tl_kernel *k, const tl_params *p, uint32_t frames) {
     }
 }
 
-// The linear-phase path from in_l / in_r into lin_l / lin_r: the FIR (which holds the
-// preamp), or while bypassed the input delayed by the same latency, at `bypass_gain`. Both
-// are lined up sample for sample and differ only in their magnitude, so the one-buffer
-// crossfade between them neither comb-filters nor jumps in time.
-static void run_linear_path(tl_kernel *k, const tl_params *p, uint32_t frames) {
-    const uint32_t mask = k->lin_ring_size - 1, latency = k->lin_latency, start = k->lin_ring_pos;
+// A linear-phase path from in_l / in_r into lin_l / lin_r: the FIR (which holds the preamp),
+// or while bypassed the input delayed by the same latency, at `bypass_gain`. Both are lined
+// up sample for sample and differ only in their magnitude, so the one-buffer crossfade between
+// them neither comb-filters nor jumps in time. Leaves the delayed input in dly_l / dly_r.
+static void run_linear_path(tl_kernel *k, tl_lin_path *path, const tl_params *p, uint32_t frames) {
+    const uint32_t mask = path->ring_size - 1, latency = path->latency, start = path->ring_pos;
     for (int ch = 0; ch < 2; ch++) {
-        float *ring = k->lin_ring + (size_t)ch * k->lin_ring_size;
+        float *ring = path->ring + (size_t)ch * path->ring_size;
         const float *x = ch == 0 ? k->in_l : k->in_r;
         float *d = ch == 0 ? k->dly_l : k->dly_r;
         for (uint32_t i = 0; i < frames; i++) {
@@ -904,15 +924,18 @@ static void run_linear_path(tl_kernel *k, const tl_params *p, uint32_t frames) {
             d[i] = ring[(w - latency) & mask];
         }
     }
-    conv_process(&k->lin, k->in_l, k->in_r, k->wet_l, k->wet_r, frames);
+    conv_process(&path->conv, k->in_l, k->in_r, k->wet_l, k->wet_r, frames);
+    path->cycle_pos = start;
+    path->cycle_active = 1;
+    path->ring_pos = (start + frames) & mask;
 
     float *l = k->lin_l, *r = k->lin_r;
     const int32_t eq_on = p->eq_enabled ? 1 : 0;
-    if (eq_on != k->lin_eq_on || !eq_on) {
+    if (eq_on != path->eq_on || !eq_on) {
         memcpy(l, k->dly_l, frames * sizeof(float));
         memcpy(r, k->dly_r, frames * sizeof(float));
-        apply_gain_ramp(l, r, frames, &k->lin_bypass_current, p->bypass_gain);
-        if (eq_on != k->lin_eq_on) {
+        apply_gain_ramp(l, r, frames, &path->bypass_current, p->bypass_gain);
+        if (eq_on != path->eq_on) {
             // l / r hold the bypassed signal: fade the FIR's output in over it, or out.
             for (uint32_t i = 0; i < frames; i++) {
                 const float t = (float)(i + 1) / (float)frames;
@@ -920,60 +943,86 @@ static void run_linear_path(tl_kernel *k, const tl_params *p, uint32_t frames) {
                 l[i] += (k->wet_l[i] - l[i]) * wet;
                 r[i] += (k->wet_r[i] - r[i]) * wet;
             }
-            k->lin_eq_on = eq_on;
+            path->eq_on = eq_on;
         }
     } else {
         memcpy(l, k->wet_l, frames * sizeof(float));
         memcpy(r, k->wet_r, frames * sizeof(float));
-        k->lin_bypass_current = p->bypass_gain;
+        path->bypass_current = p->bypass_gain;
     }
 }
 
-// 3. Preamp + EQ, through the stages (minimum phase, no latency) or the linear-phase FIR
-//    (tl_linear_phase_latency samples late). Switching between the two fades the old path out
-//    and the new one in, 30 ms each: their delays differ, so the music skips forward (to the
-//    stages) or pauses (to the FIR, whose output fades in once its delay line is full) rather
-//    than playing twice. Also feeds the pre-EQ analyzer, lined up with the output.
+// Whether the EQ can play path `eq_path` (0 = stages, always).
+static int eq_path_ready(const tl_kernel *k, int32_t eq_path) {
+    if (eq_path <= 0) return 1;
+    const tl_conv *c = &k->lin[eq_path - 1].conv;
+    return c->block && c->cur && !c->removing;
+}
+
+static inline float ramp_towards(float g, float target, float step) {
+    return g < target ? fminf(target, g + step) : fmaxf(target, g - step);
+}
+
+// 3. Preamp + EQ, through the stages (minimum phase, no latency) or a linear-phase FIR (low
+//    latency or high precision, tl_linear_phase_latency samples late). The EQ moves to the
+//    requested path once that can play; switching fades the old path out and the new one in,
+//    30 ms each: their delays differ, so the music skips forward (to a shorter delay) or pauses
+//    (to a FIR, whose output fades in once its delay line is full) rather than playing twice.
+//    Also feeds the pre-EQ analyzer, lined up with the output.
 static void run_eq(tl_kernel *k, const tl_params *p, uint32_t frames, uint64_t ana) {
     float *l = k->buf_l, *r = k->buf_r;
-    tl_conv *c = &k->lin;
-    int32_t want_linear = 0;
-    if (c->block) {
-        conv_pick_up(c, k->sample_rate, k->lin_gain > 0.0f);
-        want_linear = p->linear_phase && c->cur && !c->removing;
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_conv *c = &k->lin[m].conv;
+        if (c->block) conv_pick_up(c, k->sample_rate, k->lin[m].gain > 0.0f);
+        // The FIR was removed before its output faded in: nothing of it is audible.
+        if (c->running && !c->cur) conv_reset(c);
     }
-    // The FIR was removed before its output faded in: nothing of it is audible.
-    if (c->running && !c->cur) conv_reset(c);
-    if (want_linear && !c->running) {
-        conv_reset(c);
-        c->running = 1;
-        k->lin_warmup = k->lin_latency;
-        k->lin_eq_on = p->eq_enabled ? 1 : 0;
-        k->lin_bypass_current = p->bypass_gain;
+    const int32_t requested = p->linear_phase == TL_LIN_LOW_LATENCY || p->linear_phase == TL_LIN_HIGH_PRECISION ? p->linear_phase : 0;
+    if (eq_path_ready(k, requested)) k->eq_path = requested;
+    else if (!eq_path_ready(k, k->eq_path)) k->eq_path = 0;
+    const int32_t target = k->eq_path;
+    if (target > 0) {
+        tl_lin_path *path = &k->lin[target - 1];
+        if (!path->conv.running) {
+            conv_reset(&path->conv);
+            path->conv.running = 1;
+            path->warmup = path->latency;
+            path->eq_on = p->eq_enabled ? 1 : 0;
+            path->bypass_current = p->bypass_gain;
+        }
     }
 
-    // The shares of the two paths, sample by sample.
+    // The shares of the paths, sample by sample.
     const float step = k->lin_fade_step;
-    const float min_target = want_linear ? 0.0f : 1.0f;
-    const float lin_before = k->lin_gain, min_before = k->min_gain;
-    float lg = lin_before, mg = min_before;
+    const float min_before = k->min_gain;
+    float mg = min_before;
+    const float min_target = target == 0 ? 1.0f : 0.0f;
     for (uint32_t i = 0; i < frames; i++) {
-        float lin_target = 0.0f;
-        if (want_linear) {
-            if (k->lin_warmup > 0) k->lin_warmup--;
-            else lin_target = 1.0f;
-        }
-        lg = lg < lin_target ? fminf(lin_target, lg + step) : fmaxf(lin_target, lg - step);
-        mg = mg < min_target ? fminf(min_target, mg + step) : fmaxf(min_target, mg - step);
-        k->lin_g[i] = lg;
+        mg = ramp_towards(mg, min_target, step);
         k->min_g[i] = mg;
     }
-    const int run_lin = c->running;
+    tl_lin_path *loudest = NULL;
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        path->cycle_active = 0;
+        if (!path->conv.running) continue;
+        if (!loudest || path->gain > loudest->gain) loudest = path;
+        float g = path->gain;
+        for (uint32_t i = 0; i < frames; i++) {
+            float lin_target = 0.0f;
+            if (target == m + 1) {
+                if (path->warmup > 0) path->warmup--;
+                else lin_target = 1.0f;
+            }
+            g = ramp_towards(g, lin_target, step);
+            path->g[i] = g;
+        }
+    }
     const int run_min = min_before > 0.0f || mg > 0.0f;
     // The analyzer shows the input as it lines up with what plays.
-    const int delayed_pre = run_lin && lin_before >= 0.5f;
+    tl_lin_path *delayed_pre = loudest && loudest->gain >= 0.5f ? loudest : NULL;
 
-    if (run_lin) {
+    if (loudest) {
         memcpy(k->in_l, l, frames * sizeof(float));
         memcpy(k->in_r, r, frames * sizeof(float));
     }
@@ -985,46 +1034,47 @@ static void run_eq(tl_kernel *k, const tl_params *p, uint32_t frames, uint64_t a
 
     if (run_min) {
         run_stages_path(k, p, frames);
-    } else {
-        // Idle: start fresh, without ramps, when it is needed again.
-        k->preamp_current = p->preamp;
-        k->bypass_current = p->bypass_gain;
-        k->eq_on = p->eq_enabled ? 1 : 0;
-        for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
-    }
-
-    if (run_lin) {
-        run_linear_path(k, p, frames);
-        if (delayed_pre) {
-            for (uint32_t i = 0; i < frames; i++) {
-                k->ana_pre[(ana + i) & (TL_ANALYZER_SIZE - 1)] = 0.5f * (k->dly_l[i] + k->dly_r[i]);
-            }
-        }
-        for (uint32_t i = 0; i < frames; i++) {
-            const float a = k->min_g[i], b = k->lin_g[i];
-            l[i] = (run_min ? l[i] * a : 0.0f) + k->lin_l[i] * b;
-            r[i] = (run_min ? r[i] * a : 0.0f) + k->lin_r[i] * b;
-        }
-        k->lin_cycle_pos = k->lin_ring_pos;
-        k->lin_cycle_active = 1;
-        k->lin_ring_pos = (k->lin_ring_pos + frames) & (k->lin_ring_size - 1);
-    } else {
         if (min_before < 1.0f || mg < 1.0f) {
             for (uint32_t i = 0; i < frames; i++) {
                 l[i] *= k->min_g[i];
                 r[i] *= k->min_g[i];
             }
         }
-        k->lin_cycle_active = 0;
+    } else {
+        // Idle: start fresh, without ramps, when it is needed again.
+        k->preamp_current = p->preamp;
+        k->bypass_current = p->bypass_gain;
+        k->eq_on = p->eq_enabled ? 1 : 0;
+        for (int s = 0; s < TL_MAX_STAGES; s++) k->was_active[s] = 0;
+        memset(l, 0, frames * sizeof(float));
+        memset(r, 0, frames * sizeof(float));
     }
 
-    k->lin_gain = lg;
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        if (!path->conv.running) continue;
+        run_linear_path(k, path, p, frames);
+        if (path == delayed_pre) {
+            for (uint32_t i = 0; i < frames; i++) {
+                k->ana_pre[(ana + i) & (TL_ANALYZER_SIZE - 1)] = 0.5f * (k->dly_l[i] + k->dly_r[i]);
+            }
+        }
+        for (uint32_t i = 0; i < frames; i++) {
+            l[i] += k->lin_l[i] * path->g[i];
+            r[i] += k->lin_r[i] * path->g[i];
+        }
+        path->gain = path->g[frames - 1];
+    }
     k->min_gain = mg;
-    if (!want_linear && lg <= 0.0f) {
+
+    for (int m = 0; m < TL_LIN_MODES; m++) {
+        tl_lin_path *path = &k->lin[m];
+        if (target == m + 1 || path->gain > 0.0f) continue;
         // Silent: let go of the FIR's delay line, and finish a change that waited.
-        if (c->block) conv_settle(c);
-        if (c->running) conv_reset(c);
-        k->lin_warmup = 0;
+        if (path->conv.block) conv_settle(&path->conv);
+        if (path->conv.running) conv_reset(&path->conv);
+        path->gain = 0.0f;
+        path->warmup = 0;
     }
 }
 
@@ -1328,19 +1378,27 @@ OSStatus tl_ioproc(AudioObjectID device,
             }
         }
         // Linear phase: they follow the processed pair through delay lines of its latency,
-        // and through its switches between the two paths.
-        if (k->lin_cycle_active) {
-            const uint32_t size = k->lin_ring_size, mask = size - 1, latency = k->lin_latency;
+        // and through its switches between the paths.
+        int any = 0;
+        for (int m = 0; m < TL_LIN_MODES; m++) any |= k->lin[m].cycle_active;
+        if (any) {
             uint32_t line = 2;
-            for (uint32_t c = 0; c < stride && line < k->lin_ring_channels; c++) {
+            for (uint32_t c = 0; c < stride; c++) {
                 if (c == skip_l || c == skip_r) continue;
-                float *ring = k->lin_ring + (size_t)line * size;
                 for (uint32_t i = 0; i < frames; i++) {
-                    const uint32_t w = (k->lin_cycle_pos + i) & mask;
                     float v = dst[i * stride + c];
                     if (!isfinite(v)) v = 0.0f;
-                    ring[w] = v;
-                    dst[i * stride + c] = v * k->min_g[i] + ring[(w - latency) & mask] * k->lin_g[i];
+                    float out = v * k->min_g[i];
+                    for (int m = 0; m < TL_LIN_MODES; m++) {
+                        tl_lin_path *path = &k->lin[m];
+                        if (!path->cycle_active || line >= path->ring_channels) continue;
+                        const uint32_t mask = path->ring_size - 1;
+                        float *ring = path->ring + (size_t)line * path->ring_size;
+                        const uint32_t w = (path->cycle_pos + i) & mask;
+                        ring[w] = v;
+                        out += ring[(w - path->latency) & mask] * path->g[i];
+                    }
+                    dst[i * stride + c] = out;
                 }
                 line++;
             }

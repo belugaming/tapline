@@ -36,11 +36,15 @@ extern "C" {
 /// Longest impulse response the convolution uses (at the device rate); longer ones are cut.
 #define TL_CONV_MAX_TAPS 65536
 
-/// Linear-phase EQ: the FIR is cut into this many partitions, so its partition size (and the
+/// Linear-phase EQ: its two FIR lengths (tl_params.linear_phase, tl_linear_phase_taps).
+#define TL_LIN_LOW_LATENCY 1
+#define TL_LIN_HIGH_PRECISION 2
+#define TL_LIN_MODES 2
+/// Linear-phase EQ: a FIR is cut into this many partitions, so its partition size (and the
 /// latency the convolution adds on top of the FIR's own delay) is a 64th of its length.
 #define TL_LIN_PARTS 64
 /// Linear-phase EQ: bounds of the FIR length (see tl_linear_phase_taps).
-#define TL_LIN_MIN_TAPS 4096
+#define TL_LIN_MIN_TAPS 1024
 #define TL_LIN_MAX_TAPS 262144
 /// Linear-phase EQ: channels of a multichannel stream (beyond the processed pair) that are
 /// delayed along with it.
@@ -77,9 +81,10 @@ typedef struct {
     int32_t limiter_enabled;
     /// Convolves with the IR set from tl_kernel_set_ir_set. Takes crossfeed's place.
     int32_t virtual_speakers_enabled;
-    /// Plays preamp + EQ through the linear-phase FIR from tl_kernel_set_fir instead of the
-    /// stages (which keep playing until there is a FIR). The FIR holds the preamp; the stages
-    /// and `preamp` must describe the same curve, as the kernel switches between them.
+    /// 0, or TL_LIN_LOW_LATENCY / TL_LIN_HIGH_PRECISION: plays preamp + EQ through that
+    /// length's FIR from tl_kernel_set_fir instead of the stages (which keep playing until
+    /// there is a FIR). The FIR holds the preamp; the stages and `preamp` must describe the same
+    /// curve, as the kernel switches between them.
     int32_t linear_phase;
     /// Filled in while a device is chosen, also when it is switched off, so that switching fades.
     tl_simulation simulation;
@@ -152,25 +157,26 @@ void tl_kernel_set_ir_set(tl_kernel *kernel, tl_ir_set *_Nullable set);
 /// linger.
 void tl_kernel_collect(tl_kernel *kernel);
 
-/// Linear-phase EQ: length of the FIR at `sample_rate`. A power of two covering at least
-/// 1.25 seconds (the length is what resolves narrow bass bands), within TL_LIN_MIN_TAPS ...
-/// TL_LIN_MAX_TAPS. The FIR is symmetric about tap `taps / 2`, and tap 0 is zero.
-uint32_t tl_linear_phase_taps(double sample_rate);
+/// Linear-phase EQ: length of the FIR at `sample_rate` for TL_LIN_LOW_LATENCY or
+/// TL_LIN_HIGH_PRECISION, a power of two. High precision covers at least 1.25 seconds (the
+/// length is what resolves narrow bass bands), up to TL_LIN_MAX_TAPS; low latency is a quarter
+/// of it. The FIR is symmetric about tap `taps / 2`, and tap 0 is zero.
+uint32_t tl_linear_phase_taps(double sample_rate, int32_t mode);
 
-/// Linear-phase EQ: partition size of its convolution, taps / TL_LIN_PARTS.
-uint32_t tl_linear_phase_block(double sample_rate);
+/// Linear-phase EQ: partition size of the convolution, taps / TL_LIN_PARTS.
+uint32_t tl_linear_phase_block(double sample_rate, int32_t mode);
 
 /// Linear-phase EQ: samples of delay it adds, the FIR's own (taps / 2) plus one partition.
-uint32_t tl_linear_phase_latency(double sample_rate);
+uint32_t tl_linear_phase_latency(double sample_rate, int32_t mode);
 
-/// Prepares the linear-phase EQ's FIR for the kernel: `left` and `right` (NULL: the same as
-/// `left`) hold tl_linear_phase_taps(sample_rate) samples each, which must also be `length`;
-/// `sample_rate` must be the kernel's. Allocates. NULL when the input is unusable.
+/// Prepares a linear-phase FIR for the kernel: `left` and `right` (NULL: the same as `left`)
+/// hold `length` samples each, the tl_linear_phase_taps of one of the modes at `sample_rate`,
+/// which must be the kernel's. Allocates. NULL when the input is unusable.
 tl_ir_set *_Nullable tl_fir_set_create(const float *left, const float *_Nullable right, uint32_t length, double sample_rate);
 
-/// Hands the linear-phase FIR (NULL: none) to the IO thread, which crossfades to it. The
-/// kernel owns the set from now on. A set for another sample rate than the kernel's is ignored.
-void tl_kernel_set_fir(tl_kernel *kernel, tl_ir_set *_Nullable set);
+/// Hands the FIR of `mode` (NULL: none) to the IO thread, which crossfades to it. The kernel
+/// owns the set from now on. A set of another length or sample rate is ignored.
+void tl_kernel_set_fir(tl_kernel *kernel, int32_t mode, tl_ir_set *_Nullable set);
 
 /// The IOProc. Pass the kernel as client data. Signature matches AudioDeviceIOProc.
 OSStatus tl_ioproc(AudioObjectID device,

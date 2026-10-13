@@ -339,14 +339,22 @@ final class AppModel {
     /// every 50 ms and always for the newest curve; the kernel crossfades each new FIR in over
     /// 50 ms, so dragging stays smooth.
     private func pushLinearPhase() {
-        guard settings.filterPhase == .linear else {
-            // The kernel fades back to the stages, then frees the FIR.
+        let phase = settings.filterPhase
+        let lengths = FilterPhase.allCases.filter(\.isLinear)
+        guard phase.isLinear else {
+            // The kernel fades back to the stages, then frees the FIRs.
             firWanted = nil
-            engine.kernel.setLinearPhase(nil)
+            for length in lengths { engine.kernel.removeLinearPhase(length) }
             return
         }
         let spec = LinearPhaseEQ.Spec(settings: settings, sampleRate: engine.sampleRate)
-        guard spec != engine.kernel.linearPhaseSpec, spec != firInFlight else {
+        if spec == engine.kernel.linearPhaseSpec(phase) {
+            firWanted = nil
+            // The kernel plays the other length until this one's FIR is there; now it can go.
+            for length in lengths where length != phase { engine.kernel.removeLinearPhase(length) }
+            return
+        }
+        guard spec != firInFlight else {
             firWanted = nil
             return
         }
@@ -381,7 +389,7 @@ final class AppModel {
                     guard self.engine.isRunning, let fir else { return }
                     // Even when the curve moved on meanwhile, it is closer than the FIR playing.
                     // The kernel refuses one made for a rate it no longer runs at.
-                    if self.settings.filterPhase == .linear { self.engine.kernel.setLinearPhase(fir) }
+                    if self.settings.filterPhase == fir.spec.phase { self.engine.kernel.setLinearPhase(fir) }
                     // Then catch up with the curve as it is now (it may also have gone back).
                     self.pushLinearPhase()
                 }
@@ -634,10 +642,10 @@ final class AppModel {
 
     func setFilterPhase(_ phase: FilterPhase) { mutate { $0.filterPhase = phase } }
 
-    /// Milliseconds the linear-phase EQ delays the sound on the current device.
-    var linearPhaseLatencyMS: Int {
+    /// Milliseconds `phase` delays the sound on the current device.
+    func linearPhaseLatencyMS(_ phase: FilterPhase) -> Int {
         let rate = engine.isRunning ? engine.sampleRate : (currentOutput?.sampleRate ?? 48_000)
-        return Int(LinearPhaseEQ.latencyMilliseconds(sampleRate: rate).rounded())
+        return Int(LinearPhaseEQ.latencyMilliseconds(sampleRate: rate, phase: phase).rounded())
     }
 
     // MARK: - Crossfeed and Virtual Speakers (one or the other)

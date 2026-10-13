@@ -24,20 +24,31 @@ struct SettingsPage: View {
                 }
 
                 Card(title: "Filter Phase", subtitle: "How the EQ treats phase. Set for each output device; also in the Equalizer's More menu.", systemImage: "waveform.path") {
-                    Picker("Filter Phase", selection: Binding(get: { model.settings.filterPhase }, set: { model.setFilterPhase($0) })) {
-                        Text("Minimum phase").tag(FilterPhase.minimum)
-                        Text("Linear phase").tag(FilterPhase.linear)
+                    let phase = model.settings.filterPhase
+                    // Switching to linear phase starts with low latency.
+                    Picker("Filter Phase", selection: Binding(get: { phase.isLinear }, set: { model.setFilterPhase($0 ? .linearLowLatency : .minimum) })) {
+                        Text("Minimum phase").tag(false)
+                        Text("Linear phase").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .fixedSize()
+                    Picker("Length", selection: Binding(get: { phase == .linearHighPrecision ? FilterPhase.linearHighPrecision : .linearLowLatency },
+                                                        set: { model.setFilterPhase($0) })) {
+                        Text("Low latency · \(model.linearPhaseLatencyMS(.linearLowLatency)) ms").tag(FilterPhase.linearLowLatency)
+                        Text("High precision · \(model.linearPhaseLatencyMS(.linearHighPrecision)) ms").tag(FilterPhase.linearHighPrecision)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(!phase.isLinear)
                     if let device = model.currentOutput?.name {
                         Text("For \(device)")
                             .font(.callout)
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Minimum phase plays without latency. Like an analog EQ, each band shifts the phase a little around its frequency.")
-                        Text("Linear phase plays the same curve without any phase shift, but \(model.linearPhaseLatencyMS) ms late: video may lose lip sync. The room correction's timing is unchanged, as linear phase only removes the EQ's own phase shift, and room measurements are not delayed.")
+                        Text("Linear phase plays the same curve without any phase shift, but later: video may lose lip sync. Low latency keeps headphone and speaker corrections exact; high precision also resolves narrow bass bands below 45 Hz. The room correction's timing is unchanged, as linear phase only removes the EQ's own phase shift, and room measurements are not delayed.")
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
