@@ -14,7 +14,8 @@
 //   - tl_ir_set_create / tl_fir_set_create / tl_ir_set_destroy: any non-realtime thread.
 //   - tl_kernel_configure / tl_kernel_reset: only while IO is stopped.
 //   - tl_kernel_read_meters / tl_kernel_copy_analyzer: any thread. Lock-free.
-//   - tl_ioproc: the IO thread.
+//   - tl_ioproc / tl_kernel_process: the IO thread (one of the two per kernel).
+//   - tl_kernel_latency: any non-realtime thread.
 
 #ifndef TAPLINE_DSP_H
 #define TAPLINE_DSP_H
@@ -231,6 +232,19 @@ OSStatus tl_ioproc(AudioObjectID device,
                    AudioBufferList *output,
                    const AudioTimeStamp *output_time,
                    void *_Nullable client_data);
+
+/// For hosts that hand over their own buffers (the Audio Unit): runs the same chain as tl_ioproc
+/// (EQ, Listen as, effects, Virtual Speakers, limiter, meters) in place on `frames` samples of
+/// non-interleaved channels. `channels[0]` and `channels[1]` are the stereo pair; with one
+/// channel it plays as both sides and gets their average back. Further channels are left alone.
+/// Any number of frames (longer runs are processed TL_MAX_FRAMES at a time). Ignores the
+/// layout's sources and routing, and never processes as a multichannel layout.
+void tl_kernel_process(tl_kernel *kernel, float *_Nullable const *_Nonnull channels, uint32_t channel_count, uint32_t frames);
+
+/// Samples of delay the kernel adds with `params` once they play (and their impulse responses
+/// and FIR are in): the limiter's look-ahead, Virtual Speakers' partition and the linear-phase
+/// EQ's latency, at the configured rate. For hosts that compensate it, e.g. an Audio Unit's latency.
+uint32_t tl_kernel_latency(const tl_kernel *kernel, const tl_params *params);
 
 /// Sets kAudioDevicePropertyIOProcStreamUsage for one direction.
 /// `stream_on` has one entry per stream of that direction.

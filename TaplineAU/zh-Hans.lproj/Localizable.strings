@@ -1,0 +1,67 @@
+/* Simplified Chinese strings for the Tapline Audio Unit. Keys are the English source strings.
+   The ones the app also uses are copied from Tapline/Resources/zh-Hans.lproj/Localizable.strings. */
+
+/* Built-in presets (TaplineCore's BuiltInPresets) */
+"Flat" = "平直";
+"Bass Boost" = "低音增强";
+"Bass Reducer" = "低音削减";
+"Treble Boost" = "高音增强";
+"Vocal Clarity" = "人声清晰";
+"Warm" = "温暖";
+"Bright" = "明亮";
+"V-Shape" = "V 型";
+"Loudness (low volume)" = "响度补偿（小音量）";
+"Podcast / Speech" = "播客 / 人声";
+
+/* Presets */
+"Presets" = "预设";
+"Built-in" = "内置";
+"From Tapline" = "来自 Tapline";
+"No presets saved in Tapline yet" = "Tapline 里还没有保存的预设";
+"Import ParametricEQ.txt…" = "导入 ParametricEQ.txt…";
+"Paste ParametricEQ.txt" = "粘贴 ParametricEQ.txt";
+"Pasted EQ" = "粘贴的 EQ";
+"Choose an Equalizer APO / AutoEQ ParametricEQ.txt or an RME ADI-2 preset (.adieqpr)." = "选择 Equalizer APO / AutoEQ 的 ParametricEQ.txt，或 RME ADI-2 预设（.adieqpr）。";
+"No filters found. Choose or paste an Equalizer APO / AutoEQ ParametricEQ.txt, or an RME ADI-2 preset." = "没有找到滤波器。请选择或粘贴 Equalizer APO / AutoEQ 的 ParametricEQ.txt，或 RME ADI-2 预设。";
+"Could not read %@." = "无法读取 %@。";
+"The clipboard holds no text." = "剪贴板里没有文字。";
+"Saved in project" = "已存入工程";
+"This project keeps its own copy of the curve, so it sounds the same on any Mac. Choose a preset again to load its current version from Tapline." = "这个工程保存了曲线的副本，所以在任何一台 Mac 上听起来都一样。重新选择预设，即可载入它在 Tapline 中的最新版本。";
+
+/* EQ and Strength */
+"EQ" = "EQ";
+"Bypass EQ (compare with the original sound)" = "旁通 EQ（和原声对比）";
+"Level-matched %@" = "已匹配响度 %@";
+"Match loudness when bypassing" = "旁通时匹配响度";
+"Strength" = "强度";
+"How much of the correction to apply. At full strength the EQ corrects all the way to the target; lower values go part of the way, like a dry/wet control." = "校正的程度。强度拉满时 EQ 完全校正到目标曲线；调低则只校正一部分，类似干/湿比控制。";
+"Left" = "左";
+"Right" = "右";
+
+/* Filter phase */
+"Filter Phase" = "滤波器相位";
+"Minimum phase" = "最小相位";
+"Low latency · %lld ms" = "低延迟 · %lld ms";
+"High precision · %lld ms" = "高精度 · %lld ms";
+"Linear phase · low latency" = "线性相位 · 低延迟";
+"Linear phase · high precision" = "线性相位 · 高精度";
+
+/* Virtual Speakers */
+"Virtual Speakers" = "虚拟音箱";
+"Studio room (KU100)" = "录音室房间（KU100）";
+"Anechoic (KU100)" = "消声室（KU100）";
+"Could not load %@." = "无法加载 %@。";
+
+/* Listen as */
+"Listen as" = "模拟试听";
+"Off" = "已关闭";
+"Phone speaker" = "手机扬声器";
+"Laptop speakers" = "笔记本电脑扬声器";
+"TV speakers" = "电视扬声器";
+"Small Bluetooth speaker" = "小型蓝牙音箱";
+"Car" = "汽车";
+"Headphones from Tapline" = "来自 Tapline 的耳机";
+
+/* Latency */
+"Latency %@ ms · %lld samples" = "延迟 %@ ms · %lld 个采样";
+"Logic Pro and other hosts delay the other tracks by as much, so everything stays in time." = "Logic Pro 等宿主会把其他轨道延迟同样的时间，所以一切仍然对齐。";

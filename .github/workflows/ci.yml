@@ -53,6 +53,12 @@ jobs:
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: scripts/sign.sh build/Build/Products/Release/Tapline.app
 
+      # Proves the plugin loads the way hosts load it: registered with the system, validated by
+      # auval, then used through the Audio Unit API (a preset saved in Tapline's preferences,
+      # the saved state, the latency). On pull requests, the build signed like a release.
+      - name: Validate the Audio Unit
+        run: scripts/validate-audio-unit.sh build/Build/Products/Release/Tapline.app --test-preset
+
       - name: Package test build
         if: github.event_name == 'pull_request'
         run: ditto -c -k --keepParent build/Build/Products/Release/Tapline.app "Tapline-pr${{ github.event.number }}.zip"

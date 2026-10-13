@@ -67,6 +67,10 @@ jobs:
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: scripts/sign.sh build/Build/Products/Release/Tapline.app
 
+      # The signed plugin loads: auval and the Audio Unit API (see ci.yml).
+      - name: Validate the Audio Unit
+        run: scripts/validate-audio-unit.sh build/Build/Products/Release/Tapline.app --test-preset
+
       - name: Package
         run: |
           set -o pipefail
