@@ -663,9 +663,10 @@ final class RoomMeasurementService {
         try await Task.sleep(for: .seconds(seconds))
     }
 
-    /// The output's channel count as the engine sees it.
+    /// The output's channel count as the engine sees it: the format it connects to must match.
     private static func outputChannelCount(_ engine: AVAudioEngine, _ output: AudioDevice) -> Int {
-        max(Int(engine.outputNode.outputFormat(forBus: 0).channelCount), output.outputChannels, 2)
+        let hardware = Int(engine.outputNode.outputFormat(forBus: 0).channelCount)
+        return max(hardware > 0 ? hardware : output.outputChannels, 2)
     }
 
     /// The test signal as a buffer: a stereo pair from channels 0 and 1 (`channels` nil), or one
