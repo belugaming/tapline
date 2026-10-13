@@ -65,6 +65,12 @@ static class Dialogs
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
+    public static IReadOnlyList<string> OpenFiles(string filter)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = filter, Multiselect = true };
+        return dialog.ShowDialog() == true ? dialog.FileNames : [];
+    }
+
     public static string? SaveFile(string filter, string fileName)
     {
         var dialog = new Microsoft.Win32.SaveFileDialog { Filter = filter, FileName = fileName };

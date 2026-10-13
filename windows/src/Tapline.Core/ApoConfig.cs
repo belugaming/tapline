@@ -8,8 +8,8 @@ namespace Tapline.Core;
 /// Equalizer APO uses the same RBJ biquads as Tapline's graph, so what the graph shows is what
 /// plays. Channels are addressed by number ("1" = left, "2" = right), which works whatever channel
 /// names the driver reports. Effects follow the order of the macOS kernel: EQ, swap/width,
-/// crossfeed, balance, output gain. There is no limiter in Equalizer APO; the automatic preamp
-/// keeps the EQ from clipping. With <c>levelMatchedBypass</c>, a device whose EQ is off gets a
+/// crossfeed or virtual speakers, balance, output gain. There is no limiter in Equalizer APO; the
+/// automatic preamp keeps the EQ from clipping. With <c>levelMatchedBypass</c>, a device whose EQ is off gets a
 /// preamp equal to the EQ's loudness change instead (never a boost), so switching the EQ off
 /// compares sound rather than level.
 public static class ApoConfig
@@ -18,7 +18,13 @@ public static class ApoConfig
     public const string HeaderLine = "# Managed by Tapline.";
     public const string BackupName = "config-before-tapline.txt";
 
-    public sealed record Device(string Guid, string Name, int Channels, double SampleRate, DspSettings Settings);
+    /// <summary>The four mono impulse responses of Virtual Speakers, relative to the configuration
+    /// file (see <see cref="VirtualSpeakerFiles"/>), at the device's sample rate.</summary>
+    public sealed record SpeakerFiles(string FrontLeftToLeft, string FrontLeftToRight, string FrontRightToLeft, string FrontRightToRight);
+
+    /// <summary><paramref name="Speakers"/>: the files for Virtual Speakers when the device has
+    /// them on and they could be written; without them the effect is left out.</summary>
+    public sealed record Device(string Guid, string Name, int Channels, double SampleRate, DspSettings Settings, SpeakerFiles? Speakers = null);
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -94,7 +100,31 @@ public static class ApoConfig
         var gainR = balance < 0 ? 1 + balance : 1;
         var others = Enumerable.Range(3, Math.Max(0, d.Channels - 2)).ToList();
 
-        if (fx.CrossfeedEnabled && fx.Crossfeed > 0.001)
+        if (fx.VirtualSpeakersEnabled && d.Speakers is { } speakers)
+        {
+            // Equalizer APO's own convolver, routed the way HeSuVi does it: the left and right
+            // channels (after swap and width) go to four virtual channels, one per speaker-to-ear
+            // path; each is convolved with its mono impulse response (the loudness-matching gain
+            // is in the files), and each ear sums its two paths.
+            var left = Sum((m11, "1"), (m12, "2"));
+            var right = Sum((m21, "1"), (m22, "2"));
+            sb.AppendLine($"Copy: VLL={left} VLR={left} VRL={right} VRR={right}");
+            foreach (var (channel, file) in new[] { ("VLL", speakers.FrontLeftToLeft), ("VLR", speakers.FrontLeftToRight),
+                                                    ("VRL", speakers.FrontRightToLeft), ("VRR", speakers.FrontRightToRight) })
+            {
+                sb.AppendLine($"Channel: {channel}");
+                sb.AppendLine($"Convolution: {file}");
+            }
+            sb.AppendLine("Channel: all");
+            sb.AppendLine("Copy: " + string.Join(" ",
+                new[] { $"1={Sum((gainL * outputGain, "VLL"), (gainL * outputGain, "VRL"))}",
+                        $"2={Sum((gainR * outputGain, "VLR"), (gainR * outputGain, "VRR"))}" }
+                .Concat(others.Select(o => $"{o}={Sum((outputGain, o.ToString(Inv)))}"))));
+            return;
+        }
+
+        // Virtual Speakers take crossfeed's place; the UI never switches on both.
+        if (fx.CrossfeedEnabled && !fx.VirtualSpeakersEnabled && fx.Crossfeed > 0.001)
         {
             // ~300 µs interaural delay and a soft 700 Hz low-pass on the cross path, in two virtual channels.
             var kx = 0.45 * fx.Crossfeed.Clamp(EffectsSettings.CrossfeedMin, EffectsSettings.CrossfeedMax);

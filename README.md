@@ -113,7 +113,7 @@ Windows has no equivalent of the macOS process taps, so Tapline uses [Equalizer 
 | Let one app bypass Tapline | ✓ | ✗ (apps that use exclusive mode or ASIO are never processed) |
 | Limiter | ✓ | ✗ (keep the preamp on **Auto**) |
 | Output gain, balance, stereo width, mono, swap left and right, crossfeed | ✓ | ✓ (on a mono output only output gain) |
-| Virtual speakers (HRIR/BRIR convolution, HeSuVi import) | ✓ | ✗ |
+| Virtual speakers (HRIR/BRIR convolution, HeSuVi import) | ✓ | ✓ (Equalizer APO's convolver) |
 | Switch the output or input device | ✓ | ✓ |
 | Change a device's sample rate | ✓ | ✗ (shown only) |
 | Quick panel | Menu bar | Notification area (tray) |
@@ -279,7 +279,7 @@ The **Effects** page works on everything that plays through the current device:
 - **Headphone Crossfeed**: blends a little of each channel into the other, like listening to speakers. It makes hard-panned recordings less tiring on headphones.
 - **Virtual Speakers**: puts the music in front of you, as if it played from a pair of speakers, instead of inside your head. See below. It replaces crossfeed: switching one on switches the other off.
 
-> **On Windows:** there is no limiter, because Equalizer APO has none. Keep the preamp on **Auto** so boosts can't clip, and lower **Output Gain** if the meters reach the top. Virtual Speakers are not available on Windows yet.
+> **On Windows:** there is no limiter, because Equalizer APO has none. Keep the preamp on **Auto** so boosts can't clip, and lower **Output Gain** if the meters reach the top. **Virtual Speakers** use Equalizer APO's own convolver, as HeSuVi does: Tapline writes the impulse responses at the device's sample rate into Equalizer APO's `config\Tapline\VirtualSpeakers` folder.
 
 #### Virtual speakers
 
