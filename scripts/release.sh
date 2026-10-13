@@ -13,16 +13,25 @@
 # Tapline for Windows ships with the same version. When windows/CHANGELOG.md has
 # entries under "## Unreleased", they become "## <version>", Tapline.csproj gets
 # the version and windows-v<version> is tagged on the same commit, which runs
-# .github/workflows/release-windows.yml.
+# .github/workflows/release-windows.yml. --no-windows releases the Mac only and leaves
+# windows/CHANGELOG.md's Unreleased section for a later Windows release.
+#
+#   scripts/release.sh 0.5.0 --push --no-windows
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+usage() { echo "usage: $0 <major.minor.patch[-suffix]> [--push] [--no-windows]" >&2; exit 1; }
 version="${1:-}"
-push="${2:-}"
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-  echo "usage: $0 <major.minor.patch[-suffix]> [--push]" >&2
-  exit 1
-fi
+push=""
+windows="yes"
+for arg in "${@:2}"; do
+  case "$arg" in
+    --push) push="--push" ;;
+    --no-windows) windows="" ;;
+    *) usage ;;
+  esac
+done
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || usage
 tag="v$version"
 current="$(scripts/version.sh)"
 
@@ -34,7 +43,7 @@ git rev-parse -q --verify "refs/tags/$tag" >/dev/null && fail "tag $tag already 
 
 windows_tag=""
 windows_unreleased="$(awk '/^## Unreleased/{f=1;next} /^## /{if(f)exit} f' windows/CHANGELOG.md | grep -c '[^[:space:]]' || true)"
-if [[ "$windows_unreleased" -gt 0 ]]; then
+if [[ -n "$windows" && "$windows_unreleased" -gt 0 ]]; then
   windows_tag="windows-$tag"
   git rev-parse -q --verify "refs/tags/$windows_tag" >/dev/null && fail "tag $windows_tag already exists"
 fi
@@ -103,6 +112,8 @@ if [[ -n "$windows_tag" ]]; then
   git tag -a "$windows_tag" -m "Tapline for Windows $version"
   echo "Tagged $windows_tag."
   tags+=("$windows_tag")
+elif [[ -z "$windows" ]]; then
+  echo "--no-windows: no Windows release."
 else
   echo "windows/CHANGELOG.md has nothing under Unreleased: no Windows release."
 fi

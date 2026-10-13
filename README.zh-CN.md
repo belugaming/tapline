@@ -94,7 +94,7 @@ Tapline 也有 Windows 10 和 11 版，页面和 macOS 版一样，基于 Equali
 
 Tapline 也能在 64 位 Windows 10 和 11 上运行。Windows 版的页面和 Mac 版一样（均衡器、助手和耳机校正、房间校正、混音器、效果器、设备），每个输出设备也各自保存一套 EQ。
 
-Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。从 0.4.0 起，Windows 版和 Mac 版同时发布、版本号相同，标题以 “Tapline for Windows” 开头；Windows 版的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。遇到问题欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈。
+Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapline 在 Windows 上用免费开源的 [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) 作为音频引擎：Tapline 负责编辑，Equalizer APO 在 Windows 的音频引擎里实际处理声音。Windows 版的发布标题以 “Tapline for Windows” 开头，版本号和 Mac 版一致；Windows 版的改动见 [windows/CHANGELOG.md](windows/CHANGELOG.md)。Windows 版暂时停在 **0.4.0**：下表中标着*尚未发布*的功能已经为 Windows 写好，但还没有包含在 Windows 版的发布里。遇到问题欢迎到 [Issues](https://github.com/belugaming/tapline/issues) 反馈。
 
 ### Windows 版功能一览
 
@@ -103,20 +103,20 @@ Windows 没有 macOS 进程截取（process tap）那样的接口，所以 Tapli
 | 参数 EQ，最多 24 个频段：在曲线上拖动、预设、A/B 对比、撤销、自动预增益 | ✓ | ✓ |
 | 只作用于左声道或右声道的频段 | ✓ | ✓ |
 | 旁通 EQ 时匹配响度 | ✓，交叉淡化 | ✓ |
-| 线性相位 EQ，高精度 | ✓，48 kHz 下延迟 704 ms；调节时交叉淡化 | ✓（用 Equalizer APO 的卷积器），48 kHz 下 683 ms；每次改动后声音会停顿 |
+| 线性相位 EQ，高精度 | ✓，48 kHz 下延迟 704 ms；调节时交叉淡化 | ✓（用 Equalizer APO 的卷积器），48 kHz 下 683 ms；每次改动后声音会停顿——*尚未发布* |
 | 线性相位 EQ，低延迟 | ✓，48 kHz 下延迟 176 ms | ✗（目前只有 macOS 版） |
 | 每个输出设备各自一套 EQ | ✓ | ✓，关闭 Tapline 后依然有效 |
 | 频谱分析 | EQ 前和 EQ 后 | 只有 EQ 后 |
 | 耳机校正：AutoEQ、squig.link、自己的测量文件 | ✓ | ✓ |
 | 房间校正：引导测量、摆位检查、左右分别校正、导出到 RME ADI-2 | ✓ | ✓ |
-| 环绕声和杜比全景声音箱（5.1 … 9.1.6）：接线检查，每只音箱各自的校正、音量微调和延时 | ✓ | ✓（Equalizer APO 按声道分段） |
+| 环绕声和杜比全景声音箱（5.1 … 9.1.6）：接线检查，每只音箱各自的校正、音量微调和延时 | ✓ | ✓（Equalizer APO 按声道分段）——*尚未发布* |
 | 快速音色、声音助手、导入导出（Equalizer APO、AutoEQ、RME ADI-2） | ✓ | ✓ |
 | 每个 App 单独调音量、静音 | 0–200% | 0–100%（Windows 自带的各应用音量） |
 | 让某个 App 直通、不经过 Tapline | ✓ | ✗（使用独占模式或 ASIO 的软件本来就不会被处理） |
 | 限幅器 | ✓ | ✗（请把预增益保持在**自动**） |
 | 输出增益、声道平衡、立体声宽度、单声道、左右互换、交叉馈送 | ✓ | ✓（单声道输出设备上只有输出增益） |
 | 虚拟音箱（HRIR/BRIR 卷积，导入 HeSuVi） | ✓ | ✓（用 Equalizer APO 的卷积器） |
-| 模拟试听：用自己的耳机听其他耳机（squig.link）和日常设备扬声器的声音 | ✓，响度匹配 | ✓，提升可能削波时会比响度匹配更小声（没有限幅器） |
+| 模拟试听：用自己的耳机听其他耳机（squig.link）和日常设备扬声器的声音 | ✓，响度匹配 | ✓，提升可能削波时会比响度匹配更小声（没有限幅器）——*尚未发布* |
 | Audio Unit 插件（Logic Pro、GarageBand 等宿主） | ✓（AUv3） | ✗ |
 | 切换输出、输入设备 | ✓ | ✓ |
 | 修改设备采样率 | ✓ | ✗（只显示） |
@@ -402,7 +402,7 @@ Tapline 跟随 macOS 当前选中的输出设备，**每个设备各自保存一
 - 10 kHz 以上只模拟大致趋势，和耳机校正一样。
 - 先校正你自己的耳机（见 [2. 校正你的耳机](#2-校正你的耳机)）：模拟以你的校正所追求的目标曲线为起点。
 
-**设备扬声器**（近似）：点**手机扬声器**、**笔记本电脑扬声器**、**电视扬声器**、**小型蓝牙音箱**或**汽车**。每一项都是一条频响曲线（低频在哪里截止、典型的共振、高频）加上声道处理：手机和蓝牙音箱是单声道，笔记本电脑是窄立体声。它们是依据这类扬声器的一般特性编写的近似模拟，不是任何产品的实测数据。再点一次同一项即可停止。
+**设备扬声器**（近似）：点**手机扬声器**、**笔记本电脑扬声器**、**电视扬声器**、**蓝牙音箱**或**汽车**。每一项都是一条频响曲线（低频在哪里截止、典型的共振、高频）加上声道处理：手机和蓝牙音箱是单声道，笔记本电脑是窄立体声。它们是依据这类扬声器的一般特性编写的近似模拟，不是任何产品的实测数据。再点一次同一项即可停止。
 
 切换时**响度一致**：一个补偿增益抵消设备曲线对粉红噪声的响度变化（按 LUFS 响度表的方式加权），让你比较的是音色而不是音量。限幅器关闭时，Tapline 会改为保留余量，卡片上会注明模拟小声了多少。
 
@@ -557,7 +557,7 @@ scripts/release.sh 0.2.0 --push
 
 这个脚本会检查 `main` 分支有没有未提交的改动，然后更新版本号，把 Unreleased 整理成 `0.2.0`，提交、打 `v0.2.0` 标签并推送。接着[发布工作流](.github/workflows/release.yml)会在 GitHub 的 macOS 服务器上测试、编译，把 .dmg 磁盘映像连同这一段更新日志发布到 Releases。带后缀的版本（比如 `0.3.0-beta.1`）会标记为预发布版。每次推送到 `main`，[CI 工作流](.github/workflows/ci.yml)都会用 Xcode 27 编译一遍。
 
-Windows 版和 Mac 版一起发布，版本号相同。Windows 版的改动记在 [windows/CHANGELOG.md](windows/CHANGELOG.md) 的 **Unreleased** 部分：这一段有内容时，`scripts/release.sh` 会把它也整理成 `## 0.2.0`，更新 `Tapline.csproj` 里的版本号，并在同一个提交上打 `windows-v0.2.0` 标签。[Windows 发布工作流](.github/workflows/release-windows.yml)随后会在 Windows 服务器上测试、编译，把安装程序发布为 “Tapline for Windows 0.2.0”，并用这一段更新日志作为发布说明。带后缀的版本会标记为预发布版；Windows 版永远不会被标记为最新版本，所以[安装](#安装)里的下载链接始终指向 Mac 版。`windows/` 下的改动由 [Windows 工作流](.github/workflows/windows.yml)在 Windows 上编译。
+Windows 版和 Mac 版一起发布，版本号相同。Windows 版的改动记在 [windows/CHANGELOG.md](windows/CHANGELOG.md) 的 **Unreleased** 部分：这一段有内容时，`scripts/release.sh` 会把它也整理成 `## 0.2.0`，更新 `Tapline.csproj` 里的版本号，并在同一个提交上打 `windows-v0.2.0` 标签。加上 `--no-windows` 则只发布 Mac 版，Windows 的条目留到以后。[Windows 发布工作流](.github/workflows/release-windows.yml)随后会在 Windows 服务器上测试、编译，把安装程序发布为 “Tapline for Windows 0.2.0”，并用这一段更新日志作为发布说明。带后缀的版本会标记为预发布版；Windows 版永远不会被标记为最新版本，所以[安装](#安装)里的下载链接始终指向 Mac 版。`windows/` 下的改动由 [Windows 工作流](.github/workflows/windows.yml)在 Windows 上编译。
 
 ## 已知限制
 
