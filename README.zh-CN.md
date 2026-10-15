@@ -7,8 +7,8 @@
 <p align="center">
   <a href="https://github.com/belugaming/tapline/actions/workflows/ci.yml"><img src="https://github.com/belugaming/tapline/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/belugaming/tapline/releases/latest"><img src="https://img.shields.io/github/v/release/belugaming/tapline?include_prereleases&sort=semver" alt="Release"></a>
-  <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26+">
-  <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-black" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/macOS-15%2B-black?logo=apple" alt="macOS 15+">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-black" alt="Apple Silicon and Intel">
   <a href="#windows-版"><img src="https://img.shields.io/badge/Windows-10%2B-0078D4" alt="Windows 10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/belugaming/tapline" alt="License: GPL-3.0"></a>
 </p>
@@ -72,8 +72,8 @@ Tapline 也有 Windows 10 和 11 版，页面和 macOS 版一样，基于 Equali
 
 **macOS**
 
-- macOS 26 Tahoe 或更高版本
-- Apple Silicon 芯片的 Mac
+- macOS 15 Sequoia 或更高版本
+- Apple Silicon 或 Intel 芯片的 Mac
 
 **Windows**
 
@@ -84,7 +84,7 @@ Tapline 也有 Windows 10 和 11 版，页面和 macOS 版一样，基于 Equali
 
 以下是 macOS 的安装步骤。Windows 请看[在 Windows 上安装](#在-windows-上安装)。
 
-1. 从[最新版本](https://github.com/belugaming/tapline/releases/latest)下载 `Tapline-x.y.z-arm64.dmg`。
+1. 从[最新版本](https://github.com/belugaming/tapline/releases/latest)下载 `Tapline-x.y.z.dmg`。
 2. 打开它，把 **Tapline.app** 拖到旁边的 **应用程序** 图标上。
 3. 打开 Tapline。发布版还没有经过 Apple 公证，所以第一次打开会被系统拦下。到 **系统设置 → 隐私与安全性**，拉到最下面，在 Tapline 的提示旁边点 **仍要打开**。（从 macOS 15 开始，右键选"打开"已经不能绕过这个检查。）
 

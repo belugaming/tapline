@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "TaplineCore",
-    platforms: [.macOS("26.0")],
+    platforms: [.macOS("15.0")],
     products: [
         .library(name: "TaplineCore", targets: ["TaplineCore"]),
     ],

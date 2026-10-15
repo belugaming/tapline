@@ -7,8 +7,8 @@
 <p align="center">
   <a href="https://github.com/belugaming/tapline/actions/workflows/ci.yml"><img src="https://github.com/belugaming/tapline/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/belugaming/tapline/releases/latest"><img src="https://img.shields.io/github/v/release/belugaming/tapline?include_prereleases&sort=semver" alt="Release"></a>
-  <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26+">
-  <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-black" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/macOS-15%2B-black?logo=apple" alt="macOS 15+">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-black" alt="Apple Silicon and Intel">
   <a href="#windows"><img src="https://img.shields.io/badge/Windows-10%2B-0078D4" alt="Windows 10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/belugaming/tapline" alt="License: GPL-3.0"></a>
 </p>
@@ -72,8 +72,8 @@ What makes it different:
 
 **macOS**
 
-- macOS 26 Tahoe or later
-- A Mac with Apple Silicon
+- macOS 15 Sequoia or later
+- A Mac with Apple Silicon or an Intel processor
 
 **Windows**
 
@@ -84,7 +84,7 @@ What makes it different:
 
 These steps are for macOS. For Windows, see [Install on Windows](#install-on-windows).
 
-1. Download `Tapline-x.y.z-arm64.dmg` from the [latest release](https://github.com/belugaming/tapline/releases/latest).
+1. Download `Tapline-x.y.z.dmg` from the [latest release](https://github.com/belugaming/tapline/releases/latest).
 2. Open it and drag **Tapline.app** onto the **Applications** shortcut next to it.
 3. Open Tapline. Release builds are not notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Tapline. (Since macOS 15, right-clicking and choosing Open no longer works for this.)
 
