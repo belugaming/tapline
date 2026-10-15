@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-15
+
 ### Added
 - **macOS 15 Sequoia and Intel Macs**: Tapline now runs on macOS 15 or later, on Apple Silicon and on Intel. The download is one app for both. On macOS 15, an app with its own mixer settings (Mixer page) that starts a new process or relaunches plays with your general settings instead of its own for a moment, until Tapline picks the new process up; macOS 26 follows such apps by itself.
 
@@ -141,7 +143,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/belugaming/tapline/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/belugaming/tapline/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/belugaming/tapline/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/belugaming/tapline/compare/v0.3.1...v0.3.2
