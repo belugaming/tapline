@@ -58,7 +58,12 @@ jobs:
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" \
             CODE_SIGN_IDENTITY=- -quiet build
           app=build/Build/Products/Release/Tapline.app
-          lipo -archs "$app/Contents/MacOS/Tapline"
+          # One universal app for Apple Silicon and Intel, the Audio Unit included.
+          for binary in "$app/Contents/MacOS/Tapline" "$app/Contents/PlugIns/TaplineAU.appex/Contents/MacOS/TaplineAU"; do
+            archs="$(lipo -archs "$binary")"
+            echo "$binary: $archs"
+            [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "::error::$binary is not universal"; exit 1; }
+          done
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" -c "Print :CFBundleVersion" "$app/Contents/Info.plist"
 
       - name: Sign
@@ -75,7 +80,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p dist
-          name="Tapline-$VERSION-arm64.dmg"
+          name="Tapline-$VERSION.dmg"
           # The disk image holds the app and an Applications shortcut to drag it onto.
           stage="$(mktemp -d)/Tapline"
           mkdir -p "$stage"
@@ -98,9 +103,9 @@ jobs:
             scripts/changelog-section.sh "$VERSION"
             echo
             echo "### Install"
-            echo "Requires macOS 26 or later on Apple Silicon. Open the .dmg and drag **Tapline.app** onto the Applications shortcut. The app is not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
+            echo "Requires macOS 15 or later, on Apple Silicon or Intel. Open the .dmg and drag **Tapline.app** onto the Applications shortcut. The app is not notarized: open it once, then click **Open Anyway** in **System Settings → Privacy & Security**."
             echo
-            echo "需要 macOS 26 及以上、Apple Silicon。打开 .dmg，把 Tapline.app 拖到旁边的“应用程序”图标上。应用未经 Apple 公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
+            echo "需要 macOS 15 及以上，Apple Silicon 或 Intel 芯片均可。打开 .dmg，把 Tapline.app 拖到旁边的“应用程序”图标上。应用未经 Apple 公证：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。"
             echo
             echo "Build $BUILD · Xcode $XCODE · SHA-256 \`$(cut -d' ' -f1 dist/SHA256SUMS.txt)\`"
           } > dist/notes.md

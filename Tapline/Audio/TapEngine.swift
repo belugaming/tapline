@@ -86,7 +86,7 @@ final class TapEngine {
         guard let index = sources.firstIndex(where: { $0.key == spec.key }), sources[index] != spec else { return }
         let description = tapDescriptions[index]
         description.processes = spec.processes
-        description.bundleIDs = spec.bundleIDs
+        if #available(macOS 26, *) { description.bundleIDs = spec.bundleIDs }
         // kAudioTapPropertyDescription takes a reference to the CATapDescription object.
         var address = CA.address(kAudioTapPropertyDescription)
         var reference = Unmanaged.passUnretained(description)
@@ -259,8 +259,13 @@ final class TapEngine {
             case (true, nil): description = CATapDescription(stereoGlobalTapButExcludeProcesses: spec.processes)
             case (false, nil): description = CATapDescription(stereoMixdownOfProcesses: spec.processes)
             }
-            if !spec.exclusive { description.isProcessRestoreEnabled = true }
-            description.bundleIDs = spec.bundleIDs
+            // macOS 26 also follows the app by bundle ID, its new and relaunched processes included.
+            // Before that the tap only has process objects; AppModel updates them when the process
+            // list changes, and until then a new process plays through the system-wide tap.
+            if #available(macOS 26, *) {
+                if !spec.exclusive { description.isProcessRestoreEnabled = true }
+                description.bundleIDs = spec.bundleIDs
+            }
             description.name = "Tapline \(spec.key)"
             description.isPrivate = true
             description.muteBehavior = .mutedWhenTapped

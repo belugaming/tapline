@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Added
+- **macOS 15 Sequoia and Intel Macs**: Tapline now runs on macOS 15 or later, on Apple Silicon and on Intel. The download is one app for both. On macOS 15, an app with its own mixer settings (Mixer page) that starts a new process or relaunches plays with your general settings instead of its own for a moment, until Tapline picks the new process up; macOS 26 follows such apps by itself.
+
 ### Fixed
 - **Settings → Filter Phase** shows the low-latency / high-precision choice only while linear phase is on. With minimum phase it was greyed out but still looked selected.
 
