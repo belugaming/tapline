@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-25
+
 ### Fixed
 - **Crash with AirPods and other Bluetooth headsets in call mode**: Tapline quit as soon as the spectrum analyzer showed while the output ran below 40 kHz, for example AirPods at 16 or 24 kHz while an app uses their microphone. The analyzer now works at any sample rate and leaves the range above the device's limit (half its sample rate) empty.
 
@@ -146,7 +148,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/belugaming/tapline/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/belugaming/tapline/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/belugaming/tapline/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/belugaming/tapline/compare/v0.3.2...v0.4.0
