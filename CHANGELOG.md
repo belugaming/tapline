@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- **Crash with AirPods and other Bluetooth headsets in call mode**: Tapline quit as soon as the spectrum analyzer showed while the output ran below 40 kHz, for example AirPods at 16 or 24 kHz while an app uses their microphone. The analyzer now works at any sample rate and leaves the range above the device's limit (half its sample rate) empty.
+
 ## [0.6.0] - 2026-10-15
 
 ### Added
