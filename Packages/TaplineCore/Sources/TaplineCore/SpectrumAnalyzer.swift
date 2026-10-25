@@ -18,7 +18,8 @@ public final class SpectrumAnalyzer {
     private var imag: [Float]
     private var magnitudes: [Float]
     private var smoothed: [Float]
-    private var binRanges: [(lo: Int, hi: Int, frac: Float)] = []
+    /// The FFT bins each display point reads; nil for points at or above Nyquist.
+    private var binRanges: [(lo: Int, hi: Int, frac: Float)?] = []
     private var tilt: [Float] = []
     private var sampleRate: Double = 0
     private let powerScale: Float
@@ -50,14 +51,19 @@ public final class SpectrumAnalyzer {
         guard sampleRate != self.sampleRate else { return }
         self.sampleRate = sampleRate
         let binHz = sampleRate / Double(fftSize)
+        let topBin = fftSize / 2 - 1
         let n = displayFrequencies.count
         binRanges = (0..<n).map { i in
             let f = displayFrequencies[i]
+            // Below 40 kHz (AirPods in call mode run at 16 or 24 kHz) the top display points
+            // lie above Nyquist and have no bins. Written so that a zero or NaN rate also
+            // lands here, before Int() could trap on an infinite or NaN bin.
+            guard binHz > 0, f / binHz < Double(topBin + 1) else { return nil }
             // Each display point covers the band halfway to its neighbours.
             let fLo = i == 0 ? f : sqrt(f * displayFrequencies[i - 1])
             let fHi = i == n - 1 ? f : sqrt(f * displayFrequencies[i + 1])
             let lo = max(1, Int(floor(fLo / binHz)))
-            let hi = min(fftSize / 2 - 1, max(lo, Int(ceil(fHi / binHz))))
+            let hi = min(topBin, max(lo, Int(ceil(fHi / binHz))))
             return (lo, hi, Float(f / binHz - floor(f / binHz)))
         }
         tilt = displayFrequencies.map { Float(tiltDBPerOctave * log2($0 / 1000)) }
@@ -89,7 +95,11 @@ public final class SpectrumAnalyzer {
         let scale = powerScale
         var out = [Float](repeating: -120, count: binRanges.count)
         for i in 0..<binRanges.count {
-            let r = binRanges[i]
+            // Nothing plays above Nyquist: leave the point at the floor.
+            guard let r = binRanges[i] else {
+                smoothed[i] = -120
+                continue
+            }
             var peak: Float = 0
             if r.hi > r.lo {
                 for b in r.lo...r.hi where magnitudes[b] > peak { peak = magnitudes[b] }

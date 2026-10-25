@@ -352,6 +352,50 @@ import TaplineDSP
         let idx = analyzer.displayFrequencies.enumerated().min { abs($0.element - f) < abs($1.element - f) }!.offset
         #expect(abs(out[idx]) < 1.5, "got \(out[idx]) dB")
     }
+
+    /// AirPods in call mode play at 16 or 24 kHz; the top display points then lie above
+    /// Nyquist. These rates used to index past the FFT bins and crash the app.
+    @Test(arguments: [8_000.0, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 96_000, 192_000])
+    func pointsAboveNyquistReadTheFloor(sampleRate sr: Double) {
+        let analyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
+        analyzer.decay = 0
+        var seed: UInt32 = 1
+        let noise = (0..<8192).map { _ -> Float in
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            return Float(seed >> 8) / Float(1 << 24) - 0.5
+        }
+        let out = analyzer.process(noise, sampleRate: sr)
+        #expect(out.count == analyzer.displayFrequencies.count)
+        for (f, db) in zip(analyzer.displayFrequencies, out) {
+            if f >= sr / 2 {
+                #expect(db == -120, "\(f) Hz at \(sr) Hz read \(db) dB")
+            } else {
+                #expect(db.isFinite && db > -100, "\(f) Hz at \(sr) Hz read \(db) dB")
+            }
+        }
+    }
+
+    @Test func fullScaleSineReadsZeroDBAt24kHz() {
+        let analyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
+        analyzer.decay = 0
+        let sr = 24_000.0
+        let f = 1000.0
+        let samples = (0..<8192).map { Float(sin(2 * Double.pi * f * Double($0) / sr)) }
+        let out = analyzer.process(samples, sampleRate: sr)
+        let idx = analyzer.displayFrequencies.enumerated().min { abs($0.element - f) < abs($1.element - f) }!.offset
+        #expect(abs(out[idx]) < 1.5, "got \(out[idx]) dB")
+    }
+
+    @Test func brokenSampleRatesDoNotTrap() {
+        let analyzer = SpectrumAnalyzer(fftSize: 8192, displayPoints: 320)
+        let samples = [Float](repeating: 0.1, count: 8192)
+        _ = analyzer.process(samples, sampleRate: 48_000)
+        for sr in [0, -48_000, .nan, .infinity, 1e-300, 48_000] {
+            let out = analyzer.process(samples, sampleRate: sr)
+            #expect(out.count == analyzer.displayFrequencies.count, "rate \(sr)")
+            #expect(out.allSatisfy { !$0.isNaN }, "rate \(sr)")
+        }
+    }
 }
 
 @Suite struct FitterTests {
