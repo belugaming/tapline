@@ -56,9 +56,13 @@ struct MenuBarPanel: View {
                         .toggleStyle(.switch)
                         .controlSize(.small)
                     Spacer()
-                    PresetMenu()
-                        .controlSize(.small)
-                        .fixedSize()
+                    // Short names keep their natural width; long ones truncate instead of widening the panel.
+                    ViewThatFits(in: .horizontal) {
+                        PresetMenu().fixedSize()
+                        PresetMenu()
+                    }
+                    .controlSize(.small)
+                    .frame(maxWidth: 200, alignment: .trailing)
                 }
                 CurveThumbnail(bands: model.settings.bands, tone: model.settings.tone, range: 12, color: model.settings.eqEnabled ? Theme.accent : .gray)
                     .frame(height: 56)

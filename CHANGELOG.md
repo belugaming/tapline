@@ -9,6 +9,9 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+### Fixed
+- **Long preset names in the menu bar panel**: choosing a preset with a long name, such as an EQ from an online measurement database, made the panel too wide and cut its contents off. Long names now end in "…", and hovering over the preset button shows the full name.
+
 ## [0.6.1] - 2026-10-25
 
 ### Fixed

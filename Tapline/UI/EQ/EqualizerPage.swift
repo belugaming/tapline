@@ -394,7 +394,7 @@ struct PresetMenu: View {
                 Image(systemName: "list.bullet.rectangle")
             }
         }
-        .help(Text("Choose a preset"))
+        .help(model.matchingPreset.map { Text(verbatim: $0.name) } ?? Text("Choose a preset"))
     }
 }
 
