@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-01
+
 ### Fixed
 - **Long preset names in the menu bar panel**: choosing a preset with a long name, such as an EQ from an online measurement database, made the panel too wide and cut its contents off. Long names now end in "…", and hovering over the preset button shows the full name.
 
@@ -151,7 +153,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/belugaming/tapline/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/belugaming/tapline/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/belugaming/tapline/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/belugaming/tapline/compare/v0.4.0...v0.5.0
