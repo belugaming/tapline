@@ -97,6 +97,28 @@ jobs:
           (cd dist && shasum -a 256 "$name" | tee SHA256SUMS.txt)
           echo "DMG=dist/$name" >> "$GITHUB_ENV"
 
+      # The Sparkle feed the app checks for updates (see scripts/appcast.sh). Pre-releases get
+      # none: the feed URL follows GitHub's latest release, which is never a pre-release.
+      - name: Appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -o pipefail
+          if [ -z "$SPARKLE_ED_PRIVATE_KEY" ]; then
+            echo "No SPARKLE_ED_PRIVATE_KEY: no appcast."
+            exit 0
+          fi
+          sign_update=build/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update
+          scripts/appcast.sh "$sign_update" "$DMG" "$VERSION" "$BUILD" > dist/appcast.xml
+          cat dist/appcast.xml
+          xmllint --noout dist/appcast.xml
+          # The signature must check out against the public key the app ships with.
+          signature="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' dist/appcast.xml)"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | tr -d '[:space:]' | "$sign_update" --ed-key-file - --verify "$DMG" "$signature"
+          public="$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" build/Build/Products/Release/Tapline.app/Contents/Info.plist)"
+          python3 scripts/check-ed-key.py "$public" "$DMG" "$signature"
+          case "$VERSION" in *-*) ;; *) echo "APPCAST=dist/appcast.xml" >> "$GITHUB_ENV" ;; esac
+
       - name: Release notes
         run: |
           {
@@ -119,9 +141,9 @@ jobs:
           prerelease=""
           case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$DMG" dist/SHA256SUMS.txt --clobber
+            gh release upload "$GITHUB_REF_NAME" "$DMG" dist/SHA256SUMS.txt $APPCAST --clobber
             gh release edit "$GITHUB_REF_NAME" --notes-file dist/notes.md
           else
-            gh release create "$GITHUB_REF_NAME" "$DMG" dist/SHA256SUMS.txt \
+            gh release create "$GITHUB_REF_NAME" "$DMG" dist/SHA256SUMS.txt $APPCAST \
               --title "Tapline $VERSION" --notes-file dist/notes.md $prerelease
           fi

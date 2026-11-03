@@ -14,6 +14,10 @@ settings:
 packages:
   TaplineCore:
     path: Packages/TaplineCore
+  # Automatic updates (MIT). See Tapline/Services/Updater.swift and .github/workflows/release.yml.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 targets:
   Tapline:
     type: application
@@ -22,6 +26,7 @@ targets:
       - path: Tapline
     dependencies:
       - package: TaplineCore
+      - package: Sparkle
       # The Audio Unit, embedded in Contents/PlugIns: macOS registers it when Tapline is opened.
       - target: TaplineAU
     info:
@@ -38,6 +43,13 @@ targets:
         LSUIElement: true
         NSHumanReadableCopyright: "Copyright © 2026 Tapline contributors. Licensed under GPL-3.0."
         NSAudioCaptureUsageDescription: "Tapline processes the sound of your apps (EQ, volume, effects) before it reaches your speakers or headphones. Audio never leaves your Mac."
+        # Sparkle: the feed is the appcast.xml of the latest (non-pre-release) GitHub release;
+        # updates must be signed with the EdDSA key whose public half is here.
+        SUFeedURL: https://github.com/belugaming/Tapline/releases/latest/download/appcast.xml
+        SUPublicEDKey: XagEt4EyjbElsPSAlqLcNqLytXnVLWiHKsLnL/CvAD8=
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        SUVerifyUpdateBeforeExtraction: true
         NSMicrophoneUsageDescription: "Tapline uses the microphone only while you measure your speakers for room correction. Nothing is recorded or sent anywhere."
     settings:
       base:

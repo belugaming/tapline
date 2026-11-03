@@ -642,3 +642,8 @@
 "Measure the speakers on the Room page to correct each one." = "在“房间校正”页测量音箱后，即可逐只校正。";
 "Balance, width, mono and swap act on the front left and right speakers. Crossfeed, Virtual Speakers and Listen As are for headphones and stay off on this output." = "声道平衡、立体声宽度、单声道和左右声道互换只作用于前左和前右音箱。耳机交叉馈送、虚拟音箱和模拟试听是给耳机用的，在这个输出上保持关闭。";
 "Listen As imitates a stereo device, so it stays off on this %@ speaker layout." = "模拟试听模仿的是立体声设备，所以在这套 %@ 音箱布局上保持关闭。";
+"Check for Updates…" = "检查更新…";
+"Updates" = "更新";
+"Check for updates automatically" = "自动检查更新";
+"Check Now" = "立即检查";
+"Tapline looks for a new version once a day and asks before installing it. Your settings, presets and audio permission are kept." = "Tapline 每天检查一次新版本，安装前会先询问你。你的设置、预设和音频权限都会保留。";

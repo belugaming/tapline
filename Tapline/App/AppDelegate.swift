@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if DebugSnapshot.isActive {
             MainActor.assumeIsolated { DebugSnapshot.run() }
         }
+        MainActor.assumeIsolated { Updater.shared.start() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
