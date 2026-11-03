@@ -173,6 +173,10 @@ struct TaplineCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Updater.shared.checkForUpdates() }
+                .disabled(!Updater.shared.canCheckForUpdates)
+        }
         CommandGroup(replacing: .appTermination) {
             Button("Hide to Menu Bar") { AppDelegate.hideToMenuBar() }
                 .keyboardShortcut("q")

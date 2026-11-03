@@ -100,6 +100,16 @@ struct MenuBarPanel: View {
                 Button("Open Tapline") { AppDelegate.showMainWindow() }
                     .keyboardShortcut(",")
                 Spacer()
+                if Updater.shared.isAvailable {
+                    Button {
+                        Updater.shared.checkForUpdates()
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!Updater.shared.canCheckForUpdates)
+                    .help(Text("Check for Updates…"))
+                }
                 Button {
                     NSApp.terminate(nil)
                 } label: {

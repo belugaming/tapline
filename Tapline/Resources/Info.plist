@@ -37,5 +37,15 @@
 	<string>Copyright © 2026 Tapline contributors. Licensed under GPL-3.0.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Tapline uses the microphone only while you measure your speakers for room correction. Nothing is recorded or sent anywhere.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/belugaming/Tapline/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>XagEt4EyjbElsPSAlqLcNqLytXnVLWiHKsLnL/CvAD8=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 </dict>
 </plist>

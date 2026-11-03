@@ -63,6 +63,15 @@ for appex in "$app"/Contents/PlugIns/*.appex; do
   codesign --display --entitlements - "$appex"
 done
 
+# Sparkle (automatic updates) and its helpers, innermost first, with the same certificate.
+sparkle="$app/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$sparkle" ]]; then
+  for helper in "$sparkle"/Versions/B/XPCServices/*.xpc "$sparkle/Versions/B/Autoupdate" "$sparkle/Versions/B/Updater.app" "$sparkle"; do
+    [[ -e "$helper" ]] || continue
+    codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none --preserve-metadata=entitlements "$helper"
+  done
+fi
+
 codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none "$app"
 codesign --verify --strict --deep --verbose=2 "$app"
 # The designated requirement names the certificate; it is what macOS remembers permissions by.

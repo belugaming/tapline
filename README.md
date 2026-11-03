@@ -88,7 +88,7 @@ These steps are for macOS. For Windows, see [Install on Windows](#install-on-win
 2. Open it and drag **Tapline.app** onto the **Applications** shortcut next to it.
 3. Open Tapline. Release builds are not notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Tapline. (Since macOS 15, right-clicking and choosing Open no longer works for this.)
 
-To update, quit Tapline and replace the app with the new one. Releases are signed with Tapline's own certificate, so macOS keeps the audio permission across updates. Coming from an older, ad-hoc signed release, it asks once more.
+Tapline updates itself from 0.7.0 on: once a day it looks for a new version and asks before installing it (**Settings → Updates**, or the ↻ button in the menu bar panel to check now). To update by hand, or from 0.6.2 and earlier, quit Tapline and replace the app with the new one. Releases are signed with Tapline's own certificate, so macOS keeps the audio permission across updates. Coming from an older, ad-hoc signed release, it asks once more.
 
 ## Windows
 
