@@ -9,6 +9,8 @@ GitHub release notes, so write entries for users.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-03
+
 ### Added
 - **Automatic updates**: Tapline now checks for a new version once a day and shows what changed, then downloads, installs and restarts when you choose **Install Update**. Your settings, presets and the audio permission are kept. Check now with **Check for Updates…** in the Tapline menu or the ↻ button in the menu bar panel; switch the daily check off in **Settings → Updates**. Updates are signed, and Tapline only installs ones signed with its own key. This version still has to be installed by hand; the ones after it arrive by themselves.
 
@@ -156,7 +158,8 @@ First public beta.
 ### Fixed
 - Sustained notes no longer wobble on Bluetooth outputs such as AirPods.
 
-[Unreleased]: https://github.com/belugaming/tapline/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/belugaming/tapline/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/belugaming/tapline/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/belugaming/tapline/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/belugaming/tapline/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/belugaming/tapline/compare/v0.5.0...v0.6.0
